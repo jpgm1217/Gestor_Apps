@@ -488,7 +488,7 @@ body::after {
 <div class="pwa">
   <div class="pwa-dot"></div>
   <div class="pwa-txt">
-    <strong>PWA activa:</strong> Gomez Hub está listo para instalarse. En Chrome Android: menú <code>⋮</code> → <strong>Instalar app</strong>.
+    <strong>PWA activa:</strong> Instalada y funcionando en tu celular como app nativa.
   </div>
 </div>
 
@@ -515,8 +515,8 @@ document.getElementById('fecha-hoy').textContent =
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
-      .then(() => console.log('SW registrado'))
-      .catch(err => console.log('SW error:', err));
+      .then(r => console.log('SW ok', r.scope))
+      .catch(e => console.log('SW error', e));
   });
 }
 </script>
