@@ -1,9 +1,9 @@
 {
   "name": "Gomez Hub",
   "short_name": "Gomez Hub",
-  "description": "Sistema personal de finanzas y negocios — Juan Pablo Gómez",
-  "start_url": "/GestorApps.html",
-  "scope": "/",
+  "description": "Sistema personal de finanzas y negocios",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#080808",
