@@ -416,7 +416,7 @@ body::after {
       <span class="arr">›</span>
     </a>
 
-    <a class="app" href="apps/App_Deudas.html"
+    <a class="app" href="apps/deudas.html"
        style="--c:#e8c547;--ib:rgba(232,197,71,.07);--ibr:rgba(232,197,71,.14)">
       <div class="app-ico">💸</div>
       <div class="app-body">
@@ -484,11 +484,11 @@ body::after {
   </div>
 </div>
 
-<!-- PWA ACTIVA -->
+<!-- PWA NOTE -->
 <div class="pwa">
   <div class="pwa-dot"></div>
   <div class="pwa-txt">
-    <strong>PWA activa:</strong> Gomez Hub está listo para instalarse en tu celular. Abre la URL en Chrome → menú <code>⋮</code> → <strong>Instalar app</strong>.
+    <strong>PWA activa:</strong> Gomez Hub está listo para instalarse. En Chrome Android: menú <code>⋮</code> → <strong>Instalar app</strong>.
   </div>
 </div>
 
@@ -514,7 +514,8 @@ document.getElementById('fecha-hoy').textContent =
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register('sw.js')
+      .then(() => console.log('SW registrado'))
       .catch(err => console.log('SW error:', err));
   });
 }
