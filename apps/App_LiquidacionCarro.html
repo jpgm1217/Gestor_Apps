@@ -473,6 +473,45 @@ body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); col
   </div>
 </div>
 
+<!-- MODAL LIQUIDACIÓN RÁPIDA -->
+<div class="modal-rapido" id="modal-rapido">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">⚡ Liquidación rápida</div>
+    <div class="sheet-sub" id="sheet-fecha-label">Cargando...</div>
+    <div class="sheet-row">
+      <div class="sheet-field">
+        <label>Base ($)</label>
+        <input type="number" id="rq-base" inputmode="numeric" oninput="updRapido()">
+      </div>
+      <div class="sheet-field">
+        <label>Ahorro ($)</label>
+        <input type="number" id="rq-ahorro" inputmode="numeric" oninput="updRapido()">
+      </div>
+    </div>
+    <div class="sheet-row">
+      <div class="sheet-field">
+        <label>Plataforma</label>
+        <select id="rq-plat"></select>
+      </div>
+      <div class="sheet-field">
+        <label>Tipo de día</label>
+        <select id="rq-tipo">
+          <option>Normal</option>
+          <option>Festivo</option>
+          <option>Pico y placa</option>
+          <option>Domingo libre</option>
+        </select>
+      </div>
+    </div>
+    <div class="sheet-total">
+      <span class="sheet-total-lbl">Total a recibir hoy</span>
+      <span class="sheet-total-val" id="rq-total">$0</span>
+    </div>
+    <button class="btn-rapido-confirm" onclick="confirmarRapido()">CONFIRMAR LIQUIDACIÓN →</button>
+  </div>
+</div>
+
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -606,6 +645,12 @@ function init() {
   const ahorro = S.ajustes.ahorro || 10000;
   if ($('ql-base'))   $('ql-base').textContent   = fmt(base);
   if ($('ql-ahorro')) $('ql-ahorro').textContent = fmt(ahorro);
+  // Listener modal rápido
+  const mr = $('modal-rapido');
+  if (mr && !mr._listenerAdded) {
+    mr.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); });
+    mr._listenerAdded = true;
+  }
 }
 
 function go(t) {
@@ -815,10 +860,7 @@ window.abrirRapido   = abrirRapido;
 window.updRapido     = updRapido;
 window.confirmarRapido = confirmarRapido;
 
-// Cerrar modal rápido al tocar fuera
-document.getElementById('modal-rapido').addEventListener('click', function(e) {
-  if (e.target === this) this.classList.remove('open');
-});
+// Cerrar modal rápido al tocar fuera - se registra en init()
 
 function rLH() {
   const el = $('l-h');
