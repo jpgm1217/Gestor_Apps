@@ -331,6 +331,24 @@
   }
   .saldo-pendiente strong { font-family: var(--font-display); font-size: 16px; color: var(--accent); }
 
+  /* ── ALERTA VENCIMIENTO ── */
+  .alerta-venc {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 500;
+    padding: 3px 8px; border-radius: 20px;
+    margin-top: 5px;
+  }
+  .alerta-venc.urgente { background: rgba(224,91,91,.12); border: 0.5px solid rgba(224,91,91,.25); color: var(--danger); }
+  .alerta-venc.pronto  { background: rgba(224,144,64,.12); border: 0.5px solid rgba(224,144,64,.25); color: var(--warn); }
+  .alerta-venc.ok      { background: rgba(76,175,125,.12); border: 0.5px solid rgba(76,175,125,.25); color: var(--success); }
+  .dias-badge {
+    font-size: 10px; color: var(--muted);
+    margin-top: 2px;
+  }
+  .dias-badge.mucho { color: var(--danger); font-weight: 500; }
+  .btn-sm.whatsapp { background: rgba(37,211,102,.08); border-color: rgba(37,211,102,.2); color: #25d366; }
+  .btn-sm.whatsapp:hover { background: rgba(37,211,102,.15); }
+
   /* ── TOAST ── */
   .toast {
     position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -403,6 +421,16 @@
       <div class="field">
         <label>Fecha préstamo</label>
         <input type="date" id="inp-fecha">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Fecha límite (opcional)</label>
+        <input type="date" id="inp-limite">
+      </div>
+      <div class="field">
+        <label>Teléfono (opcional)</label>
+        <input type="tel" id="inp-tel" placeholder="57300..." inputmode="numeric">
       </div>
     </div>
     <div class="field">
@@ -576,11 +604,19 @@ function render() {
     return;
   }
 
-  // ordenar: primero pendientes, luego por monto descendente
+  // ordenar: saldadas al final, vencidas primero, luego por días transcurridos
   deudas.sort((a,b) => {
     const pa = estaSaldado(a), pb = estaSaldado(b);
     if (pa !== pb) return pa ? 1 : -1;
-    return saldoPendiente(b) - saldoPendiente(a);
+    // Entre pendientes: vencidas primero
+    const hoy = new Date();
+    const va = a.limite && new Date(a.limite) < hoy ? -1 : 0;
+    const vb = b.limite && new Date(b.limite) < hoy ? -1 : 0;
+    if (va !== vb) return va - vb;
+    // Luego por días transcurridos (más antigua primero)
+    const da = a.fecha ? new Date(a.fecha) : new Date();
+    const db = b.fecha ? new Date(b.fecha) : new Date();
+    return da - db;
   });
 
   list.innerHTML = deudas.map(d => {
@@ -591,12 +627,38 @@ function render() {
     const saldado = estaSaldado(d);
     const color = avatarColor(d.nombre);
 
+    // Días transcurridos desde el préstamo
+    const diasDesde = d.fecha ? Math.floor((new Date() - new Date(d.fecha)) / 86400000) : 0;
+    const diasBadge = !saldado && diasDesde > 0
+      ? `<div class="dias-badge${diasDesde > 30 ? ' mucho' : ''}">${diasDesde} días sin saldar</div>` : '';
+
+    // Alerta de fecha límite
+    let alertaHtml = '';
+    if (!saldado && d.limite) {
+      const diasLimite = Math.floor((new Date(d.limite) - new Date()) / 86400000);
+      if (diasLimite < 0)
+        alertaHtml = `<div class="alerta-venc urgente">⚠ Venció hace ${Math.abs(diasLimite)} días</div>`;
+      else if (diasLimite <= 5)
+        alertaHtml = `<div class="alerta-venc pronto">⏰ Vence en ${diasLimite} días</div>`;
+      else
+        alertaHtml = `<div class="alerta-venc ok">📅 Vence ${fmtDate(d.limite)}</div>`;
+    }
+
+    // Último pago
+    const pagos = d.pagos || [];
+    const ultimoPago = pagos.length > 0 ? pagos[pagos.length-1] : null;
+    const ultimoPagoHtml = ultimoPago && !saldado
+      ? `<div class="dias-badge">Último pago: ${fmtDate(ultimoPago.fecha)} · ${fmt(ultimoPago.monto)}</div>` : '';
+
     return `<div class="card${saldado?' saldado':''}">
       <div class="card-top">
         <div class="avatar" style="background:${color}22;border-color:${color}44;color:${color}">${initials(d.nombre)}</div>
         <div class="card-info">
           <div class="card-name">${esc(d.nombre)}</div>
           <div class="card-desc">${d.desc ? esc(d.desc) : 'Desde ' + fmtDate(d.fecha)}</div>
+          ${diasBadge}
+          ${alertaHtml}
+          ${ultimoPagoHtml}
           ${saldado ? '<div class="tag-saldado">✓ Saldado</div>' : ''}
         </div>
         <div class="card-amount">
@@ -616,6 +678,7 @@ function render() {
       </div>` : ''}
       <div class="card-actions">
         ${!saldado ? `<button class="btn-sm primary" onclick="abrirPagos('${d.id}')">💵 Pago</button>` : ''}
+        ${!saldado && d.tel ? `<button class="btn-sm whatsapp" onclick="cobrarWhatsApp('${d.id}')">WhatsApp</button>` : ''}
         <button class="btn-sm" onclick="abrirEditar('${d.id}')">✏️ Editar</button>
         <button class="btn-sm danger" onclick="borrarDeuda('${d.id}')">🗑️</button>
       </div>
@@ -645,6 +708,8 @@ function abrirNuevo() {
   document.getElementById('inp-nombre').value = '';
   document.getElementById('inp-monto').value = '';
   document.getElementById('inp-fecha').value = today();
+  document.getElementById('inp-limite').value = '';
+  document.getElementById('inp-tel').value = '';
   document.getElementById('inp-desc').value = '';
   document.getElementById('overlay-nuevo').classList.add('open');
   setTimeout(() => document.getElementById('inp-nombre').focus(), 200);
@@ -658,6 +723,8 @@ function abrirEditar(id) {
   document.getElementById('inp-nombre').value = d.nombre;
   document.getElementById('inp-monto').value = d.monto;
   document.getElementById('inp-fecha').value = d.fecha;
+  document.getElementById('inp-limite').value = d.limite || '';
+  document.getElementById('inp-tel').value = d.tel || '';
   document.getElementById('inp-desc').value = d.desc || '';
   document.getElementById('overlay-nuevo').classList.add('open');
 }
@@ -672,12 +739,15 @@ function guardarDeuda() {
   if (!monto || monto <= 0) { toast('El monto debe ser mayor a 0'); return; }
   if (!fecha) { toast('Selecciona una fecha'); return; }
 
+  const limite = document.getElementById('inp-limite').value;
+  const tel    = document.getElementById('inp-tel').value.trim().replace(/\s/g,'');
+
   if (editandoId) {
     const d = S.deudas.find(x => x.id == editandoId);
-    if (d) { d.nombre = nombre; d.monto = monto; d.fecha = fecha; d.desc = desc; }
+    if (d) { d.nombre = nombre; d.monto = monto; d.fecha = fecha; d.desc = desc; d.limite = limite; d.tel = tel; }
     toast('✓ Guardado');
   } else {
-    S.deudas.push({ id: String(S.nid++), nombre, monto, fecha, desc, pagos: [] });
+    S.deudas.push({ id: String(S.nid++), nombre, monto, fecha, desc, limite, tel, pagos: [] });
     toast('✓ Deuda agregada');
   }
 
@@ -767,6 +837,23 @@ function borrarDeuda(id) {
   saveAll();
   render();
   toast('Deuda eliminada');
+}
+
+// ── WHATSAPP COBRO ──
+function cobrarWhatsApp(id) {
+  const d = S.deudas.find(x => x.id == id);
+  if (!d) return;
+  const pendiente = saldoPendiente(d);
+  const dias = d.fecha ? Math.floor((new Date() - new Date(d.fecha)) / 86400000) : 0;
+  let msg = `Hola ${d.nombre} 👋, te recuerdo que tienes una deuda pendiente conmigo`;
+  if (d.desc) msg += ` por *${d.desc}*`;
+  msg += ` desde el ${fmtDate(d.fecha)}.`;
+  msg += `\n\n💰 *Saldo pendiente: ${fmt(pendiente)}*`;
+  if (d.limite) msg += `\n📅 Fecha límite: ${fmtDate(d.limite)}`;
+  msg += `\n\nCuando puedas me avisas. ¡Gracias! 🙏`;
+  const tel = d.tel ? d.tel.replace(/[^0-9]/g,'') : '';
+  const url = `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+  window.open(url, '_blank');
 }
 
 // ── CERRAR OVERLAYS ──
