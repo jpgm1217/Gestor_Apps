@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Control Carro App</title>
+<title>CARRO·JPG</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -26,8 +26,78 @@ body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); col
 
 /* ─── TOPBAR ─── */
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: .7rem 0 1rem; }
-.logo { font-size: 18px; font-weight: 600; letter-spacing: -.6px; }
+.logo-wrap { display: flex; align-items: center; gap: 8px; }
+.logo { font-size: 17px; font-weight: 700; letter-spacing: .04em; font-family: "DM Mono", monospace; }
 .logo span { color: var(--ac); }
+
+/* ─── MODAL LIQUIDACIÓN RÁPIDA ─── */
+.modal-rapido {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.82);
+  backdrop-filter: blur(6px);
+  z-index: 200;
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity .22s;
+}
+.modal-rapido.open { opacity: 1; pointer-events: all; }
+.modal-rapido .sheet {
+  background: var(--s1);
+  border: 1px solid var(--bd2);
+  border-radius: 22px 22px 0 0;
+  padding: 20px 20px 36px;
+  width: 100%; max-width: 480px;
+  transform: translateY(20px);
+  transition: transform .25s;
+}
+.modal-rapido.open .sheet { transform: translateY(0); }
+.sheet-handle { width: 36px; height: 3px; background: var(--bd3); border-radius: 2px; margin: 0 auto 18px; }
+.sheet-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.sheet-sub { font-size: 12px; color: var(--t2); margin-bottom: 18px; }
+.sheet-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.sheet-field label { display: block; font-size: 11px; color: var(--t2); margin-bottom: 5px; font-weight: 500; }
+.sheet-field input, .sheet-field select {
+  width: 100%; background: var(--s2); border: 1px solid var(--bd);
+  border-radius: var(--r); color: var(--tx); font-family: "DM Sans",sans-serif;
+  font-size: 15px; padding: 9px 11px; outline: none;
+  transition: border-color .15s;
+}
+.sheet-field input:focus, .sheet-field select:focus { border-color: var(--ac); }
+.sheet-total {
+  background: var(--s2); border-radius: var(--r); padding: 12px 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px; border: 1px solid var(--bd);
+}
+.sheet-total-lbl { font-size: 12px; color: var(--t2); }
+.sheet-total-val { font-size: 22px; font-weight: 700; color: var(--ac); font-family: "DM Mono",monospace; }
+.btn-rapido-confirm {
+  width: 100%; padding: 14px; border: none; border-radius: var(--r);
+  background: var(--ac); color: #0f0f0f;
+  font-family: "DM Mono",monospace; font-size: 15px; font-weight: 700;
+  letter-spacing: .04em; cursor: pointer; transition: opacity .15s;
+}
+.btn-rapido-confirm:hover { opacity: .88; }
+
+/* ─── BOTÓN ACCESO RÁPIDO EN PANEL ─── */
+.quick-liq {
+  background: var(--s1);
+  border: 1px solid var(--bd2);
+  border-radius: var(--rl);
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.quick-liq-info .ql-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.quick-liq-info .ql-sub { font-size: 11px; color: var(--t2); }
+.quick-liq-info .ql-sub span { color: var(--ac); font-family: "DM Mono",monospace; }
+.btn-quick {
+  background: var(--ac); color: #0f0f0f;
+  border: none; border-radius: 10px;
+  font-family: "DM Mono",monospace; font-size: 12px; font-weight: 700;
+  padding: 10px 16px; cursor: pointer; white-space: nowrap;
+  letter-spacing: .04em; transition: opacity .15s; flex-shrink: 0;
+}
+.btn-quick:hover { opacity: .85; }
 .topright { display: flex; align-items: center; gap: 8px; }
 .tbadge { font-size: 11px; padding: 3px 11px; border-radius: 20px; border: 1px solid var(--bd2); color: var(--t2); font-family: 'DM Mono', monospace; }
 .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--t3); transition: background .3s; flex-shrink: 0; }
@@ -181,7 +251,14 @@ body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); col
 
 <div class="app">
   <div class="topbar">
-    <div class="logo">flota<span>.</span>app</div>
+    <div class="logo-wrap">
+      <svg width="28" height="28" viewBox="0 0 28 28" style="flex-shrink:0">
+        <rect x="1" y="1" width="26" height="26" rx="7" fill="#0f0f0f" stroke="var(--ac)" stroke-width="1.2"/>
+        <rect x="4" y="4" width="20" height="20" rx="5" fill="none" stroke="var(--ac)" stroke-width="0.4" opacity="0.4"/>
+        <text x="14" y="19.5" text-anchor="middle" font-family="Arial Black,sans-serif" font-size="12" font-weight="900" fill="var(--ac)">JPG</text>
+      </svg>
+      <div class="logo">CARRO<span>·JPG</span></div>
+    </div>
     <div class="topright">
       <div class="sync-dot loading" id="sync-dot" title="Estado sincronización"></div>
       <div class="tbadge" id="tbadge">—</div>
@@ -200,6 +277,14 @@ body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); col
   <!-- ═══ PANEL ═══ -->
   <div class="sec on" id="sec-dash">
     <div id="d-al"></div>
+    <!-- ACCESO RÁPIDO -->
+    <div class="quick-liq">
+      <div class="quick-liq-info">
+        <div class="ql-title">⚡ Liquidación de hoy</div>
+        <div class="ql-sub" id="ql-sub">Base <span id="ql-base">$65.000</span> + Ahorro <span id="ql-ahorro">$10.000</span></div>
+      </div>
+      <button class="btn-quick" onclick="abrirRapido()">REGISTRAR</button>
+    </div>
     <div class="mcg">
       <div class="mc g"><div class="lb">Ingresos mes</div><div class="vl" id="d-mes">$0</div><div class="sb" id="d-dias">0 días</div></div>
       <div class="mc a"><div class="lb">Ahorro conductores</div><div class="vl" id="d-ah">$0</div></div>
@@ -516,6 +601,11 @@ function init() {
     S.selCond = S.conductores[0].id;
   }
   loadAjUI(); fillSels(); rDash(); rLH(); rCG(); rMH();
+  // Actualizar subtítulo del acceso rápido
+  const base   = S.ajustes.base   || 65000;
+  const ahorro = S.ajustes.ahorro || 10000;
+  if ($('ql-base'))   $('ql-base').textContent   = fmt(base);
+  if ($('ql-ahorro')) $('ql-ahorro').textContent = fmt(ahorro);
 }
 
 function go(t) {
@@ -666,6 +756,69 @@ async function saveLiq() {
   toast('Liquidación registrada ✓');
 }
 window.saveLiq = saveLiq;
+
+// ─── LIQUIDACIÓN RÁPIDA ───────────────────────────────────────────────────────
+function abrirRapido() {
+  if (!S.conductores.length) { toast('Agrega un conductor primero'); return; }
+  const base   = S.ajustes.base   || 65000;
+  const ahorro = S.ajustes.ahorro || 10000;
+  $('rq-base').value   = base;
+  $('rq-ahorro').value = ahorro;
+  // Llenar plataformas
+  const plats = S.ajustes.plataformas || ['Uber','InDriver'];
+  $('rq-plat').innerHTML = plats.map(p=>`<option>${p}</option>`).join('');
+  // Fecha label
+  const d = new Date();
+  const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  $('sheet-fecha-label').textContent = `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]}`;
+  updRapido();
+  $('modal-rapido').classList.add('open');
+}
+
+function updRapido() {
+  const b = +$('rq-base').value || 0;
+  const a = +$('rq-ahorro').value || 0;
+  $('rq-total').textContent = fmt(b + a);
+}
+
+async function confirmarRapido() {
+  const cond = S.conductores.length === 1 ? S.conductores[0] : S.conductores.find(x=>x.id===S.selCond);
+  if (!cond) { toast('Selecciona un conductor'); return; }
+  const base   = +$('rq-base').value   || 0;
+  const ahorro = +$('rq-ahorro').value || 0;
+  const plat   = $('rq-plat').value;
+  const tipo   = $('rq-tipo').value;
+  const fecha  = hoy();
+
+  // Verificar si ya hay liquidación hoy
+  const yaHoy = S.liquidaciones.find(l => l.conductorId === cond.id && l.fecha === fecha);
+  if (yaHoy) {
+    if (!confirm(`Ya registraste liquidación hoy (${fecha}). ¿Registrar otra?`)) return;
+  }
+
+  const id = Date.now();
+  const liq = { id, conductorId: cond.id, fecha, base, ahorro, plataforma: plat, tipo, nota: '' };
+  S.liquidaciones.push(liq);
+
+  if (tipo !== 'Pico y placa' && tipo !== 'Domingo libre') {
+    cond.ahorro = (cond.ahorro || 0) + ahorro;
+    cond.movimientos.push({ tipo:'entrada', monto:ahorro, desc:'Ahorro diario', fecha });
+  }
+
+  $('modal-rapido').classList.remove('open');
+  await saveAll();
+  rLH(); rDash();
+  toast(`✓ Liquidación registrada — ${fmt(base + ahorro)}`);
+}
+window.abrirRapido   = abrirRapido;
+window.updRapido     = updRapido;
+window.confirmarRapido = confirmarRapido;
+
+// Cerrar modal rápido al tocar fuera
+document.getElementById('modal-rapido').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
 
 function rLH() {
   const el = $('l-h');
