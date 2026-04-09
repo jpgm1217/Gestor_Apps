@@ -1,19 +1,6 @@
-const CACHE = 'gomez-hub-v1';
-
-const PRECACHE = [
-  '/Gestor_Apps/',
-  '/apps/App_Deudas.html',
-  '/apps/App_GastosHogar.html',
-  '/apps/App_Gastos_Personales.html',
-  '/apps/App_AdminPrestamos.html',
-  '/apps/App_Cobrar.html',
-  '/apps/App_LiquidacionCarro.html'
-];
+const CACHE = 'gomez-hub-v2';
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE))
-  );
   self.skipWaiting();
 });
 
@@ -31,8 +18,10 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
         return res;
       })
       .catch(() => caches.match(e.request))
