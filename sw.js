@@ -1,7 +1,7 @@
 const CACHE = 'gomez-hub-v1';
 
 const PRECACHE = [
-  '/GestorApps.html',
+  '/Gestor_Apps/',
   '/apps/App_Deudas.html',
   '/apps/App_GastosHogar.html',
   '/apps/App_Gastos_Personales.html',
