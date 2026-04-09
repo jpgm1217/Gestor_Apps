@@ -1,8 +1,6 @@
-const CACHE = 'gomez-hub-v2';
+const CACHE = 'gomez-hub-v3';
 
-self.addEventListener('install', e => {
-  self.skipWaiting();
-});
+self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', e => {
   e.waitUntil(
@@ -18,12 +16,14 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        if (res && res.status === 200) {
+        if (res && res.status === 200 && res.type !== 'opaque') {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, copy));
         }
         return res;
       })
-      .catch(() => caches.match(e.request))
+      .catch(() => caches.match(e.request)
+        .then(cached => cached || new Response('Sin conexión', { status: 503 }))
+      )
   );
 });
