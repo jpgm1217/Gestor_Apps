@@ -203,7 +203,12 @@ body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); col
     <div class="mcg">
       <div class="mc g"><div class="lb">Ingresos mes</div><div class="vl" id="d-mes">$0</div><div class="sb" id="d-dias">0 días</div></div>
       <div class="mc a"><div class="lb">Ahorro conductores</div><div class="vl" id="d-ah">$0</div></div>
-      <div class="mc w"><div class="lb">Mantenimiento</div><div class="vl" id="d-gast">$0</div><div class="sb">este mes</div></div>
+      <div class="mc w"><div class="lb">Mantenimientos mes</div><div class="vl" id="d-gast">$0</div><div class="sb" id="d-gast-total">acumulado $0</div></div>
+    </div>
+    <div class="mcg" style="margin-top:8px">
+      <div class="mc" style="background:var(--bg2)"><div class="lb">Neto mes</div><div class="vl" id="d-neto" style="color:var(--g)">$0</div><div class="sb">ingresos - mant.</div></div>
+      <div class="mc" style="background:var(--bg2)"><div class="lb">Proyección mes</div><div class="vl" id="d-proy" style="color:var(--a)">$0</div><div class="sb" id="d-proy-sub">estimado</div></div>
+      <div class="mc" style="background:var(--bg2)"><div class="lb">Mejor plataforma</div><div class="vl" id="d-plat" style="font-size:15px;color:var(--t1)">—</div><div class="sb" id="d-plat-sub">este mes</div></div>
     </div>
     <div class="box"><h3>Últimas liquidaciones</h3><div id="d-list"><div class="empty">Sin registros aún</div></div></div>
     <div class="box"><h3>Conductores</h3><div id="d-cres"><div class="empty">Sin conductores</div></div></div>
@@ -506,6 +511,10 @@ function init() {
   $('m-f').value = hoy();
   const m = new Date();
   $('r-m').value = m.getFullYear() + '-' + String(m.getMonth()+1).padStart(2,'0');
+  // Auto-seleccionar conductor si solo hay uno
+  if (S.conductores.length === 1 && !S.selCond) {
+    S.selCond = S.conductores[0].id;
+  }
   loadAjUI(); fillSels(); rDash(); rLH(); rCG(); rMH();
 }
 
@@ -523,8 +532,14 @@ window.go = go;
 
 function fillSels() {
   const ops = S.conductores.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
-  $('l-c').innerHTML  = '<option value="">Seleccionar...</option>' + ops;
-  $('m-cd').innerHTML = '<option value="">Seleccionar...</option>' + ops;
+  const def = S.conductores.length === 1 ? '' : '<option value="">Seleccionar...</option>';
+  $('l-c').innerHTML  = def + ops;
+  $('m-cd').innerHTML = def + ops;
+  // Si hay un solo conductor, pre-seleccionarlo en los dropdowns
+  if (S.conductores.length === 1) {
+    $('l-c').value  = S.conductores[0].id;
+    $('m-cd').value = S.conductores[0].id;
+  }
   $('r-c').innerHTML  = '<option value="">Todos</option>' + ops;
   $('l-pl').innerHTML = (S.ajustes.plataformas||['Uber','InDriver']).map(p=>`<option>${p}</option>`).join('');
   $('l-b').value = S.ajustes.base  || 65000;
@@ -539,10 +554,43 @@ function rDash() {
   const mes = new Date().toISOString().substr(0,7);
   const lm  = S.liquidaciones.filter(l => l.fecha.substr(0,7)===mes);
   const tw  = lm.filter(l => l.tipo==='Normal' || l.tipo==='Festivo');
-  $('d-mes').textContent  = fmt(tw.reduce((a,l) => a+(l.base||0), 0));
+  const ingresosMes = tw.reduce((a,l) => a+(l.base||0), 0);
+  $('d-mes').textContent  = fmt(ingresosMes);
   $('d-dias').textContent = tw.length + ' días trabajados';
   $('d-ah').textContent   = fmt(S.conductores.reduce((a,c) => a+(c.ahorro||0), 0));
-  $('d-gast').textContent = fmt(S.mantenimientos.filter(m=>m.fecha.substr(0,7)===mes).reduce((a,m)=>a+(m.costo||0),0));
+
+  // Mantenimientos: mes actual y total acumulado
+  const mantMes   = S.mantenimientos.filter(m => m.fecha && m.fecha.substr(0,7)===mes).reduce((a,m)=>a+(m.costo||0),0);
+  const mantTotal = S.mantenimientos.reduce((a,m)=>a+(m.costo||0),0);
+  $('d-gast').textContent       = fmt(mantMes);
+  $('d-gast-total').textContent = 'acumulado ' + fmt(mantTotal);
+
+  // Neto del mes
+  const neto = ingresosMes - mantMes;
+  $('d-neto').textContent = fmt(neto);
+  $('d-neto').style.color = neto >= 0 ? 'var(--g)' : 'var(--r)';
+
+  // Proyección: basada en días trabajados vs días hábiles restantes
+  const hoy = new Date();
+  const diasEnMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+  const diaActual = hoy.getDate();
+  const promDiario = tw.length > 0 ? ingresosMes / tw.length : 0;
+  const diasRestantes = diasEnMes - diaActual;
+  const proyeccion = ingresosMes + (promDiario * diasRestantes * 0.8);
+  $('d-proy').textContent     = fmt(Math.round(proyeccion));
+  $('d-proy-sub').textContent = `${diasRestantes} días restantes`;
+
+  // Mejor plataforma del mes
+  const platMap = {};
+  lm.forEach(l => { platMap[l.plataforma] = (platMap[l.plataforma]||0) + (l.base||0); });
+  const mejorPlat = Object.entries(platMap).sort((a,b)=>b[1]-a[1])[0];
+  if (mejorPlat) {
+    $('d-plat').textContent     = mejorPlat[0];
+    $('d-plat-sub').textContent = fmt(mejorPlat[1]) + ' este mes';
+  } else {
+    $('d-plat').textContent     = '—';
+    $('d-plat-sub').textContent = 'sin datos';
+  }
 
   let al = '';
   const dia = new Date().getDay();
