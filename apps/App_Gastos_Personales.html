@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>💰 Mis Gastos</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%}
+    body{background:#0a0a10;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overscroll-behavior:none}
+    #app{max-width:480px;margin:0 auto;min-height:100%;padding-bottom:100px}
+    input,button{font-family:inherit;outline:none;-webkit-tap-highlight-color:transparent}
+    button{cursor:pointer}
+    button:active{transform:scale(.96)}
+
+    /* ── Loading ── */
+    #s-loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px}
+    .spinner{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#c084fc;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Nombre ── */
+    #s-nombre{display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:32px 24px}
+    #s-nombre h1{font-size:24px;font-weight:700;margin-bottom:6px;text-align:center}
+    #s-nombre p{color:#64748b;font-size:14px;text-align:center;margin-bottom:36px;max-width:270px}
+
+    /* ── Main ── */
+    #s-main{display:none}
+    .header{padding:20px 20px 0;display:flex;align-items:center;justify-content:space-between}
+    .header-sub{font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+    .header-title{font-size:20px;font-weight:700;margin-top:2px}
+    .btn-icon{background:#12121e;border:none;color:#94a3b8;width:38px;height:38px;border-radius:10px;font-size:16px}
+
+    .mes-nav{display:flex;align-items:center;margin:14px 20px 0;background:#12121e;border-radius:12px;padding:10px 16px;border:1px solid #1e293b}
+    .mes-nav button{background:none;border:none;color:#64748b;font-size:22px;padding:0 8px}
+    .mes-label{font-weight:600;font-size:15px;flex:1;text-align:center}
+
+    .hero{margin:12px 20px 0;background:linear-gradient(135deg,#1a0a2e,#0a0a10);border-radius:18px;padding:18px 20px;border:1px solid #4a1a6a}
+    .hero-sub{font-size:11px;color:#7c3aed;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+    .hero-total{font-size:34px;font-weight:700;font-family:monospace;margin-top:4px}
+    .hero-info{margin-top:6px;font-size:13px;color:#64748b}
+    .hero-pct{margin-top:10px}
+    .progress-bar{height:6px;background:#1e293b;border-radius:99px;overflow:hidden}
+    .progress-fill{height:100%;border-radius:99px;transition:width .5s}
+
+    /* ── Stats rápidas ── */
+    .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 20px 0}
+    .stat-box{background:#12121e;border:1px solid #1e293b;border-radius:12px;padding:10px 12px;text-align:center}
+    .stat-num{font-size:15px;font-weight:700;font-family:monospace;color:#c084fc}
+    .stat-lbl{font-size:10px;color:#475569;margin-top:2px;text-transform:uppercase;letter-spacing:1px}
+
+    /* ── Tabs ── */
+    .tabs{display:flex;margin:14px 20px 0;background:#12121e;border-radius:12px;padding:4px;gap:2px;border:1px solid #1e293b}
+    .tab{flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:11px;font-weight:600;background:transparent;color:#475569;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .tab .ticon{font-size:15px}
+    .tab.active{background:#2d1458;color:#c084fc}
+    .tab-body{margin:12px 20px 0}
+
+    /* ── FAB ── */
+    .fab{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#7c3aed,#c084fc);border:none;color:#fff;border-radius:100px;padding:14px 28px;font-size:15px;font-weight:700;box-shadow:0 8px 32px #7c3aed66;display:flex;align-items:center;gap:8px;z-index:50;white-space:nowrap;display:none}
+
+    /* ── Listas ── */
+    .row{background:#12121e;border-radius:12px;padding:12px 14px;border:1px solid #1e293b;display:flex;align-items:center;gap:12px;margin-bottom:6px}
+    .row-emoji{font-size:22px;flex-shrink:0}
+    .row-body{flex:1;min-width:0}
+    .row-title{font-size:13px;font-weight:600;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .row-sub{font-size:11px;color:#475569;margin-top:2px}
+    .row-right{text-align:right;flex-shrink:0}
+    .row-monto{font-size:15px;font-weight:700;font-family:monospace}
+    .row-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:4px}
+    .row-actions button{background:none;border:none;font-size:14px;padding:3px 5px}
+    .tag-auto{margin-left:5px;font-size:10px;color:#a78bfa;background:#1e1040;padding:1px 5px;border-radius:4px}
+
+    /* ── Buscador ── */
+    .search-wrap{position:relative;margin-bottom:8px}
+    .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px;pointer-events:none}
+    .search-input{width:100%;background:#0a0a10;border:1px solid #1e293b;border-radius:12px;padding:10px 36px;color:#f1f5f9;font-size:13px}
+    .search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#475569;font-size:18px;padding:4px}
+    .chips{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+    .chip{padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid #1e293b;background:#12121e;color:#64748b}
+    .chip.on{background:#7c3aed;color:#fff;border-color:#7c3aed}
+
+    /* ── Resumen ── */
+    .card{background:#12121e;border:1px solid #1e293b;border-radius:16px;padding:16px;margin-bottom:10px}
+    .lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:8px;display:block}
+    .stat-row-r{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e293b;font-size:13px}
+    .stat-row-r:last-child{border-bottom:none}
+    .stat-key{color:#64748b}
+    .stat-val{font-weight:600;color:#e2e8f0}
+    .cat-bar{margin-bottom:10px}
+    .cat-bar-top{display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px}
+
+    /* ── Fijos ── */
+    .info-box{background:#12121e;border:1px solid #1e293b;border-radius:12px;padding:10px 14px;font-size:13px;color:#64748b;margin-bottom:12px;line-height:1.6}
+    .rec-stats{display:flex;justify-content:space-between;font-size:12px;color:#475569;margin-bottom:10px}
+    .toggle-btn{border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700}
+    .toggle-on{background:#052e16;color:#4ade80}
+    .toggle-off{background:#1e293b;color:#64748b}
+    .btn-add-rec{width:100%;padding:13px;border-radius:14px;border:1px dashed #334155;background:transparent;color:#a78bfa;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px}
+
+    /* ── Modals ── */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:100;display:none;align-items:flex-end;backdrop-filter:blur(6px)}
+    .overlay.open{display:flex}
+    .modal{background:#12121e;border-radius:24px 24px 0 0;padding:24px 20px 52px;width:100%;border:1px solid #1e293b;border-bottom:none;max-height:92vh;overflow-y:auto;transform:translateY(0);animation:slideUp .25s ease}
+    @keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
+    .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+    .modal-title{font-size:17px;font-weight:700}
+    .modal-close{background:none;border:none;color:#475569;font-size:24px;line-height:1;padding:0 2px}
+    .modal-sub{font-size:13px;color:#64748b;margin-bottom:18px;margin-top:-10px}
+    .field{margin-bottom:14px}
+    .field-lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:8px;display:block}
+    .input{width:100%;background:#0a0a10;border:1px solid #1e293b;border-radius:12px;padding:12px 14px;color:#f1f5f9;font-size:14px;transition:border-color .2s}
+    .input:focus{border-color:#7c3aed}
+    .input-big{font-size:24px;font-family:monospace;font-weight:700}
+    .cat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px}
+    .cat-btn{padding:8px 2px;border-radius:10px;border:2px solid #1e293b;background:#0a0a10;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .cat-btn-ico{font-size:16px}
+    .cat-btn-lbl{font-size:9px;color:#475569;font-weight:600}
+    .btn-primary{width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;font-size:15px;font-weight:700;margin-top:4px}
+    .btn-ghost{width:100%;padding:13px;border-radius:14px;border:1px solid #1e293b;background:transparent;color:#64748b;font-size:14px;font-weight:600;margin-top:8px}
+    .btn-danger{border-color:#dc2626;color:#f43f5e}
+    .empty{text-align:center;color:#334155;padding:40px 0;font-size:14px}
+    .btn-si{background:#dc2626;border:none;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600}
+    .btn-no{background:#1e293b;border:none;color:#94a3b8;border-radius:6px;padding:3px 8px;font-size:11px}
+
+    /* ── Toast ── */
+    .toast{position:fixed;bottom:108px;left:50%;transform:translateX(-50%);background:#1e293b;color:#e2e8f0;padding:9px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:200;pointer-events:none;border:1px solid #334155;white-space:nowrap;opacity:0;transition:opacity .2s}
+    .toast.show{opacity:1}
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Loading -->
+  <div id="s-loading">
+    <div class="spinner"></div>
+    <div style="color:#64748b;font-size:14px">Cargando...</div>
+  </div>
+
+  <!-- Nombre -->
+  <div id="s-nombre">
+    <div style="font-size:56px;margin-bottom:16px">💰</div>
+    <h1>Mis Gastos</h1>
+    <p>¿Cómo te llamas? Solo se pregunta una vez.</p>
+    <input id="inp-nombre" class="input" placeholder="Tu nombre"
+      style="max-width:300px;width:100%;margin-bottom:6px;font-size:16px;text-align:center" maxlength="20">
+    <div id="err-nombre" style="color:#f43f5e;font-size:12px;height:18px;margin-bottom:8px"></div>
+    <button class="btn-primary" style="max-width:300px" onclick="entrarConNombre()">Entrar →</button>
+  </div>
+
+  <!-- Main -->
+  <div id="s-main">
+    <div class="header">
+      <div>
+        <div class="header-sub" id="hdr-nombre">Mis gastos</div>
+        <div class="header-title">Control personal</div>
+      </div>
+      <button class="btn-icon" onclick="abrirModal('m-config')">⚙️</button>
+    </div>
+
+    <div class="mes-nav">
+      <button onclick="navMes(-1)">‹</button>
+      <span class="mes-label" id="mes-label">...</span>
+      <button id="btn-mes-next" onclick="navMes(1)">›</button>
+    </div>
+
+    <div class="hero">
+      <div class="hero-sub">Total gastado</div>
+      <div class="hero-total" id="hero-total">$0</div>
+      <div class="hero-info" id="hero-info"></div>
+      <div class="hero-pct">
+        <div class="progress-bar">
+          <div class="progress-fill" id="hero-bar" style="background:#c084fc;width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-num" id="st-movs">0</div>
+        <div class="stat-lbl">Gastos</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num" id="st-avg">$0</div>
+        <div class="stat-lbl">Promedio</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num" id="st-dia">$0</div>
+        <div class="stat-lbl">Hoy</div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="gastos" onclick="setTab('gastos')">
+        <span class="ticon">💸</span><span>Gastos</span>
+      </button>
+      <button class="tab" data-tab="resumen" onclick="setTab('resumen')">
+        <span class="ticon">📊</span><span>Resumen</span>
+      </button>
+      <button class="tab" data-tab="fijos" onclick="setTab('fijos')">
+        <span class="ticon">🔄</span><span>Fijos</span>
+      </button>
+    </div>
+
+    <div class="tab-body">
+      <div id="tab-gastos"></div>
+      <div id="tab-resumen" style="display:none"></div>
+      <div id="tab-fijos" style="display:none"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" onclick="abrirNuevoGasto()">
+  <span style="font-size:20px;line-height:1">+</span> Agregar gasto
+</button>
+
+<div class="toast" id="toast"></div>
+
+<!-- Modal gasto -->
+<div class="overlay" id="m-gasto" onclick="overlayClick(event,'m-gasto')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="m-gasto-title">💸 Nuevo gasto</span>
+      <button class="modal-close" onclick="cerrarModal('m-gasto')">×</button>
+    </div>
+    <div class="field">
+      <label class="field-lbl">Valor (COP)</label>
+      <input id="g-monto" type="number" inputmode="numeric" placeholder="0" class="input input-big">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Descripción</label>
+      <input id="g-desc" type="text" placeholder="¿En qué gastaste?" class="input">
+    </div>
+    <div class="field-lbl">Categoría</div>
+    <div class="cat-grid" id="cat-grid-gasto"></div>
+    <button class="btn-primary" id="btn-guardar-gasto" onclick="guardarGasto()">Guardar gasto</button>
+  </div>
+</div>
+
+<!-- Modal fijo -->
+<div class="overlay" id="m-fijo" onclick="overlayClick(event,'m-fijo')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="m-fijo-title">🔄 Nuevo gasto fijo</span>
+      <button class="modal-close" onclick="cerrarModal('m-fijo')">×</button>
+    </div>
+    <div class="modal-sub">Se registra solo cada mes. Puedes pausarlo cuando quieras.</div>
+    <div class="field">
+      <label class="field-lbl">Nombre (ej: Netflix, Gym...)</label>
+      <input id="f-nombre" type="text" placeholder="¿Qué gasto fijo es?" class="input">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Valor mensual (COP)</label>
+      <input id="f-monto" type="number" inputmode="numeric" placeholder="0" class="input input-big">
+    </div>
+    <div class="field-lbl">Categoría</div>
+    <div class="cat-grid" id="cat-grid-fijo"></div>
+    <button class="btn-primary" id="btn-guardar-fijo" onclick="guardarFijo()">Agregar gasto fijo</button>
+  </div>
+</div>
+
+<!-- Modal config -->
+<div class="overlay" id="m-config" onclick="overlayClick(event,'m-config')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">⚙️ Configuración</span>
+      <button class="modal-close" onclick="cerrarModal('m-config')">×</button>
+    </div>
+    <div class="field">
+      <label class="field-lbl">Tu nombre</label>
+      <input id="cfg-nombre" type="text" class="input">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Presupuesto mensual (COP)</label>
+      <input id="cfg-budget" type="number" inputmode="numeric" class="input input-big">
+    </div>
+    <button class="btn-primary" onclick="guardarConfig()">Guardar</button>
+    <button class="btn-ghost btn-danger" onclick="salir()">Salir / Cambiar nombre</button>
+  </div>
+</div>
+
+<script>
+// ─── Firebase config ───────────────────────────────────────────
+const FB_CFG = {
+  apiKey: "AIzaSyCeOLpUW_LIYi4SPRx6Z7bO2u8XV8fcBqo",
+  authDomain: "gastoshogar-c6ec8.firebaseapp.com",
+  databaseURL: "https://gastoshogar-c6ec8-default-rtdb.firebaseio.com",
+  projectId: "gastoshogar-c6ec8",
+  storageBucket: "gastoshogar-c6ec8.firebasestorage.app",
+  messagingSenderId: "445680595233",
+  appId: "1:445680595233:web:f9dba7f6148b9267270e60"
+};
+
+// ─── Categorías ────────────────────────────────────────────────
+const CATS = [
+  {id:'comida',     emoji:'🍔', label:'Comida',      color:'#f97316'},
+  {id:'mercado',    emoji:'🛒', label:'Mercado',     color:'#4ade80'},
+  {id:'transporte', emoji:'🚌', label:'Transporte',  color:'#60a5fa'},
+  {id:'salud',      emoji:'💊', label:'Salud',       color:'#f43f5e'},
+  {id:'ocio',       emoji:'🎬', label:'Ocio',        color:'#22d3ee'},
+  {id:'ropa',       emoji:'👕', label:'Ropa',        color:'#e879f9'},
+  {id:'servicios',  emoji:'💡', label:'Servicios',   color:'#fbbf24'},
+  {id:'trabajo',    emoji:'💼', label:'Trabajo',     color:'#818cf8'},
+  {id:'mascotas',   emoji:'🐾', label:'Mascotas',    color:'#fb923c'},
+  {id:'otro',       emoji:'📦', label:'Otro',        color:'#94a3b8'},
+];
+const CMAP = {};
+CATS.forEach(c => CMAP[c.id] = c);
+
+const MN = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const fmt = n => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(n||0);
+const monthKey = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+const monthLabel = k => { const [y,m]=k.split('-'); return MN[+m-1]+' '+y; };
+const dayKey = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+
+// ─── Estado global ─────────────────────────────────────────────
+let db;
+const ref = p => db.ref(p);
+
+let state = {
+  userName: null,
+  userId: null,      // clave única del usuario en Firebase
+  config: { nombre:'', budget: 2000000 },
+  gastos: [],
+  fijos: [],
+  mes: monthKey(new Date()),
+  tabActual: 'gastos',
+  filtrocat: 'todos',
+  editGastoId: null,
+  editFijoId: null,
+  gastoCat: 'comida',
+  fijoCat: 'comida',
+};
+
+// ─── Toast ─────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ─── UI helpers ────────────────────────────────────────────────
+function showScreen(id) {
+  ['loading','nombre','main'].forEach(s => {
+    const el = document.getElementById('s-'+s);
+    el.style.display = 'none';
+  });
+  const el = document.getElementById('s-'+id);
+  el.style.display = id === 'nombre' ? 'flex' : (id === 'main' ? 'block' : 'flex');
+  if(id === 'main') {
+    document.getElementById('fab').style.display = 'flex';
+  }
+}
+
+function abrirModal(id) { document.getElementById(id).classList.add('open'); }
+function cerrarModal(id) { document.getElementById(id).classList.remove('open'); }
+function overlayClick(e, id) { if(e.target===document.getElementById(id)) cerrarModal(id); }
+
+// ─── Login ─────────────────────────────────────────────────────
+function entrarConNombre() {
+  const n = document.getElementById('inp-nombre').value.trim();
+  if(!n) { document.getElementById('err-nombre').textContent = 'Escribe tu nombre'; return; }
+  document.getElementById('err-nombre').textContent = '';
+  // userId basado en nombre normalizado para persistencia
+  const uid = 'user_' + n.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+  localStorage.setItem('gp_user', JSON.stringify({displayName: n, uid}));
+  state.userName = n;
+  state.userId = uid;
+  iniciarMain();
+}
+document.getElementById('inp-nombre').addEventListener('keydown', e => {
+  if(e.key === 'Enter') entrarConNombre();
+});
+
+function salir() {
+  localStorage.removeItem('gp_user');
+  location.reload();
+}
+
+// ─── Arranque ──────────────────────────────────────────────────
+window.onload = () => { iniciarFirebase(); };
+
+function iniciarFirebase() {
+  if(typeof firebase === 'undefined') {
+    let intentos = 0;
+    const esp = setInterval(() => {
+      intentos++;
+      if(typeof firebase !== 'undefined') { clearInterval(esp); _arrancar(); }
+      else if(intentos >= 20) {
+        clearInterval(esp);
+        document.getElementById('s-loading').innerHTML =
+          '<div style="padding:32px;text-align:center">' +
+          '<div style="font-size:40px;margin-bottom:12px">📶</div>' +
+          '<div style="color:#f43f5e;font-weight:700;font-size:16px;margin-bottom:8px">Sin conexión</div>' +
+          '<div style="color:#64748b;font-size:13px;margin-bottom:20px">Necesitas internet para abrir la app.</div>' +
+          '<button onclick="location.reload()" style="background:#7c3aed;border:none;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700">Reintentar</button>' +
+          '</div>';
+      }
+    }, 300);
+    return;
+  }
+  _arrancar();
+}
+
+function _arrancar() {
+  try {
+    firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+  } catch(e) {
+    try { db = firebase.database(firebase.app()); } catch(e2) {}
+  }
+  const saved = localStorage.getItem('gp_user');
+  if(!saved) { showScreen('nombre'); return; }
+  try {
+    const u = JSON.parse(saved);
+    state.userName = u.displayName;
+    state.userId = u.uid;
+    iniciarMain();
+  } catch(e) {
+    localStorage.removeItem('gp_user');
+    showScreen('nombre');
+  }
+}
+
+// ─── Main ──────────────────────────────────────────────────────
+async function iniciarMain() {
+  try {
+    const userId = state.userId;
+
+    // Cargar o crear config del usuario
+    const cfgSnap = await ref(`gastos_personales/${userId}/config`).once('value');
+    const cfg = cfgSnap.val();
+    if(!cfg) {
+      await ref(`gastos_personales/${userId}/config`).set({
+        nombre: state.userName,
+        budget: 2000000,
+        creadoEn: Date.now()
+      });
+      state.config = { nombre: state.userName, budget: 2000000 };
+    } else {
+      state.config = { nombre: cfg.nombre||state.userName, budget: cfg.budget||2000000 };
+    }
+
+    // Listeners realtime
+    ref(`gastos_personales/${userId}/gastos`).on('value', s => {
+      const v = s.val();
+      state.gastos = v
+        ? Object.entries(v).map(([k,val]) => ({id:k,...val})).sort((a,b) => (b.fecha||0)-(a.fecha||0))
+        : [];
+      renderMain();
+      renderTab();
+    });
+
+    ref(`gastos_personales/${userId}/fijos`).on('value', s => {
+      const v = s.val();
+      state.fijos = v ? Object.entries(v).map(([k,val]) => ({id:k,...val})) : [];
+      autoRegistrarFijos();
+      renderTab();
+    });
+
+    buildCatGrids();
+    showScreen('main');
+
+  } catch(e) {
+    console.error(e);
+    document.getElementById('s-loading').innerHTML =
+      '<div style="padding:32px;text-align:center">' +
+      '<div style="font-size:40px;margin-bottom:12px">⚠️</div>' +
+      '<div style="color:#f43f5e;font-weight:700;margin-bottom:8px">Error de conexión</div>' +
+      '<div style="color:#64748b;font-size:13px;margin-bottom:20px">' + e.message + '</div>' +
+      '<button onclick="location.reload()" style="background:#7c3aed;border:none;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700">Reintentar</button>' +
+      '</div>';
+  }
+}
+
+// ─── Auto fijos ────────────────────────────────────────────────
+function autoRegistrarFijos() {
+  const mes = state.mes;
+  const userId = state.userId;
+  state.fijos.forEach(f => {
+    if(f.activo && f.ultimoMes !== mes) {
+      const yaExiste = state.gastos.some(g => g.fijoId === f.id && g.mes === mes);
+      if(!yaExiste) {
+        ref(`gastos_personales/${userId}/gastos`).push({
+          monto: f.monto, descripcion: f.nombre + ' (auto)',
+          categoria: f.categoria, mes, fecha: Date.now(),
+          esFijo: true, fijoId: f.id
+        });
+        ref(`gastos_personales/${userId}/fijos/${f.id}`).update({ ultimoMes: mes });
+      }
+    }
+  });
+}
+
+// ─── Navegación mes ────────────────────────────────────────────
+function navMes(d) {
+  const [y,m] = state.mes.split('-').map(Number);
+  const nk = monthKey(new Date(y, m-1+d));
+  if(nk <= monthKey(new Date())) {
+    state.mes = nk;
+    autoRegistrarFijos();
+    renderMain();
+    renderTab();
+  }
+}
+
+// ─── Render header/hero ────────────────────────────────────────
+function renderMain() {
+  const {gastos, mes, config} = state;
+  const hoy = monthKey(new Date());
+
+  document.getElementById('hdr-nombre').textContent = config.nombre || state.userName;
+  document.getElementById('mes-label').textContent = monthLabel(mes);
+  document.getElementById('btn-mes-next').style.color = mes >= hoy ? '#2d3748' : '#64748b';
+  document.getElementById('cfg-nombre').value = config.nombre || state.userName;
+  document.getElementById('cfg-budget').value = config.budget || 2000000;
+
+  const mG = gastos.filter(g => g.mes === mes);
+  const total = mG.reduce((s,g) => s+g.monto, 0);
+  const budget = config.budget || 2000000;
+  const pct = Math.min((total/budget)*100, 100);
+  const over = total > budget;
+
+  document.getElementById('hero-total').textContent = fmt(total);
+  document.getElementById('hero-bar').style.width = pct + '%';
+  document.getElementById('hero-bar').style.background = over ? '#f43f5e' : '#c084fc';
+
+  const resto = budget - total;
+  document.getElementById('hero-info').textContent = over
+    ? `⚠️ Te pasaste ${fmt(Math.abs(resto))} del presupuesto`
+    : `Presupuesto: ${fmt(budget)} — quedan ${fmt(resto)}`;
+
+  // Stats rápidas
+  const avg = mG.length ? total/mG.length : 0;
+  const hoyKey = dayKey(new Date());
+  const totalHoy = gastos.filter(g => g.fechaDia === hoyKey).reduce((s,g) => s+g.monto, 0);
+
+  document.getElementById('st-movs').textContent = mG.length;
+  document.getElementById('st-avg').textContent = fmt(avg);
+  document.getElementById('st-dia').textContent = fmt(totalHoy);
+}
+
+// ─── Tabs ──────────────────────────────────────────────────────
+function setTab(tab) {
+  state.tabActual = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab===tab));
+  ['gastos','resumen','fijos'].forEach(id => {
+    document.getElementById('tab-'+id).style.display = id===tab ? '' : 'none';
+  });
+  renderTab();
+}
+
+function renderTab() {
+  if(state.tabActual==='gastos')  renderGastos();
+  if(state.tabActual==='resumen') renderResumen();
+  if(state.tabActual==='fijos')   renderFijos();
+}
+
+// ─── Tab Gastos ────────────────────────────────────────────────
+function renderGastos() {
+  const buscar = document.getElementById('inp-buscar')?.value?.toLowerCase()||'';
+  document.getElementById('btn-clear-buscar').style.display = buscar ? '' : 'none';
+
+  const {gastos, mes, filtrocat} = state;
+  const lista = gastos.filter(g => {
+    if(g.mes !== mes) return false;
+    if(filtrocat !== 'todos' && g.categoria !== filtrocat) return false;
+    if(buscar && !(g.descripcion||'').toLowerCase().includes(buscar)) return false;
+    return true;
+  });
+
+  const el = document.getElementById('tab-gastos');
+  if(!lista.length) {
+    el.innerHTML = `
+      ${buscarYFiltroHTML()}
+      <div class="empty">Sin gastos${buscar?' con esa búsqueda':' este mes'}</div>`;
+    return;
+  }
+
+  el.innerHTML = buscarYFiltroHTML() + lista.map(g => {
+    const cat = CMAP[g.categoria]||CMAP['otro'];
+    const fecha = g.fecha ? new Date(g.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'short',weekday:'short'}) : '';
+    const autoTag = g.esFijo ? `<span class="tag-auto">auto</span>` : '';
+    return `
+      <div class="row">
+        <div class="row-emoji">${cat.emoji}</div>
+        <div class="row-body">
+          <div class="row-title">${esc(g.descripcion)}${autoTag}</div>
+          <div class="row-sub" style="color:${cat.color}">${cat.label}${fecha?' · '+fecha:''}</div>
+        </div>
+        <div class="row-right">
+          <div class="row-monto">${fmt(g.monto)}</div>
+          <div class="row-actions" id="acc-${g.id}">
+            <button style="color:#60a5fa" onclick="abrirEditGasto('${g.id}')">✏️</button>
+            <button style="color:#334155" onclick="confirmarBorrar('${g.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Re-attach buscador
+  const inp = document.getElementById('inp-buscar');
+  if(inp) inp.oninput = () => renderGastos();
+  const btn = document.getElementById('btn-clear-buscar');
+  if(btn) btn.onclick = () => { document.getElementById('inp-buscar').value=''; renderGastos(); };
+}
+
+function buscarYFiltroHTML() {
+  const buscar = document.getElementById('inp-buscar')?.value||'';
+  const fc = state.filtrocat;
+  const chips = [
+    `<button class="chip${fc==='todos'?' on':''}" onclick="setFiltrocat('todos')">Todos</button>`,
+    ...CATS.map(c => `<button class="chip${fc===c.id?' on':''}" onclick="setFiltrocat('${c.id}')">${c.emoji} ${c.label}</button>`)
+  ].join('');
+  return `
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input id="inp-buscar" class="search-input" placeholder="Buscar gasto..." value="${esc(buscar)}">
+      <button class="search-clear" id="btn-clear-buscar" style="display:${buscar?'':'none'}">×</button>
+    </div>
+    <div class="chips" style="overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">${chips}</div>`;
+}
+
+function setFiltrocat(cat) {
+  state.filtrocat = cat;
+  renderGastos();
+}
+
+function confirmarBorrar(id) {
+  document.getElementById('acc-'+id).innerHTML = `
+    <button class="btn-si" onclick="borrarGasto('${id}')">Sí</button>
+    <button class="btn-no" onclick="renderGastos()">No</button>`;
+}
+
+function borrarGasto(id) {
+  ref(`gastos_personales/${state.userId}/gastos/${id}`).remove();
+  toast('🗑️ Gasto eliminado');
+}
+
+// ─── Tab Resumen ───────────────────────────────────────────────
+function renderResumen() {
+  const {gastos, mes, config} = state;
+  const mG = gastos.filter(g => g.mes === mes);
+  const total = mG.reduce((s,g) => s+g.monto, 0);
+  const budget = config.budget || 2000000;
+  const resto = budget - total;
+  const avg = mG.length ? total/mG.length : 0;
+  const maxG = mG.length ? Math.max(...mG.map(g=>g.monto)) : 0;
+
+  const cats = CATS.map(c => ({
+    ...c, tot: mG.filter(g=>g.categoria===c.id).reduce((s,g)=>s+g.monto,0)
+  })).filter(c=>c.tot>0).sort((a,b)=>b.tot-a.tot);
+
+  // Top día más caro
+  const porDia = {};
+  mG.forEach(g => {
+    const d = g.fechaDia || (g.fecha ? dayKey(new Date(g.fecha)) : null);
+    if(d) porDia[d] = (porDia[d]||0) + g.monto;
+  });
+  const diasArr = Object.entries(porDia).sort((a,b)=>b[1]-a[1]);
+  const topDia = diasArr[0];
+
+  const presupHTML = `
+    <div class="card">
+      <span class="lbl">Presupuesto ${monthLabel(mes)}</span>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px">
+        <span style="font-size:26px;font-weight:700;font-family:monospace;color:${resto>=0?'#c084fc':'#f43f5e'}">${fmt(total)}</span>
+        <span style="font-size:13px;color:#64748b">de ${fmt(budget)}</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${Math.min((total/budget)*100,100)}%;background:${resto<0?'#f43f5e':'#c084fc'}"></div></div>
+      <div style="margin-top:6px;font-size:13px;color:${resto>=0?'#4ade80':'#f43f5e'};font-weight:600">
+        ${resto>=0?`✓ Quedan ${fmt(resto)}`:`⚠️ Te pasaste ${fmt(Math.abs(resto))}`}
+      </div>
+    </div>`;
+
+  const statsHTML = `
+    <div class="card">
+      <span class="lbl">Estadísticas</span>
+      ${[
+        ['Movimientos', mG.length],
+        ['Total gastado', fmt(total)],
+        ['Promedio por gasto', fmt(avg)],
+        ['Gasto más alto', fmt(maxG)],
+        ['Gastos automáticos', mG.filter(g=>g.esFijo).length],
+        topDia ? ['Día más caro', new Date(topDia[0]+'T12:00').toLocaleDateString('es-CO',{day:'2-digit',month:'short'}) + ' — ' + fmt(topDia[1])] : null,
+      ].filter(Boolean).map(([k,v]) => `
+        <div class="stat-row-r">
+          <span class="stat-key">${k}</span>
+          <span class="stat-val">${v}</span>
+        </div>`).join('')}
+    </div>`;
+
+  const catsHTML = cats.length ? `
+    <div class="card">
+      <span class="lbl">En qué gastas más</span>
+      ${cats.map(c => {
+        const pct = total>0?(c.tot/total)*100:0;
+        return `<div class="cat-bar">
+          <div class="cat-bar-top">
+            <span style="color:#cbd5e1">${c.emoji} ${c.label}</span>
+            <span style="font-weight:700;font-family:monospace;color:${c.color}">${fmt(c.tot)}</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${c.color}"></div></div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  document.getElementById('tab-resumen').innerHTML = presupHTML + statsHTML + catsHTML;
+}
+
+// ─── Tab Fijos ─────────────────────────────────────────────────
+function renderFijos() {
+  const {fijos} = state;
+  const activos = fijos.filter(f=>f.activo);
+  const totalActivos = activos.reduce((s,f)=>s+f.monto,0);
+
+  const statsH = fijos.length ? `
+    <div class="rec-stats">
+      <span>${activos.length} activo${activos.length!==1?'s':''}</span>
+      <span style="font-size:13px;font-weight:700;font-family:monospace;color:#a78bfa">${fmt(totalActivos)}/mes</span>
+    </div>` : '';
+
+  const listaH = fijos.length ? fijos.map(f => {
+    const cat = CMAP[f.categoria]||CMAP['otro'];
+    return `
+      <div class="row" style="opacity:${f.activo?1:.45}">
+        <div class="row-emoji">${cat.emoji}</div>
+        <div class="row-body">
+          <div class="row-title">${esc(f.nombre)}</div>
+          <div class="row-sub">${fmt(f.monto)}/mes · ${cat.label}</div>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <button class="toggle-btn ${f.activo?'toggle-on':'toggle-off'}" onclick="toggleFijo('${f.id}',${!f.activo})">${f.activo?'✓':'⏸'}</button>
+          <button style="background:none;border:none;color:#60a5fa;font-size:14px;padding:4px 5px" onclick="abrirEditFijo('${f.id}')">✏️</button>
+          <div id="accf-${f.id}" style="display:flex">
+            <button style="background:none;border:none;color:#f43f5e;font-size:14px;padding:4px 5px" onclick="confirmarBorrarFijo('${f.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('') : `<div class="empty">Sin gastos fijos aún</div>`;
+
+  document.getElementById('tab-fijos').innerHTML = `
+    <div class="info-box">💡 Los gastos fijos se registran <b style="color:#94a3b8">solos</b> cada mes. Agrégalos aquí.</div>
+    ${statsH}${listaH}
+    <button class="btn-add-rec" onclick="abrirNuevoFijo()">🔄 Agregar gasto fijo</button>`;
+}
+
+function toggleFijo(id, val) {
+  ref(`gastos_personales/${state.userId}/fijos/${id}`).update({activo: val});
+  toast(val ? '✓ Activado' : '⏸ Pausado');
+}
+
+function confirmarBorrarFijo(id) {
+  document.getElementById('accf-'+id).innerHTML = `
+    <button class="btn-si" onclick="borrarFijo('${id}')">Sí</button>
+    <button class="btn-no" onclick="renderFijos()">No</button>`;
+}
+
+function borrarFijo(id) {
+  ref(`gastos_personales/${state.userId}/fijos/${id}`).remove();
+  toast('🗑️ Eliminado');
+}
+
+// ─── Grids categorías ──────────────────────────────────────────
+function buildCatGrid(containerId, field) {
+  const sel = field==='gastoCat' ? state.gastoCat : state.fijoCat;
+  document.getElementById(containerId).innerHTML = CATS.map(c => `
+    <button class="cat-btn" onclick="setCat('${field}','${c.id}','${containerId}')"
+      style="border-color:${sel===c.id?c.color:'#1e293b'};background:${sel===c.id?c.color+'18':'#0a0a10'}">
+      <span class="cat-btn-ico">${c.emoji}</span>
+      <span class="cat-btn-lbl" style="color:${sel===c.id?c.color:'#475569'}">${c.label.slice(0,6)}</span>
+    </button>`).join('');
+}
+
+function buildCatGrids() {
+  buildCatGrid('cat-grid-gasto','gastoCat');
+  buildCatGrid('cat-grid-fijo','fijoCat');
+}
+
+function setCat(field, val, containerId) {
+  state[field] = val;
+  buildCatGrid(containerId, field);
+}
+
+// ─── CRUD Gastos ───────────────────────────────────────────────
+function abrirNuevoGasto() {
+  state.editGastoId = null;
+  state.gastoCat = 'comida';
+  document.getElementById('g-monto').value = '';
+  document.getElementById('g-desc').value = '';
+  document.getElementById('m-gasto-title').textContent = '💸 Nuevo gasto';
+  document.getElementById('btn-guardar-gasto').textContent = 'Guardar gasto';
+  buildCatGrid('cat-grid-gasto','gastoCat');
+  abrirModal('m-gasto');
+}
+
+function abrirEditGasto(id) {
+  const g = state.gastos.find(x=>x.id===id);
+  if(!g) return;
+  state.editGastoId = id;
+  state.gastoCat = g.categoria||'comida';
+  document.getElementById('g-monto').value = g.monto;
+  document.getElementById('g-desc').value = g.descripcion||'';
+  document.getElementById('m-gasto-title').textContent = '✏️ Editar gasto';
+  document.getElementById('btn-guardar-gasto').textContent = 'Guardar cambios';
+  buildCatGrid('cat-grid-gasto','gastoCat');
+  abrirModal('m-gasto');
+}
+
+function guardarGasto() {
+  const monto = Number(document.getElementById('g-monto').value);
+  const desc = document.getElementById('g-desc').value.trim()||'Sin descripción';
+  if(!monto||monto<=0) { toast('⚠️ Ingresa un valor'); return; }
+
+  const hoy = new Date();
+  const data = { monto, descripcion: desc, categoria: state.gastoCat };
+
+  if(state.editGastoId) {
+    ref(`gastos_personales/${state.userId}/gastos/${state.editGastoId}`).update(data);
+    toast('✏️ Gasto actualizado');
+    state.editGastoId = null;
+  } else {
+    data.mes = state.mes;
+    data.fecha = Date.now();
+    data.fechaDia = dayKey(hoy);
+    data.esFijo = false;
+    ref(`gastos_personales/${state.userId}/gastos`).push(data);
+    toast('✅ Gasto guardado');
+  }
+  cerrarModal('m-gasto');
+}
+
+// ─── CRUD Fijos ────────────────────────────────────────────────
+function abrirNuevoFijo() {
+  state.editFijoId = null;
+  state.fijoCat = 'comida';
+  document.getElementById('f-nombre').value = '';
+  document.getElementById('f-monto').value = '';
+  document.getElementById('m-fijo-title').textContent = '🔄 Nuevo gasto fijo';
+  document.getElementById('btn-guardar-fijo').textContent = 'Agregar gasto fijo';
+  buildCatGrid('cat-grid-fijo','fijoCat');
+  abrirModal('m-fijo');
+}
+
+function abrirEditFijo(id) {
+  const f = state.fijos.find(x=>x.id===id);
+  if(!f) return;
+  state.editFijoId = id;
+  state.fijoCat = f.categoria||'comida';
+  document.getElementById('f-nombre').value = f.nombre||'';
+  document.getElementById('f-monto').value = f.monto||'';
+  document.getElementById('m-fijo-title').textContent = '✏️ Editar gasto fijo';
+  document.getElementById('btn-guardar-fijo').textContent = 'Guardar cambios';
+  buildCatGrid('cat-grid-fijo','fijoCat');
+  abrirModal('m-fijo');
+}
+
+function guardarFijo() {
+  const nombre = document.getElementById('f-nombre').value.trim();
+  const monto = Number(document.getElementById('f-monto').value);
+  if(!nombre) { toast('⚠️ Escribe el nombre'); return; }
+  if(!monto||monto<=0) { toast('⚠️ Ingresa un valor'); return; }
+
+  const data = { nombre, monto, categoria: state.fijoCat };
+
+  if(state.editFijoId) {
+    ref(`gastos_personales/${state.userId}/fijos/${state.editFijoId}`).update(data);
+    toast('✏️ Gasto fijo actualizado');
+    state.editFijoId = null;
+  } else {
+    data.activo = true;
+    data.ultimoMes = null;
+    ref(`gastos_personales/${state.userId}/fijos`).push(data);
+    toast('🔄 Gasto fijo guardado');
+  }
+  cerrarModal('m-fijo');
+}
+
+// ─── Config ────────────────────────────────────────────────────
+function guardarConfig() {
+  const nombre = document.getElementById('cfg-nombre').value.trim();
+  const budget = Number(document.getElementById('cfg-budget').value);
+  if(!nombre||!budget) { toast('⚠️ Completa los campos'); return; }
+  state.config = { nombre, budget };
+  ref(`gastos_personales/${state.userId}/config`).update({ nombre, budget });
+  document.getElementById('hdr-nombre').textContent = nombre;
+  toast('⚙️ Guardado');
+  cerrarModal('m-config');
+  renderMain();
+}
+
+// ─── Helper ────────────────────────────────────────────────────
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

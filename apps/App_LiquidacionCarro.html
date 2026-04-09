@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control Carro App</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0f0f0f; --s1: #1a1a1a; --s2: #212121; --s3: #282828;
+  --bd: #2c2c2c; --bd2: #3a3a3a; --bd3: #484848;
+  --tx: #f0ede8; --t2: #7a7570; --t3: #484440;
+  --ac: #c8f060; --acd: #9abe3a; --ac2: rgba(200,240,96,.08);
+  --re: #ff6060; --re2: rgba(255,96,96,.1);
+  --ye: #ffbe4a; --ye2: rgba(255,190,74,.1);
+  --gr: #4cffa0; --gr2: rgba(76,255,160,.08);
+  --bl: #60b8ff; --bl2: rgba(96,184,255,.1);
+  --r: 9px; --rl: 13px; --rxl: 18px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { scroll-behavior: smooth; }
+body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--tx); font-size: 14px; min-height: 100vh; }
+
+/* ─── LAYOUT ─── */
+.app { max-width: 640px; margin: 0 auto; padding: .8rem .9rem 5rem; }
+
+/* ─── TOPBAR ─── */
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: .7rem 0 1rem; }
+.logo { font-size: 18px; font-weight: 600; letter-spacing: -.6px; }
+.logo span { color: var(--ac); }
+.topright { display: flex; align-items: center; gap: 8px; }
+.tbadge { font-size: 11px; padding: 3px 11px; border-radius: 20px; border: 1px solid var(--bd2); color: var(--t2); font-family: 'DM Mono', monospace; }
+.sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--t3); transition: background .3s; flex-shrink: 0; }
+.sync-dot.ok { background: var(--gr); }
+.sync-dot.err { background: var(--re); }
+.sync-dot.loading { background: var(--ye); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ─── TABS ─── */
+.tabs { display: flex; gap: 2px; margin-bottom: 1.1rem; background: var(--s1); border-radius: var(--rl); padding: 4px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { font-size: 12px; font-weight: 400; padding: 7px 12px; border: none; background: transparent; cursor: pointer; color: var(--t2); border-radius: 8px; white-space: nowrap; flex-shrink: 0; transition: all .15s; font-family: 'DM Sans', sans-serif; }
+.tab:hover { color: var(--tx); }
+.tab.on { background: var(--s2); color: var(--tx); font-weight: 500; }
+
+/* ─── SECTIONS ─── */
+.sec { display: none; animation: fadeIn .2s ease; }
+.sec.on { display: block; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+
+/* ─── METRIC CARDS ─── */
+.mcg { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin-bottom: 1rem; }
+.mc { background: var(--s1); border-radius: var(--r); padding: 12px 11px; border: 1px solid var(--bd); }
+.mc .lb { font-size: 10px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .6px; color: var(--t3); margin-bottom: 4px; }
+.mc .vl { font-size: 20px; font-weight: 600; line-height: 1; }
+.mc .sb { font-size: 10px; color: var(--t3); margin-top: 3px; }
+.mc.g .vl { color: var(--gr); } .mc.w .vl { color: var(--ye); } .mc.d .vl { color: var(--re); } .mc.a .vl { color: var(--ac); }
+
+/* ─── CARDS ─── */
+.box { background: var(--s1); border: 1px solid var(--bd); border-radius: var(--rl); padding: .9rem 1rem; margin-bottom: .8rem; }
+.box h3 { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .9px; color: var(--t3); margin-bottom: 11px; font-family: 'DM Mono', monospace; }
+
+/* ─── FORMS ─── */
+.fg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.fg.f1 { grid-template-columns: 1fr; }
+.fg.f3 { grid-template-columns: 1fr 1fr 1fr; }
+.fl label { font-size: 10px; color: var(--t3); display: block; margin-bottom: 3px; font-family: 'DM Mono', monospace; letter-spacing: .3px; }
+.fl input, .fl select, .fl textarea {
+  width: 100%; font-size: 13px; font-family: 'DM Sans', sans-serif;
+  padding: 8px 10px; border: 1px solid var(--bd2); border-radius: var(--r);
+  background: var(--s2); color: var(--tx); outline: none; transition: border-color .15s;
+  -webkit-appearance: none; appearance: none;
+}
+.fl input:focus, .fl select:focus, .fl textarea:focus { border-color: var(--acd); }
+.fl select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23484440'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; }
+.fl select option { background: #212121; }
+.fl textarea { height: 52px; resize: none; line-height: 1.5; }
+.fl input:disabled { opacity: .35; cursor: not-allowed; }
+
+/* ─── BUTTONS ─── */
+.br { display: flex; gap: 7px; justify-content: flex-end; margin-top: 9px; }
+.btn { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; padding: 7px 16px; border: 1px solid var(--bd2); border-radius: var(--r); background: transparent; cursor: pointer; color: var(--t2); transition: all .15s; }
+.btn:hover { background: var(--s2); color: var(--tx); }
+.btn:active { transform: scale(.97); }
+.btn.p { background: var(--ac); color: #111; border-color: var(--ac); }
+.btn.p:hover { background: var(--acd); border-color: var(--acd); }
+.btn.del { border-color: rgba(255,96,96,.4); color: var(--re); }
+.btn.del:hover { background: var(--re2); border-color: var(--re); }
+.btn.sm { font-size: 11px; padding: 5px 12px; }
+
+/* ─── LIST / ROW ─── */
+.li { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--bd); font-size: 13px; }
+.li:last-child { border: none; }
+.li .mt { font-size: 10px; color: var(--t3); margin-top: 2px; font-family: 'DM Mono', monospace; }
+.row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--bd); font-size: 13px; }
+.row:last-child { border: none; }
+.row .lf { color: var(--t2); }
+
+/* ─── PILLS ─── */
+.pi { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-family: 'DM Mono', monospace; white-space: nowrap; }
+.pi.ok { background: var(--gr2); color: var(--gr); border: 1px solid rgba(76,255,160,.2); }
+.pi.pn { background: var(--ye2); color: var(--ye); border: 1px solid rgba(255,190,74,.2); }
+.pi.rd { background: var(--re2); color: var(--re); border: 1px solid rgba(255,96,96,.2); }
+
+/* ─── AVATAR ─── */
+.av { width: 34px; height: 34px; border-radius: 50%; background: var(--s2); border: 1px solid var(--bd2); color: var(--ac); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; font-family: 'DM Mono', monospace; }
+
+/* ─── CONDUCTOR CARDS ─── */
+.ccg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: .85rem; }
+.cc { border: 1px solid var(--bd); border-radius: var(--rl); padding: 11px; cursor: pointer; transition: all .15s; }
+.cc:hover { border-color: var(--bd2); background: rgba(255,255,255,.01); }
+.cc.sel { border-color: var(--acd); background: var(--ac2); }
+.cc .cn { font-weight: 500; font-size: 13px; margin-top: 6px; }
+.cc .ci { font-size: 10px; color: var(--t3); margin-top: 2px; font-family: 'DM Mono', monospace; }
+.cc .ca { font-size: 12px; font-weight: 600; color: var(--gr); margin-top: 5px; }
+
+/* ─── PROGRESS ─── */
+.pb { height: 3px; border-radius: 2px; background: var(--bd); margin-top: 5px; overflow: hidden; }
+.pbf { height: 100%; border-radius: 2px; background: var(--ac); transition: width .4s ease; }
+
+/* ─── ALERTS ─── */
+.al { font-size: 12px; padding: 9px 12px; border-radius: var(--r); margin-bottom: .8rem; border-left: 3px solid; line-height: 1.5; }
+.al.w { background: var(--ye2); color: var(--ye); border-color: var(--ye); }
+.al.i { background: var(--bl2); color: var(--bl); border-color: var(--bl); }
+.al.g { background: var(--gr2); color: var(--gr); border-color: var(--gr); }
+
+/* ─── SEP ─── */
+.sep { border: none; border-top: 1px solid var(--bd); margin: .85rem 0; }
+
+/* ─── INLINE DELETE ─── */
+.xb { font-size: 10px; padding: 2px 7px; border: 1px solid var(--bd2); color: var(--t3); border-radius: 5px; background: transparent; cursor: pointer; font-family: 'DM Mono', monospace; transition: all .15s; }
+.xb:hover { border-color: var(--re); color: var(--re); background: var(--re2); }
+
+/* ─── PREVIEW BOX ─── */
+.prev { background: var(--s2); border-radius: var(--r); padding: 10px 12px; margin-bottom: 9px; font-size: 12px; border: 1px solid var(--bd); }
+.prev .pr { display: flex; justify-content: space-between; padding: 2px 0; color: var(--t2); }
+.prev .pt { display: flex; justify-content: space-between; padding: 6px 0 0; border-top: 1px solid var(--bd); font-weight: 600; margin-top: 4px; font-size: 15px; }
+
+/* ─── INFO BOX ─── */
+.ibox { font-size: 10px; color: var(--t2); padding: 8px 10px; background: var(--s2); border-radius: var(--r); margin-bottom: 9px; border-left: 3px solid var(--acd); font-family: 'DM Mono', monospace; line-height: 1.6; }
+
+/* ─── TABLE ─── */
+.tbl { width: 100%; font-size: 12px; border-collapse: collapse; }
+.tbl th { color: var(--t3); font-weight: 400; text-align: left; padding: 3px 4px 7px; border-bottom: 1px solid var(--bd); font-family: 'DM Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+.tbl td { padding: 7px 4px; border-bottom: 1px solid var(--bd); vertical-align: middle; }
+.tbl tr:last-child td { border: none; }
+.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ─── EMPTY ─── */
+.empty { text-align: center; padding: 1.5rem; color: var(--t3); font-size: 11px; font-family: 'DM Mono', monospace; line-height: 1.7; }
+
+/* ─── DANGER ZONE ─── */
+.dz { border: 1px solid rgba(255,96,96,.2); border-radius: var(--r); padding: 12px; }
+.dz h4 { font-size: 10px; color: var(--re); margin-bottom: 8px; font-family: 'DM Mono', monospace; letter-spacing: .8px; text-transform: uppercase; }
+
+/* ─── TOAST ─── */
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ac); color: #111; padding: 9px 18px; border-radius: 20px; font-size: 12px; font-weight: 600; z-index: 9999; transition: opacity .3s, transform .3s; pointer-events: none; white-space: nowrap; }
+
+/* ─── LOADING OVERLAY ─── */
+.overlay { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 999; transition: opacity .3s; }
+.overlay .spin { width: 28px; height: 28px; border: 2px solid var(--bd2); border-top-color: var(--ac); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.overlay .msg { font-size: 12px; color: var(--t2); font-family: 'DM Mono', monospace; }
+
+/* ─── RESPONSIVE ─── */
+@media (max-width: 420px) {
+  .mcg { grid-template-columns: 1fr 1fr; }
+  .fg { grid-template-columns: 1fr; }
+  .ccg { grid-template-columns: 1fr; }
+  .fg.f3 { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div class="overlay" id="overlay">
+  <div class="spin"></div>
+  <div class="msg">Conectando con Firebase...</div>
+</div>
+
+<div class="app">
+  <div class="topbar">
+    <div class="logo">flota<span>.</span>app</div>
+    <div class="topright">
+      <div class="sync-dot loading" id="sync-dot" title="Estado sincronización"></div>
+      <div class="tbadge" id="tbadge">—</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" onclick="go('dash')">Panel</button>
+    <button class="tab" onclick="go('liq')">Liquidación</button>
+    <button class="tab" onclick="go('cond')">Conductores</button>
+    <button class="tab" onclick="go('mant')">Mantenimiento</button>
+    <button class="tab" onclick="go('rep')">Reportes</button>
+    <button class="tab" onclick="go('aj')">Ajustes</button>
+  </div>
+
+  <!-- ═══ PANEL ═══ -->
+  <div class="sec on" id="sec-dash">
+    <div id="d-al"></div>
+    <div class="mcg">
+      <div class="mc g"><div class="lb">Ingresos mes</div><div class="vl" id="d-mes">$0</div><div class="sb" id="d-dias">0 días</div></div>
+      <div class="mc a"><div class="lb">Ahorro conductores</div><div class="vl" id="d-ah">$0</div></div>
+      <div class="mc w"><div class="lb">Mantenimiento</div><div class="vl" id="d-gast">$0</div><div class="sb">este mes</div></div>
+    </div>
+    <div class="box"><h3>Últimas liquidaciones</h3><div id="d-list"><div class="empty">Sin registros aún</div></div></div>
+    <div class="box"><h3>Conductores</h3><div id="d-cres"><div class="empty">Sin conductores</div></div></div>
+  </div>
+
+  <!-- ═══ LIQUIDACIÓN ═══ -->
+  <div class="sec" id="sec-liq">
+    <div class="box">
+      <h3>Registrar liquidación diaria</h3>
+      <div class="fg">
+        <div class="fl"><label>Conductor</label><select id="l-c"></select></div>
+        <div class="fl"><label>Fecha</label><input type="date" id="l-f"></div>
+        <div class="fl"><label>Liquidación base</label><input type="number" id="l-b" oninput="upPr()"></div>
+        <div class="fl"><label>Ahorro del día</label><input type="number" id="l-a" oninput="upPr()"></div>
+        <div class="fl"><label>Plataforma</label><select id="l-pl"></select></div>
+        <div class="fl"><label>Tipo de día</label>
+          <select id="l-t">
+            <option>Normal</option><option>Festivo</option>
+            <option>Pico y placa</option><option>Domingo libre</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg f1"><div class="fl"><label>Nota (opcional)</label><textarea id="l-n" placeholder="Observación del día..."></textarea></div></div>
+      <div class="prev">
+        <div class="pr"><span>Liquidación base</span><span id="p-b">$0</span></div>
+        <div class="pr"><span>Ahorro conductor</span><span id="p-a">$0</span></div>
+        <div class="pt"><span>Total a recibir</span><span id="p-t" style="color:var(--ac)">$0</span></div>
+      </div>
+      <div class="br"><button class="btn p" onclick="saveLiq()">Registrar liquidación</button></div>
+    </div>
+    <div class="box">
+      <h3>Historial de liquidaciones</h3>
+      <div class="tbl-wrap"><div id="l-h"><div class="empty">Sin registros</div></div></div>
+    </div>
+  </div>
+
+  <!-- ═══ CONDUCTORES ═══ -->
+  <div class="sec" id="sec-cond">
+    <div class="ccg" id="cg"></div>
+    <div id="cp" style="display:none">
+      <div class="box">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div class="av" id="cp-av">--</div>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:15px" id="cp-nm">—</div>
+            <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;margin-top:2px" id="cp-sb">—</div>
+          </div>
+          <button class="btn del sm" onclick="delCond()">Borrar conductor</button>
+        </div>
+        <div class="mcg">
+          <div class="mc g"><div class="lb">Días trabajados</div><div class="vl" id="cp-d">0</div></div>
+          <div class="mc a"><div class="lb">Ahorro disponible</div><div class="vl" style="font-size:16px" id="cp-ah">$0</div></div>
+          <div class="mc d"><div class="lb">Total descontado</div><div class="vl" style="font-size:16px" id="cp-dc">$0</div></div>
+        </div>
+        <hr class="sep">
+        <h3>Descontar del ahorro</h3>
+        <div class="fg">
+          <div class="fl"><label>Monto a descontar</label><input type="number" id="dc-m" placeholder="0"></div>
+          <div class="fl"><label>Motivo</label><input type="text" id="dc-mo" placeholder="Ej: llanta pinchada"></div>
+        </div>
+        <div class="br"><button class="btn p" onclick="applyDesc()">Aplicar descuento</button></div>
+        <hr class="sep">
+        <h3>Historial de movimientos</h3>
+        <div id="cp-mv"><div class="empty">Sin movimientos</div></div>
+      </div>
+    </div>
+    <hr class="sep">
+    <div class="box">
+      <h3>Agregar conductor</h3>
+      <div class="fg">
+        <div class="fl"><label>Nombre completo</label><input type="text" id="nc-n" placeholder="Nombre"></div>
+        <div class="fl"><label>Teléfono</label><input type="text" id="nc-t" placeholder="Celular"></div>
+        <div class="fl"><label>Turno</label><select id="nc-tu"><option>Diurno</option><option>Nocturno</option><option>Completo</option></select></div>
+        <div class="fl"><label>Plataformas</label><input type="text" id="nc-pl" placeholder="Uber, InDriver..."></div>
+        <div class="fl"><label>Ahorro acumulado actual</label><input type="number" id="nc-ai" placeholder="0"></div>
+        <div class="fl"><label>Descuentos acumulados</label><input type="number" id="nc-di" placeholder="0"></div>
+      </div>
+      <div class="ibox">Si vienes de Excel: ingresa el saldo actual del conductor. La app lleva el control de ahí en adelante sin perder lo anterior.</div>
+      <div class="br"><button class="btn p" onclick="addCond()">Agregar conductor</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ MANTENIMIENTO ═══ -->
+  <div class="sec" id="sec-mant">
+    <div class="box">
+      <h3>Registrar mantenimiento / gasto</h3>
+      <div class="fg">
+        <div class="fl"><label>Tipo</label>
+          <select id="m-tp">
+            <option>Cambio de aceite</option><option>Llantas</option><option>Frenos</option>
+            <option>Lavado</option><option>Revisión técnica</option><option>SOAT</option>
+            <option>Eléctrico</option><option>Suspensión</option><option>Otro</option>
+          </select>
+        </div>
+        <div class="fl"><label>Fecha</label><input type="date" id="m-f"></div>
+        <div class="fl"><label>Costo</label><input type="number" id="m-c" placeholder="0"></div>
+        <div class="fl"><label>¿Quién paga?</label>
+          <select id="m-r" onchange="togMC()">
+            <option value="prop">Propietario (yo)</option>
+            <option value="cond">Conductor (descontar ahorro)</option>
+          </select>
+        </div>
+        <div class="fl" id="m-cw" style="display:none"><label>Conductor</label><select id="m-cd"></select></div>
+        <div class="fl"><label>Recordatorio en</label>
+          <select id="m-px">
+            <option value="">Sin recordatorio</option><option value="7">1 semana</option>
+            <option value="30">1 mes</option><option value="60">2 meses</option>
+            <option value="90">3 meses</option><option value="180">6 meses</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg f1"><div class="fl"><label>Descripción</label><textarea id="m-d" placeholder="Detalles del mantenimiento..."></textarea></div></div>
+      <div class="br"><button class="btn p" onclick="saveMant()">Guardar</button></div>
+    </div>
+    <div class="box"><h3>Historial</h3><div id="m-h"><div class="empty">Sin registros</div></div></div>
+  </div>
+
+  <!-- ═══ REPORTES ═══ -->
+  <div class="sec" id="sec-rep">
+    <div class="box">
+      <h3>Generar reporte mensual</h3>
+      <div class="fg">
+        <div class="fl"><label>Mes</label><input type="month" id="r-m"></div>
+        <div class="fl"><label>Conductor</label><select id="r-c"></select></div>
+      </div>
+      <div class="br"><button class="btn p" onclick="genRep()">Ver reporte</button></div>
+    </div>
+    <div id="r-out"></div>
+  </div>
+
+  <!-- ═══ AJUSTES ═══ -->
+  <div class="sec" id="sec-aj">
+    <div class="box">
+      <h3>Parámetros de liquidación</h3>
+      <div class="fg">
+        <div class="fl"><label>Liquidación base diaria</label><input type="number" id="aj-b" oninput="updAjTot()"></div>
+        <div class="fl"><label>Ahorro diario conductor</label><input type="number" id="aj-ah" oninput="updAjTot()"></div>
+        <div class="fl"><label>Total diario (calculado)</label><input type="number" id="aj-tot" disabled></div>
+        <div class="fl"><label>Objetivo fondo de ahorro</label><input type="number" id="aj-obj"></div>
+      </div>
+      <hr class="sep">
+      <h3>Días de descanso</h3>
+      <div class="fg">
+        <div class="fl"><label>Día fijo sin trabajo</label>
+          <select id="aj-df">
+            <option value="2">Martes (pico y placa)</option><option value="1">Lunes</option>
+            <option value="3">Miércoles</option><option value="4">Jueves</option>
+            <option value="5">Viernes</option><option value="6">Sábado</option>
+            <option value="0">Domingo</option><option value="-1">Ninguno fijo</option>
+          </select>
+        </div>
+        <div class="fl"><label>Domingos</label>
+          <select id="aj-do">
+            <option value="intercalado">Intercalados</option>
+            <option value="todos">Todos descansan</option>
+            <option value="ninguno">Todos trabajan</option>
+          </select>
+        </div>
+      </div>
+      <hr class="sep">
+      <h3>Plataformas activas</h3>
+      <div class="fg f1"><div class="fl"><label>Separadas por coma</label><input type="text" id="aj-pl" placeholder="Uber, InDriver, Cabify"></div></div>
+      <div class="br"><button class="btn p" onclick="saveAj()">Guardar ajustes</button></div>
+    </div>
+
+    <div class="box">
+      <div class="dz">
+        <h4>⚠ Zona de peligro</h4>
+        <div style="font-size:10px;color:var(--t3);margin-bottom:10px;font-family:'DM Mono',monospace;line-height:1.6">Estas acciones borran datos de Firebase de forma permanente.</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button class="btn del sm" onclick="clrLiq()">Borrar liquidaciones</button>
+          <button class="btn del sm" onclick="clrMant()">Borrar mantenimientos</button>
+          <button class="btn del sm" onclick="clrAll()">Resetear todo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, get, update, remove, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// ─── FIREBASE CONFIG (hardcodeada) ───────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyD8B--Ero_1pcCkKoSCW36LSSrYp3OlfaA",
+  authDomain: "liquidacioncarro.firebaseapp.com",
+  databaseURL: "https://liquidacioncarro-default-rtdb.firebaseio.com",
+  projectId: "liquidacioncarro",
+  storageBucket: "liquidacioncarro.firebasestorage.app",
+  messagingSenderId: "789423299535",
+  appId: "1:789423299535:web:d6619f11d416eb9ea4d0ba"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let S = {
+  conductores: [],
+  liquidaciones: [],
+  mantenimientos: [],
+  ajustes: {
+    base: 65000, ahorro: 10000, objetivo: 500000,
+    diaFijo: 2, domingo: 'intercalado',
+    plataformas: ['Uber','InDriver','Cabify','Todas','Otra']
+  },
+  selCond: null,
+  nid: 1
+};
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+const fmt = n => '$' + Math.round(n||0).toLocaleString('es-CO');
+const hoy = () => new Date().toISOString().split('T')[0];
+const ini = n => (n||'').split(' ').map(x=>x[0]).join('').substr(0,2).toUpperCase() || '??';
+const $ = id => document.getElementById(id);
+const syncDot = $('sync-dot');
+
+function setSyncState(state) {
+  syncDot.className = 'sync-dot ' + state;
+}
+
+// ─── FIREBASE HELPERS ─────────────────────────────────────────────────────────
+async function fbSet(path, data) {
+  setSyncState('loading');
+  try {
+    await set(ref(db, path), data);
+    setSyncState('ok');
+  } catch(e) {
+    setSyncState('err');
+    toast('Error guardando: ' + e.message);
+    throw e;
+  }
+}
+
+async function fbGet(path) {
+  const snap = await get(ref(db, path));
+  return snap.exists() ? snap.val() : null;
+}
+
+async function fbRemove(path) {
+  setSyncState('loading');
+  try {
+    await remove(ref(db, path));
+    setSyncState('ok');
+  } catch(e) {
+    setSyncState('err');
+    throw e;
+  }
+}
+
+// ─── LOAD FROM FIREBASE ────────────────────────────────────────────────────────
+async function loadFromFirebase() {
+  try {
+    const data = await fbGet('flotaapp');
+    if (data) {
+      S.conductores    = data.conductores    ? Object.values(data.conductores)    : [];
+      S.liquidaciones  = data.liquidaciones  ? Object.values(data.liquidaciones)  : [];
+      S.mantenimientos = data.mantenimientos ? Object.values(data.mantenimientos) : [];
+      S.ajustes        = data.ajustes        ? { ...S.ajustes, ...data.ajustes }  : S.ajustes;
+      S.nid            = data.nid            || (S.conductores.length + 1);
+      // Asegurar que movimientos exista en cada conductor
+      S.conductores.forEach(c => { if (!c.movimientos) c.movimientos = []; });
+    }
+    setSyncState('ok');
+  } catch(e) {
+    setSyncState('err');
+    toast('No se pudo conectar con Firebase');
+  }
+  // Ocultar overlay
+  const ov = $('overlay');
+  ov.style.opacity = '0';
+  setTimeout(() => ov.remove(), 300);
+  init();
+}
+
+// ─── GUARDAR TODO EL STATE ────────────────────────────────────────────────────
+async function saveAll() {
+  // Convertir arrays a objetos con clave = id para Firebase
+  const condObj = {};
+  S.conductores.forEach(c => { condObj[c.id] = c; });
+  const liqObj = {};
+  S.liquidaciones.forEach(l => { liqObj[l.id] = l; });
+  const mantObj = {};
+  S.mantenimientos.forEach(m => { mantObj[m.id] = m; });
+
+  await fbSet('flotaapp', {
+    conductores:    condObj,
+    liquidaciones:  liqObj,
+    mantenimientos: mantObj,
+    ajustes:        S.ajustes,
+    nid:            S.nid
+  });
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+function init() {
+  $('l-f').value = hoy();
+  $('m-f').value = hoy();
+  const m = new Date();
+  $('r-m').value = m.getFullYear() + '-' + String(m.getMonth()+1).padStart(2,'0');
+  loadAjUI(); fillSels(); rDash(); rLH(); rCG(); rMH();
+}
+
+function go(t) {
+  const ts = ['dash','liq','cond','mant','rep','aj'];
+  document.querySelectorAll('.tab').forEach((b,i) => b.classList.toggle('on', ts[i]===t));
+  document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
+  $('sec-'+t).classList.add('on');
+  if (t==='dash') rDash();
+  if (t==='cond') rCG();
+  if (t==='mant') rMH();
+  if (t==='aj')   loadAjUI();
+}
+window.go = go;
+
+function fillSels() {
+  const ops = S.conductores.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+  $('l-c').innerHTML  = '<option value="">Seleccionar...</option>' + ops;
+  $('m-cd').innerHTML = '<option value="">Seleccionar...</option>' + ops;
+  $('r-c').innerHTML  = '<option value="">Todos</option>' + ops;
+  $('l-pl').innerHTML = (S.ajustes.plataformas||['Uber','InDriver']).map(p=>`<option>${p}</option>`).join('');
+  $('l-b').value = S.ajustes.base  || 65000;
+  $('l-a').value = S.ajustes.ahorro || 10000;
+  upPr();
+  const n = S.conductores.length;
+  $('tbadge').textContent = n + ' conductor' + (n!==1?'es':'') + ' activo' + (n!==1?'s':'');
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function rDash() {
+  const mes = new Date().toISOString().substr(0,7);
+  const lm  = S.liquidaciones.filter(l => l.fecha.substr(0,7)===mes);
+  const tw  = lm.filter(l => l.tipo==='Normal' || l.tipo==='Festivo');
+  $('d-mes').textContent  = fmt(tw.reduce((a,l) => a+(l.base||0), 0));
+  $('d-dias').textContent = tw.length + ' días trabajados';
+  $('d-ah').textContent   = fmt(S.conductores.reduce((a,c) => a+(c.ahorro||0), 0));
+  $('d-gast').textContent = fmt(S.mantenimientos.filter(m=>m.fecha.substr(0,7)===mes).reduce((a,m)=>a+(m.costo||0),0));
+
+  let al = '';
+  const dia = new Date().getDay();
+  if (+S.ajustes.diaFijo !== -1 && dia === +S.ajustes.diaFijo)
+    al += `<div class="al w">Hoy es día de descanso fijo — no se trabaja.</div>`;
+  const pm = S.mantenimientos.filter(m=>m.proximaFecha).sort((a,b)=>new Date(a.proximaFecha)-new Date(b.proximaFecha))[0];
+  if (pm) {
+    const d = Math.ceil((new Date(pm.proximaFecha)-new Date())/86400000);
+    if (d<=7) al += `<div class="al ${d<=0?'w':'i'}">Mantenimiento pendiente: <b>${pm.tipo}</b> — ${d<=0?'¡vencido!':'en '+d+' días'}</div>`;
+  }
+  $('d-al').innerHTML = al;
+
+  const ul = S.liquidaciones.slice(-6).reverse();
+  $('d-list').innerHTML = ul.length
+    ? ul.map(l => {
+        const c = S.conductores.find(x=>x.id===l.conductorId);
+        return `<div class="li">
+          <div><div>${c?c.nombre:'—'}</div><div class="mt">${l.fecha} · ${l.plataforma}</div></div>
+          <div style="text-align:right">
+            <div style="font-weight:600">${fmt((l.base||0)+(l.ahorro||0))}</div>
+            <div class="mt">${l.tipo}</div>
+          </div>
+        </div>`;
+      }).join('')
+    : '<div class="empty">Sin registros aún</div>';
+
+  $('d-cres').innerHTML = S.conductores.length
+    ? S.conductores.map(c => {
+        const d   = S.liquidaciones.filter(l=>l.conductorId===c.id&&(l.tipo==='Normal'||l.tipo==='Festivo')).length;
+        const pct = Math.min(100, Math.round((c.ahorro||0)/(S.ajustes.objetivo||500000)*100));
+        return `<div class="li">
+          <div style="flex:1">
+            <div style="font-weight:500">${c.nombre}</div>
+            <div class="mt">${d} días · ${c.turno}</div>
+            <div class="pb"><div class="pbf" style="width:${pct}%"></div></div>
+            <div style="font-size:10px;color:var(--t3);margin-top:2px;font-family:'DM Mono',monospace">${pct}% del fondo · ${fmt(c.ahorro)}</div>
+          </div>
+        </div>`;
+      }).join('')
+    : '<div class="empty">Sin conductores</div>';
+}
+
+// ─── LIQUIDACIÓN ──────────────────────────────────────────────────────────────
+function upPr() {
+  const b = +$('l-b').value||0, a = +$('l-a').value||0;
+  $('p-b').textContent = fmt(b); $('p-a').textContent = fmt(a); $('p-t').textContent = fmt(b+a);
+}
+window.upPr = upPr;
+
+async function saveLiq() {
+  const cid   = +$('l-c').value;
+  const fecha = $('l-f').value;
+  const base  = +$('l-b').value || 0;
+  const ahorro= +$('l-a').value || 0;
+  const plat  = $('l-pl').value;
+  const tipo  = $('l-t').value;
+  const nota  = $('l-n').value;
+  if (!cid || !fecha) { toast('Selecciona conductor y fecha'); return; }
+
+  const id = Date.now();
+  const liq = { id, conductorId: cid, fecha, base, ahorro, plataforma: plat, tipo, nota };
+  S.liquidaciones.push(liq);
+
+  if (tipo !== 'Pico y placa' && tipo !== 'Domingo libre') {
+    const c = S.conductores.find(x=>x.id===cid);
+    if (c) {
+      c.ahorro = (c.ahorro||0) + ahorro;
+      c.movimientos.push({ tipo:'entrada', monto:ahorro, desc:'Ahorro diario', fecha });
+    }
+  }
+  await saveAll();
+  rLH(); rDash(); $('l-n').value = '';
+  toast('Liquidación registrada ✓');
+}
+window.saveLiq = saveLiq;
+
+function rLH() {
+  const el = $('l-h');
+  if (!S.liquidaciones.length) { el.innerHTML='<div class="empty">Sin registros</div>'; return; }
+  el.innerHTML = `<table class="tbl"><thead><tr>
+    <th>Fecha</th><th>Conductor</th><th>Plataforma</th><th>Base</th><th>Ahorro</th><th>Tipo</th><th></th>
+  </tr></thead><tbody>` +
+  S.liquidaciones.slice().reverse().map(l => {
+    const c  = S.conductores.find(x=>x.id===l.conductorId);
+    const ok = l.tipo==='Normal' || l.tipo==='Festivo';
+    return `<tr>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${l.fecha}</td>
+      <td>${c?c.nombre:'—'}</td>
+      <td>${l.plataforma}</td>
+      <td>${fmt(l.base)}</td>
+      <td>${fmt(l.ahorro)}</td>
+      <td><span class="pi ${ok?'ok':'pn'}">${l.tipo}</span></td>
+      <td><button class="xb" onclick="delLiq(${l.id})">×</button></td>
+    </tr>`;
+  }).join('') + `</tbody></table>`;
+}
+
+async function delLiq(id) {
+  const l = S.liquidaciones.find(x=>x.id===id); if (!l) return;
+  if (!confirm('¿Borrar esta liquidación? El ahorro de ese día se revertirá.')) return;
+  if (l.tipo!=='Pico y placa' && l.tipo!=='Domingo libre') {
+    const c = S.conductores.find(x=>x.id===l.conductorId);
+    if (c) {
+      c.ahorro = Math.max(0,(c.ahorro||0)-(l.ahorro||0));
+      c.movimientos.push({ tipo:'salida', monto:l.ahorro||0, desc:'Reversa liquidación '+l.fecha, fecha:hoy() });
+    }
+  }
+  S.liquidaciones = S.liquidaciones.filter(x=>x.id!==id);
+  await saveAll(); rLH(); rDash(); toast('Liquidación borrada');
+}
+window.delLiq = delLiq;
+
+// ─── CONDUCTORES ──────────────────────────────────────────────────────────────
+function rCG() {
+  fillSels();
+  const g = $('cg');
+  if (!S.conductores.length) {
+    g.innerHTML = '<div class="empty" style="grid-column:span 2">Sin conductores.<br>Agrega uno abajo.</div>';
+    $('cp').style.display = 'none'; return;
+  }
+  g.innerHTML = S.conductores.map(c => `
+    <div class="cc ${S.selCond===c.id?'sel':''}" onclick="selC(${c.id})">
+      <div class="av">${ini(c.nombre)}</div>
+      <div class="cn">${c.nombre}</div>
+      <div class="ci">${c.turno} · ${c.plataformas||'—'}</div>
+      <div class="ca">Ahorro: ${fmt(c.ahorro)}</div>
+    </div>`).join('');
+  if (S.selCond) { const c = S.conductores.find(x=>x.id===S.selCond); if (c) showCP(c); }
+}
+
+function selC(id) { S.selCond = id; rCG(); }
+window.selC = selC;
+
+function showCP(c) {
+  $('cp').style.display = 'block';
+  $('cp-av').textContent = ini(c.nombre);
+  $('cp-nm').textContent = c.nombre;
+  $('cp-sb').textContent = c.turno + ' · ' + (c.plataformas||'—') + (c.tel?' · '+c.tel:'');
+  const d = S.liquidaciones.filter(l=>l.conductorId===c.id&&(l.tipo==='Normal'||l.tipo==='Festivo')).length;
+  $('cp-d').textContent  = d;
+  $('cp-ah').textContent = fmt(c.ahorro);
+  $('cp-dc').textContent = fmt(c.descuentos||0);
+  $('cp-mv').innerHTML   = c.movimientos&&c.movimientos.length
+    ? c.movimientos.slice().reverse().map(m =>
+        `<div class="li">
+          <div><div>${m.desc}</div><div class="mt">${m.fecha}</div></div>
+          <div style="font-weight:600;color:${m.tipo==='entrada'?'var(--gr)':'var(--re)'}">${m.tipo==='entrada'?'+':'−'}${fmt(m.monto)}</div>
+        </div>`
+      ).join('')
+    : '<div class="empty">Sin movimientos</div>';
+}
+
+async function applyDesc() {
+  const cid    = S.selCond; if (!cid) { toast('Selecciona un conductor'); return; }
+  const monto  = +$('dc-m').value;
+  const motivo = $('dc-mo').value.trim();
+  if (!monto || !motivo) { toast('Ingresa monto y motivo'); return; }
+  const c = S.conductores.find(x=>x.id===cid);
+  if (monto > c.ahorro) { toast('Sin ahorro suficiente ('+fmt(c.ahorro)+')'); return; }
+  c.ahorro = (c.ahorro||0) - monto;
+  c.descuentos = (c.descuentos||0) + monto;
+  c.movimientos.push({ tipo:'salida', monto, desc:motivo, fecha:hoy() });
+  await saveAll(); showCP(c);
+  $('dc-m').value = ''; $('dc-mo').value = '';
+  toast('Descuento aplicado ✓');
+}
+window.applyDesc = applyDesc;
+
+async function addCond() {
+  const nom = $('nc-n').value.trim(); if (!nom) { toast('Ingresa el nombre'); return; }
+  const ai = +$('nc-ai').value||0, di = +$('nc-di').value||0;
+  const movs = [];
+  if (ai > 0) movs.push({ tipo:'entrada', monto:ai, desc:'Saldo inicial (desde Excel)', fecha:hoy() });
+  if (di > 0) movs.push({ tipo:'salida',  monto:di, desc:'Descuentos acumulados iniciales', fecha:hoy() });
+  const nc = {
+    id: S.nid++, nombre: nom, tel: $('nc-t').value.trim(),
+    turno: $('nc-tu').value, plataformas: $('nc-pl').value.trim(),
+    ahorro: ai, descuentos: di, movimientos: movs
+  };
+  S.conductores.push(nc); S.selCond = nc.id;
+  await saveAll();
+  $('nc-n').value=''; $('nc-t').value=''; $('nc-pl').value=''; $('nc-ai').value=''; $('nc-di').value='';
+  rCG(); toast('Conductor agregado ✓');
+}
+window.addCond = addCond;
+
+async function delCond() {
+  const cid = S.selCond; if (!cid) return;
+  const c = S.conductores.find(x=>x.id===cid);
+  if (!confirm('¿Borrar a '+c.nombre+'?\nSe eliminarán sus liquidaciones y movimientos. Esta acción es permanente en Firebase.')) return;
+  S.conductores   = S.conductores.filter(x=>x.id!==cid);
+  S.liquidaciones = S.liquidaciones.filter(l=>l.conductorId!==cid);
+  S.selCond = null;
+  $('cp').style.display = 'none';
+  await saveAll(); rCG(); rDash(); toast('Conductor eliminado');
+}
+window.delCond = delCond;
+
+// ─── MANTENIMIENTO ────────────────────────────────────────────────────────────
+function togMC() { $('m-cw').style.display = $('m-r').value==='cond' ? 'block' : 'none'; }
+window.togMC = togMC;
+
+async function saveMant() {
+  const tipo  = $('m-tp').value;
+  const fecha = $('m-f').value;
+  const costo = +$('m-c').value || 0;
+  const resp  = $('m-r').value;
+  const cid   = +$('m-cd').value || null;
+  const dias  = +$('m-px').value || 0;
+  const pf    = dias ? new Date(new Date(fecha).getTime()+dias*86400000).toISOString().split('T')[0] : null;
+  S.mantenimientos.push({ id:Date.now(), tipo, fecha, costo, resp, conductorId:cid, desc:$('m-d').value, proximaFecha:pf });
+  if (resp==='cond' && cid) {
+    const c = S.conductores.find(x=>x.id===cid);
+    if (c && costo<=c.ahorro) {
+      c.ahorro -= costo; c.descuentos=(c.descuentos||0)+costo;
+      c.movimientos.push({ tipo:'salida', monto:costo, desc:'Mantenimiento: '+tipo, fecha });
+      toast('Descuento aplicado al conductor ✓');
+    } else if (c) toast('Aviso: el conductor no tiene ahorro suficiente');
+  }
+  await saveAll(); rMH(); rDash();
+  $('m-d').value=''; $('m-c').value='';
+  toast('Mantenimiento guardado ✓');
+}
+window.saveMant = saveMant;
+
+function rMH() {
+  const el = $('m-h');
+  if (!S.mantenimientos.length) { el.innerHTML='<div class="empty">Sin registros</div>'; return; }
+  el.innerHTML = S.mantenimientos.slice().reverse().map(m => {
+    const v   = m.proximaFecha && new Date(m.proximaFecha)<new Date();
+    const dif = m.proximaFecha ? Math.ceil((new Date(m.proximaFecha)-new Date())/86400000) : null;
+    return `<div class="li">
+      <div style="flex:1">
+        <div style="font-weight:500">${m.tipo}</div>
+        <div class="mt">${m.fecha}${m.desc?' · '+m.desc:''}</div>
+        ${m.proximaFecha?`<div class="mt" style="color:${v?'var(--re)':'var(--ye)'}">Próxima: ${m.proximaFecha} (${v?'¡vencido!':'en '+dif+' días'})</div>`:''}
+      </div>
+      <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+        <div style="font-weight:600">${fmt(m.costo)}</div>
+        <div class="mt">${m.resp==='cond'?'Conductor':'Propietario'}</div>
+        <button class="xb" onclick="delMant(${m.id})">×</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function delMant(id) {
+  if (!confirm('¿Borrar este mantenimiento?')) return;
+  S.mantenimientos = S.mantenimientos.filter(m=>m.id!==id);
+  await saveAll(); rMH(); rDash(); toast('Borrado');
+}
+window.delMant = delMant;
+
+// ─── REPORTES ─────────────────────────────────────────────────────────────────
+function genRep() {
+  const mes = $('r-m').value;
+  const cid = +$('r-c').value || null;
+  const liq  = S.liquidaciones.filter(l=>l.fecha.substr(0,7)===mes&&(!cid||l.conductorId===cid));
+  const mant = S.mantenimientos.filter(m=>m.fecha.substr(0,7)===mes);
+  const tw   = liq.filter(l=>l.tipo==='Normal'||l.tipo==='Festivo');
+  const tB   = tw.reduce((a,l)=>a+(l.base||0),0);
+  const tA   = tw.reduce((a,l)=>a+(l.ahorro||0),0);
+  const tM   = mant.reduce((a,m)=>a+(m.costo||0),0);
+  const cn   = cid ? S.conductores.find(c=>c.id===cid)?.nombre : 'Todos los conductores';
+  $('r-out').innerHTML = `
+    <div class="box"><h3>Reporte ${mes} · ${cn}</h3>
+      <div class="mcg" style="grid-template-columns:1fr 1fr">
+        <div class="mc g"><div class="lb">Total liquidado</div><div class="vl" style="font-size:18px">${fmt(tB)}</div></div>
+        <div class="mc a"><div class="lb">Total ahorro</div><div class="vl" style="font-size:18px">${fmt(tA)}</div></div>
+        <div class="mc w"><div class="lb">Mantenimiento</div><div class="vl" style="font-size:18px">${fmt(tM)}</div></div>
+        <div class="mc"><div class="lb">Días trabajados</div><div class="vl" style="font-size:18px">${tw.length}</div></div>
+      </div>
+      <div class="row"><span class="lf">Balance neto (liquidado − mantenimiento)</span><span style="font-weight:600;color:var(--gr)">${fmt(tB-tM)}</span></div>
+      <div class="row"><span class="lf">Promedio diario</span><span style="font-weight:600">${tw.length?fmt(tB/tw.length):'—'}</span></div>
+    </div>
+    ${liq.length ? `<div class="box"><h3>Detalle de liquidaciones</h3>${liq.map(l=>{const c=S.conductores.find(x=>x.id===l.conductorId);const ok=l.tipo==='Normal'||l.tipo==='Festivo';return`<div class="li"><div><div>${c?c.nombre:'—'}</div><div class="mt">${l.fecha} · ${l.plataforma}</div></div><div style="text-align:right"><div style="font-weight:600">${fmt((l.base||0)+(l.ahorro||0))}</div><span class="pi ${ok?'ok':'pn'}">${l.tipo}</span></div></div>`;}).join('')}</div>` : ''}
+    ${mant.length ? `<div class="box"><h3>Mantenimientos del mes</h3>${mant.map(m=>`<div class="li"><div><div style="font-weight:500">${m.tipo}</div><div class="mt">${m.fecha}${m.desc?' · '+m.desc:''}</div></div><div style="font-weight:600">${fmt(m.costo)}</div></div>`).join('')}</div>` : ''}`;
+}
+window.genRep = genRep;
+
+// ─── AJUSTES ──────────────────────────────────────────────────────────────────
+function updAjTot() { $('aj-tot').value = (+$('aj-b').value||0)+(+$('aj-ah').value||0); }
+window.updAjTot = updAjTot;
+
+function loadAjUI() {
+  const a = S.ajustes;
+  $('aj-b').value  = a.base   || 65000;
+  $('aj-ah').value = a.ahorro || 10000;
+  $('aj-tot').value= (a.base||65000)+(a.ahorro||10000);
+  $('aj-obj').value= a.objetivo || 500000;
+  $('aj-df').value = String(a.diaFijo !== undefined ? a.diaFijo : 2);
+  $('aj-do').value = a.domingo || 'intercalado';
+  $('aj-pl').value = (a.plataformas||[]).join(', ');
+}
+
+async function saveAj() {
+  S.ajustes.base       = +$('aj-b').value  || 65000;
+  S.ajustes.ahorro     = +$('aj-ah').value || 10000;
+  S.ajustes.objetivo   = +$('aj-obj').value|| 500000;
+  S.ajustes.diaFijo    = +$('aj-df').value;
+  S.ajustes.domingo    = $('aj-do').value;
+  S.ajustes.plataformas= $('aj-pl').value.split(',').map(x=>x.trim()).filter(Boolean);
+  await saveAll(); fillSels(); toast('Ajustes guardados ✓');
+}
+window.saveAj = saveAj;
+
+async function clrLiq() {
+  if (!confirm('¿Borrar TODAS las liquidaciones de Firebase?\nLos ahorros de los conductores no se revertirán.')) return;
+  S.liquidaciones = []; await saveAll(); rLH(); rDash(); toast('Liquidaciones borradas');
+}
+async function clrMant() {
+  if (!confirm('¿Borrar todos los mantenimientos?')) return;
+  S.mantenimientos = []; await saveAll(); rMH(); rDash(); toast('Mantenimientos borrados');
+}
+async function clrAll() {
+  if (!confirm('¿RESETEAR TODO en Firebase?\nSe borran conductores, liquidaciones y mantenimientos. Irreversible.')) return;
+  S = { conductores:[], liquidaciones:[], mantenimientos:[], ajustes:S.ajustes, selCond:null, nid:1 };
+  await saveAll(); init(); toast('Todo reseteado');
+}
+window.clrLiq = clrLiq; window.clrMant = clrMant; window.clrAll = clrAll;
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(8px)'; setTimeout(()=>t.remove(),300); }, 2400);
+}
+
+// ─── ARRANCAR ─────────────────────────────────────────────────────────────────
+loadFromFirebase();
+</script>
+</body>
+</html>

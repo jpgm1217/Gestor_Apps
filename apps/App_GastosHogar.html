@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>🏠 Gastos del Hogar</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%}
+    body{background:#0a0a10;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overscroll-behavior:none}
+    #app{max-width:480px;margin:0 auto;min-height:100%;padding-bottom:100px}
+    .screen{display:none}
+    .screen.active{display:block}
+    input,button,select{font-family:inherit;outline:none;-webkit-tap-highlight-color:transparent}
+    button{cursor:pointer}
+    button:active{transform:scale(.96)}
+
+    /* ── Loader ── */
+    #s-loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px}
+    .spinner{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#6366f1;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Nombre ── */
+    #s-nombre{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:32px 24px}
+    #s-nombre h1{font-size:24px;font-weight:700;margin-bottom:6px;text-align:center}
+    #s-nombre p{color:#64748b;font-size:14px;text-align:center;margin-bottom:36px;max-width:270px}
+
+    /* ── Main ── */
+    .header{padding:20px 20px 0;display:flex;align-items:center;justify-content:space-between}
+    .header-sub{font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+    .header-title{font-size:20px;font-weight:700;margin-top:2px}
+    .btn-icon{background:#12121e;border:none;color:#94a3b8;width:38px;height:38px;border-radius:10px;font-size:16px}
+
+    .mes-nav{display:flex;align-items:center;margin:14px 20px 0;background:#12121e;border-radius:12px;padding:10px 16px;border:1px solid #1e293b}
+    .mes-nav button{background:none;border:none;color:#64748b;font-size:22px;padding:0 8px}
+    .mes-nav button.dis{color:#2d3748}
+    .mes-label{font-weight:600;font-size:15px;flex:1;text-align:center}
+
+    .hero{margin:12px 20px 0;background:linear-gradient(135deg,#141830,#0a0f24);border-radius:18px;padding:18px 20px;border:1px solid #1e2a4a}
+    .hero-sub{font-size:11px;color:#4a6fa5;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+    .hero-total{font-size:34px;font-weight:700;font-family:monospace;margin-top:4px}
+    .hero-balance{margin-top:8px;font-size:13px;color:#94a3b8}
+
+    .cards-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 20px 0}
+    .p-card{background:#12121e;border-radius:16px;padding:14px}
+    .p-card-top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+    .p-dot{width:8px;height:8px;border-radius:50%}
+    .p-name{font-size:13px;font-weight:600;color:#cbd5e1;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .p-you{font-size:9px;font-weight:700}
+    .p-monto{font-size:18px;font-weight:700;font-family:monospace}
+    .progress-bar{height:5px;background:#1e293b;border-radius:99px;overflow:hidden;margin-top:8px}
+    .progress-fill{height:100%;border-radius:99px;transition:width .5s}
+    .p-hint{margin-top:5px;font-size:11px;color:#64748b}
+
+    .tabs{display:flex;margin:14px 20px 0;background:#12121e;border-radius:12px;padding:4px;gap:2px;border:1px solid #1e293b}
+    .tab{flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:11px;font-weight:600;background:transparent;color:#475569;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .tab .ticon{font-size:15px}
+    .tab.active{background:#1e2a4a;color:#60a5fa}
+
+    .tab-body{margin:12px 20px 0}
+
+    /* ── FAB ── */
+    .fab{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;border-radius:100px;padding:14px 28px;font-size:15px;font-weight:700;box-shadow:0 8px 32px #6366f166;display:flex;align-items:center;gap:8px;z-index:50;white-space:nowrap}
+    .fab-icon{font-size:20px;line-height:1}
+
+    /* ── Listas ── */
+    .row{background:#12121e;border-radius:12px;padding:12px 14px;border:1px solid #1e293b;display:flex;align-items:center;gap:12px;margin-bottom:6px}
+    .row-emoji{font-size:22px;flex-shrink:0}
+    .row-body{flex:1;min-width:0}
+    .row-title{font-size:13px;font-weight:600;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .row-sub{font-size:11px;color:#475569;margin-top:2px}
+    .row-right{text-align:right;flex-shrink:0}
+    .row-monto{font-size:15px;font-weight:700;font-family:monospace}
+    .row-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:4px}
+    .row-actions button{background:none;border:none;font-size:14px;padding:3px 5px}
+    .tag-auto{margin-left:5px;font-size:10px;color:#818cf8;background:#1e1040;padding:1px 5px;border-radius:4px}
+    .confirm-btns{display:flex;gap:4px;margin-top:4px}
+    .btn-si{background:#dc2626;border:none;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600}
+    .btn-no{background:#1e293b;border:none;color:#94a3b8;border-radius:6px;padding:3px 8px;font-size:11px}
+
+    /* ── Buscador / filtros ── */
+    .search-wrap{position:relative;margin-bottom:8px}
+    .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px;pointer-events:none}
+    .search-input{width:100%;background:#0a0a10;border:1px solid #1e293b;border-radius:12px;padding:10px 36px 10px 36px;color:#f1f5f9;font-size:13px}
+    .search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#475569;font-size:18px;padding:4px}
+    .chips{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+    .chip{padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid #1e293b;background:#12121e;color:#64748b}
+    .chip.on{background:#6366f1;color:#fff;border-color:#6366f1}
+
+    /* ── Resumen ── */
+    .card{background:#12121e;border:1px solid #1e293b;border-radius:16px;padding:16px;margin-bottom:10px}
+    .card-green{background:#052e16;border-color:#166534;text-align:center}
+    .card-yellow{background:#1a1200;border-color:#713f12}
+    .lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:8px;display:block}
+    .stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e293b;font-size:13px}
+    .stat-row:last-child{border-bottom:none}
+    .stat-key{color:#64748b}
+    .stat-val{font-weight:600;color:#e2e8f0}
+    .cat-bar{margin-bottom:10px}
+    .cat-bar-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:13px}
+    .cat-bar-lbl{color:#cbd5e1}
+
+    /* ── Recurrentes ── */
+    .info-box{background:#12121e;border:1px solid #1e293b;border-radius:12px;padding:10px 14px;font-size:13px;color:#64748b;margin-bottom:12px;line-height:1.6}
+    .rec-stats{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12px;color:#475569}
+    .rec-total{font-size:13px;font-weight:700;font-family:monospace;color:#818cf8}
+    .btn-add-rec{width:100%;padding:13px;border-radius:14px;border:1px dashed #334155;background:transparent;color:#818cf8;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
+    .toggle-btn{border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700}
+    .toggle-on{background:#052e16;color:#4ade80}
+    .toggle-off{background:#1e293b;color:#64748b}
+
+    /* ── Modals ── */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:100;display:flex;align-items:flex-end;backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .2s}
+    .overlay.open{opacity:1;pointer-events:all}
+    .modal{background:#12121e;border-radius:24px 24px 0 0;padding:24px 20px 52px;width:100%;border:1px solid #1e293b;border-bottom:none;max-height:92vh;overflow-y:auto;transform:translateY(100%);transition:transform .28s cubic-bezier(.34,1.2,.64,1)}
+    .overlay.open .modal{transform:translateY(0)}
+    .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+    .modal-title{font-size:17px;font-weight:700}
+    .modal-close{background:none;border:none;color:#475569;font-size:24px;line-height:1;padding:0 2px}
+    .modal-sub{font-size:13px;color:#64748b;margin-bottom:18px;margin-top:-10px}
+    .field{margin-bottom:14px}
+    .field-lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:8px;display:block}
+    .input{width:100%;background:#0a0a10;border:1px solid #1e293b;border-radius:12px;padding:12px 14px;color:#f1f5f9;font-size:14px;transition:border-color .2s}
+    .input:focus{border-color:#6366f1}
+    .input-big{font-size:24px;font-family:monospace;font-weight:700}
+    .quien-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+    .quien-btn{padding:12px;border-radius:12px;border:2px solid #1e293b;background:#0a0a10;color:#64748b;font-weight:600;font-size:14px;transition:all .15s}
+    .cat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px}
+    .cat-btn{padding:8px 2px;border-radius:10px;border:2px solid #1e293b;background:#0a0a10;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .cat-btn-ico{font-size:16px}
+    .cat-btn-lbl{font-size:9px;color:#475569;font-weight:600}
+    .btn-primary{width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:15px;font-weight:700;margin-top:4px}
+    .btn-ghost{width:100%;padding:13px;border-radius:14px;border:1px solid #1e293b;background:transparent;color:#64748b;font-size:14px;font-weight:600;margin-top:8px}
+    .btn-danger{border-color:#dc2626;color:#f43f5e}
+
+    /* ── Empty ── */
+    .empty{text-align:center;color:#334155;padding:40px 0;font-size:14px}
+
+    /* ── Toast ── */
+    .toast{position:fixed;bottom:108px;left:50%;transform:translateX(-50%);background:#1e293b;color:#e2e8f0;padding:9px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:200;pointer-events:none;border:1px solid #334155;white-space:nowrap;opacity:0;transition:opacity .2s}
+    .toast.show{opacity:1}
+
+    /* ── Error anon ── */
+    #s-error{display:none;flex-direction:column;justify-content:center;padding:28px 24px;min-height:100vh}
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Loading -->
+  <div id="s-loading" class="screen active">
+    <div class="spinner"></div>
+    <div style="color:#64748b;font-size:14px">Cargando...</div>
+  </div>
+
+
+  <!-- Nombre -->
+  <div id="s-nombre" class="screen">
+    <div style="font-size:56px;margin-bottom:16px">🏠</div>
+    <h1>Gastos del Hogar</h1>
+    <p>Escribe tu nombre para entrar. Solo se pide una vez.</p>
+    <input id="inp-nombre" class="input" placeholder="Tu nombre"
+      style="max-width:300px;width:100%;margin-bottom:6px;font-size:16px;text-align:center" maxlength="20">
+    <div id="err-nombre" style="color:#f43f5e;font-size:12px;height:18px;margin-bottom:8px"></div>
+    <button class="btn-primary" style="max-width:300px" onclick="entrarConNombre()">Entrar →</button>
+  </div>
+
+  <!-- Main -->
+  <div id="s-main" class="screen">
+    <div class="header">
+      <div>
+        <div class="header-sub" id="hdr-names">Cargando...</div>
+        <div class="header-title">Gastos del hogar</div>
+      </div>
+      <button class="btn-icon" onclick="abrirModal('m-config')">⚙️</button>
+    </div>
+
+    <div class="mes-nav">
+      <button onclick="navMes(-1)">‹</button>
+      <span class="mes-label" id="mes-label">...</span>
+      <button id="btn-mes-next" onclick="navMes(1)" class="dis">›</button>
+    </div>
+
+    <div class="hero">
+      <div class="hero-sub">Total gastado</div>
+      <div class="hero-total" id="hero-total">$0</div>
+      <div class="hero-balance" id="hero-balance"></div>
+    </div>
+
+    <div class="cards-grid">
+      <div class="p-card" id="pc1" style="border:1px solid #818cf822">
+        <div class="p-card-top">
+          <div class="p-dot" style="background:#818cf8"></div>
+          <span class="p-name" id="pc1-name">P1</span>
+          <span class="p-you" id="pc1-you" style="color:#818cf8"></span>
+        </div>
+        <div class="p-monto" id="pc1-monto">$0</div>
+        <div class="progress-bar"><div class="progress-fill" id="pc1-bar" style="background:#818cf8;width:0%"></div></div>
+        <div class="p-hint" id="pc1-hint"></div>
+      </div>
+      <div class="p-card" id="pc2" style="border:1px solid #f472b622">
+        <div class="p-card-top">
+          <div class="p-dot" style="background:#f472b6"></div>
+          <span class="p-name" id="pc2-name">P2</span>
+          <span class="p-you" id="pc2-you" style="color:#f472b6"></span>
+        </div>
+        <div class="p-monto" id="pc2-monto">$0</div>
+        <div class="progress-bar"><div class="progress-fill" id="pc2-bar" style="background:#f472b6;width:0%"></div></div>
+        <div class="p-hint" id="pc2-hint"></div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="gastos" onclick="setTab('gastos')">
+        <span class="ticon">💸</span><span>Gastos</span>
+      </button>
+      <button class="tab" data-tab="resumen" onclick="setTab('resumen')">
+        <span class="ticon">📊</span><span>Resumen</span>
+      </button>
+      <button class="tab" data-tab="fijos" onclick="setTab('fijos')">
+        <span class="ticon">🔄</span><span>Fijos</span>
+      </button>
+    </div>
+
+    <div class="tab-body">
+      <div id="tab-gastos">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input id="inp-buscar" class="search-input" placeholder="Buscar gasto..." oninput="renderGastos()">
+          <button class="search-clear" onclick="limpiarBuscar()" id="btn-clear-buscar" style="display:none">×</button>
+        </div>
+        <div class="chips" id="chips-filtro">
+          <button class="chip on" data-filtro="todos" onclick="setFiltro('todos')">Todos</button>
+          <button class="chip" data-filtro="person1" id="chip-p1" onclick="setFiltro('person1')">P1</button>
+          <button class="chip" data-filtro="person2" id="chip-p2" onclick="setFiltro('person2')">P2</button>
+        </div>
+        <div id="lista-gastos"></div>
+      </div>
+
+      <div id="tab-resumen" style="display:none"></div>
+      <div id="tab-fijos" style="display:none"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" style="display:none" onclick="abrirModal('m-gasto')">
+  <span class="fab-icon">+</span> Agregar gasto
+</button>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══ MODALS ═══ -->
+
+<!-- Modal gasto -->
+<div class="overlay" id="m-gasto" onclick="overlayClick(event,'m-gasto')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="m-gasto-title">💸 Nuevo gasto</span>
+      <button class="modal-close" onclick="cerrarModal('m-gasto')">×</button>
+    </div>
+    <div class="field-lbl">¿Quién pagó?</div>
+    <div class="quien-grid" id="quien-grid-gasto"></div>
+    <div class="field">
+      <label class="field-lbl">Valor (COP)</label>
+      <input id="g-monto" type="number" inputmode="numeric" placeholder="0" class="input input-big">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Descripción</label>
+      <input id="g-desc" type="text" placeholder="¿En qué se gastó?" class="input">
+    </div>
+    <div class="field-lbl">Categoría</div>
+    <div class="cat-grid" id="cat-grid-gasto"></div>
+    <button class="btn-primary" id="btn-guardar-gasto" onclick="guardarGasto()">Guardar gasto</button>
+  </div>
+</div>
+
+<!-- Modal recurrente -->
+<div class="overlay" id="m-rec" onclick="overlayClick(event,'m-rec')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="m-rec-title">🔄 Nuevo gasto fijo</span>
+      <button class="modal-close" onclick="cerrarModal('m-rec')">×</button>
+    </div>
+    <div class="modal-sub">Se registra solo cada mes. Puedes pausarlo cuando quieras.</div>
+    <div class="field-lbl">¿Quién paga?</div>
+    <div class="quien-grid" id="quien-grid-rec"></div>
+    <div class="field">
+      <label class="field-lbl">Nombre (ej: Arriendo, Netflix...)</label>
+      <input id="r-nombre" type="text" placeholder="¿Qué gasto fijo es?" class="input">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Valor mensual (COP)</label>
+      <input id="r-monto" type="number" inputmode="numeric" placeholder="0" class="input input-big">
+    </div>
+    <div class="field-lbl">Categoría</div>
+    <div class="cat-grid" id="cat-grid-rec"></div>
+    <button class="btn-primary" id="btn-guardar-rec" onclick="guardarRec()">Agregar gasto fijo</button>
+  </div>
+</div>
+
+<!-- Modal config -->
+<div class="overlay" id="m-config" onclick="overlayClick(event,'m-config')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">⚙️ Configuración</span>
+      <button class="modal-close" onclick="cerrarModal('m-config')">×</button>
+    </div>
+    <div class="field">
+      <label class="field-lbl">Nombre persona 1</label>
+      <input id="cfg-p1" type="text" class="input">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Nombre persona 2</label>
+      <input id="cfg-p2" type="text" class="input">
+    </div>
+    <div class="field">
+      <label class="field-lbl">Cuota mensual por persona (COP)</label>
+      <input id="cfg-quota" type="number" inputmode="numeric" class="input input-big">
+    </div>
+    <button class="btn-primary" onclick="guardarConfig()">Guardar</button>
+    <button class="btn-ghost btn-danger" onclick="salir()">Salir / Cambiar nombre</button>
+  </div>
+</div>
+
+<script>
+// ─── Firebase ─────────────────────────────────────────────────
+const FB_CFG = {
+  apiKey: "AIzaSyCeOLpUW_LIYi4SPRx6Z7bO2u8XV8fcBqo",
+  authDomain: "gastoshogar-c6ec8.firebaseapp.com",
+  databaseURL: "https://gastoshogar-c6ec8-default-rtdb.firebaseio.com",
+  projectId: "gastoshogar-c6ec8",
+  storageBucket: "gastoshogar-c6ec8.firebasestorage.app",
+  messagingSenderId: "445680595233",
+  appId: "1:445680595233:web:f9dba7f6148b9267270e60"
+};
+const HOGAR = 'hogar_principal';
+
+// db se inicializa en _arrancar()
+let db;
+const ref = p => db.ref(p);
+
+// ─── Categorías ───────────────────────────────────────────────
+const CATS = [
+  {id:'arriendo',emoji:'🏠',label:'Arriendo',color:'#60a5fa'},
+  {id:'mercado',emoji:'🛒',label:'Mercado',color:'#4ade80'},
+  {id:'servicios',emoji:'💡',label:'Servicios',color:'#fbbf24'},
+  {id:'restaurante',emoji:'🍽️',label:'Restaurante',color:'#f97316'},
+  {id:'transporte',emoji:'🚌',label:'Transporte',color:'#a78bfa'},
+  {id:'salud',emoji:'💊',label:'Salud',color:'#f43f5e'},
+  {id:'ocio',emoji:'🎬',label:'Ocio',color:'#22d3ee'},
+  {id:'mascotas',emoji:'🐾',label:'Mascotas',color:'#fb923c'},
+  {id:'ropa',emoji:'👕',label:'Ropa',color:'#e879f9'},
+  {id:'otro',emoji:'📦',label:'Otro',color:'#94a3b8'},
+];
+const CMAP = {};
+CATS.forEach(c => CMAP[c.id] = c);
+
+const MN = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const fmt = n => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(n||0);
+const monthKey = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+const monthLabel = k => { const [y,m]=k.split('-'); return MN[+m-1]+' '+y; };
+
+// ─── Estado global ────────────────────────────────────────────
+let state = {
+  userName: null,
+  mySlot: 'person1',
+  config: { person1Name:'Persona 1', person2Name:'Persona 2', quota:1300000 },
+  gastos: [],
+  recurrentes: [],
+  mes: monthKey(new Date()),
+  tabActual: 'gastos',
+  filtro: 'todos',
+  // edición
+  editGastoId: null,
+  editRecId: null,
+  // pickers
+  gastoQuien: 'person1',
+  gastoCat: 'mercado',
+  recQuien: 'person1',
+  recCat: 'arriendo',
+};
+
+// ─── Utilidades UI ────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.remove('active');
+    s.style.display = 'none';
+  });
+  const el = document.getElementById('s-'+id);
+  if(!el) return;
+  el.classList.add('active');
+  el.style.display = (id==='error'||id==='nombre'||id==='loading') ? 'flex' : 'block';
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+function abrirModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function cerrarModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+function overlayClick(e, id) {
+  if(e.target === document.getElementById(id)) cerrarModal(id);
+}
+
+// ─── Login ────────────────────────────────────────────────────
+function entrarConNombre() {
+  const n = document.getElementById('inp-nombre').value.trim();
+  const errEl = document.getElementById('err-nombre');
+  if(!n) { errEl.textContent = 'Escribe tu nombre'; return; }
+  errEl.textContent = '';
+  localStorage.setItem('localUser', JSON.stringify({displayName:n}));
+  state.userName = n;
+  iniciarMain();
+}
+document.getElementById('inp-nombre').addEventListener('keydown', e => {
+  if(e.key==='Enter') entrarConNombre();
+});
+
+function salir() {
+  localStorage.clear();
+  location.reload();
+}
+
+// ─── Arranque con window.onload + espera de Firebase ─────────
+window.onload = () => {
+  iniciarFirebase();
+};
+
+function iniciarFirebase() {
+  if(typeof firebase === 'undefined') {
+    let intentos = 0;
+    const esperar = setInterval(() => {
+      intentos++;
+      if(typeof firebase !== 'undefined') {
+        clearInterval(esperar);
+        _arrancar();
+      } else if(intentos >= 20) {
+        clearInterval(esperar);
+        document.getElementById('s-loading').innerHTML =
+          '<div style="padding:32px;text-align:center">' +
+          '<div style="font-size:40px;margin-bottom:12px">📶</div>' +
+          '<div style="color:#f43f5e;font-weight:700;font-size:16px;margin-bottom:8px">Sin conexión</div>' +
+          '<div style="color:#64748b;font-size:13px;margin-bottom:20px">Necesitas internet la primera vez que abres la app.</div>' +
+          '<button onclick="location.reload()" style="background:#6366f1;border:none;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700">Reintentar</button>' +
+          '</div>';
+      }
+    }, 300);
+    return;
+  }
+  _arrancar();
+}
+
+function _arrancar() {
+  try {
+    firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+  } catch(e) {
+    try { db = firebase.database(firebase.app()); } catch(e2) {}
+  }
+  const saved = localStorage.getItem('localUser');
+  if(!saved) {
+    showScreen('nombre');
+  } else {
+    try {
+      state.userName = JSON.parse(saved).displayName;
+      iniciarMain();
+    } catch(e) {
+      localStorage.removeItem('localUser');
+      showScreen('nombre');
+    }
+  }
+}
+
+async function iniciarMain() {
+  try {
+    // Registrar usuario en el hogar
+    const data = await ref(`hogares/${HOGAR}`).once('value').then(s=>s.val());
+    let slot;
+    const n = state.userName;
+    if(!data) {
+      await ref(`hogares/${HOGAR}`).set({ quota:1300000, person1Name:n, person2Name:'Persona 2', creadoEn: Date.now() });
+      slot = 'person1';
+    } else if(!data.person1Name || data.person1Name===n) {
+      await ref(`hogares/${HOGAR}`).update({person1Name:n});
+      slot = 'person1';
+    } else if(!data.person2Name || data.person2Name==='Persona 2' || data.person2Name===n) {
+      await ref(`hogares/${HOGAR}`).update({person2Name:n});
+      slot = 'person2';
+    } else {
+      slot = data.person1Name===n ? 'person1' : 'person2';
+    }
+    localStorage.setItem('slot', slot);
+    state.mySlot = slot;
+    state.gastoQuien = slot;
+    state.recQuien = slot;
+
+    // Listeners realtime
+    ref(`hogares/${HOGAR}`).on('value', s => {
+      const v = s.val();
+      if(v) {
+        state.config = { person1Name: v.person1Name||'Persona 1', person2Name: v.person2Name||'Persona 2', quota: v.quota||1300000 };
+      }
+      renderMain();
+    });
+
+    ref(`hogares/${HOGAR}/gastos`).on('value', s => {
+      const v = s.val();
+      state.gastos = v ? Object.entries(v).map(([k,val])=>({id:k,...val})).sort((a,b)=>(b.fecha||0)-(a.fecha||0)) : [];
+      renderTab();
+    });
+
+    ref(`hogares/${HOGAR}/recurrentes`).on('value', s => {
+      const v = s.val();
+      state.recurrentes = v ? Object.entries(v).map(([k,val])=>({id:k,...val})) : [];
+      autoRegistrarRecurrentes();
+      renderTab();
+    });
+
+    buildCatGrids();
+    showScreen('main');
+    document.getElementById('fab').style.display = 'flex';
+
+  } catch(e) {
+    console.error('Error iniciarMain:', e);
+    // Mostrar error con opción de reintentar
+    document.getElementById('s-error').querySelector('.card').innerHTML =
+      '<b style="color:#f43f5e">Error de conexión</b><br><br>' +
+      'Verifica que tienes internet y que el acceso anónimo está activado en Firebase.<br><br>' +
+      '<span style="font-size:12px;color:#475569">'+e.message+'</span>';
+    showScreen('error');
+  }
+}
+
+// ─── Auto recurrentes ─────────────────────────────────────────
+function autoRegistrarRecurrentes() {
+  const mes = state.mes;
+  state.recurrentes.forEach(r => {
+    if(r.activo && r.ultimoMes !== mes) {
+      // verificar que no exista ya ese auto en este mes
+      const yaExiste = state.gastos.some(g => g.recurId===r.id && g.mes===mes);
+      if(!yaExiste) {
+        ref(`hogares/${HOGAR}/gastos`).push({
+          quien: r.quien, monto: r.monto,
+          descripcion: r.nombre+' (auto)',
+          categoria: r.categoria, mes,
+          fecha: Date.now(),
+          esRecurrente: true, recurId: r.id
+        });
+        ref(`hogares/${HOGAR}/recurrentes/${r.id}`).update({ultimoMes: mes});
+      }
+    }
+  });
+}
+
+// ─── Navegación mes ───────────────────────────────────────────
+function navMes(d) {
+  const [y,m] = state.mes.split('-').map(Number);
+  const nd = new Date(y, m-1+d);
+  const nk = monthKey(nd);
+  const hoy = monthKey(new Date());
+  if(nk <= hoy) {
+    state.mes = nk;
+    autoRegistrarRecurrentes();
+    renderMain();
+    renderTab();
+  }
+}
+
+// ─── Render principal ─────────────────────────────────────────
+function renderMain() {
+  const {config, mes, mySlot, gastos} = state;
+  const {person1Name:p1n, person2Name:p2n, quota} = config;
+
+  document.getElementById('hdr-names').textContent = p1n + ' & ' + p2n;
+  document.getElementById('mes-label').textContent = monthLabel(mes);
+  const hoy = monthKey(new Date());
+  document.getElementById('btn-mes-next').className = mes>=hoy ? 'dis' : '';
+
+  const mG = gastos.filter(g => g.mes===mes);
+  const p1T = mG.filter(g=>g.quien==='person1').reduce((s,g)=>s+g.monto,0);
+  const p2T = mG.filter(g=>g.quien==='person2').reduce((s,g)=>s+g.monto,0);
+  const total = p1T + p2T;
+  const diff = Math.abs(p1T-p2T);
+
+  document.getElementById('hero-total').textContent = fmt(total);
+  const balEl = document.getElementById('hero-balance');
+  if(diff > 0) {
+    const deb = p1T<p2T ? p1n : p2n;
+    const acr = p1T>p2T ? p1n : p2n;
+    balEl.innerHTML = `<span style="color:#fbbf24;font-weight:600">${deb}</span> le debe <span style="color:#4ade80;font-weight:600">${fmt(diff)}</span> a ${acr}`;
+  } else {
+    balEl.innerHTML = `<span style="color:#4ade80;font-weight:600">✓ Están al día</span>`;
+  }
+
+  // Cards persona
+  [[p1n,p1T,'pc1','#818cf8','person1'],[p2n,p2T,'pc2','#f472b6','person2']].forEach(([name,tot,id,color,key]) => {
+    document.getElementById(id+'-name').textContent = name;
+    document.getElementById(id+'-you').textContent = key===mySlot ? 'TÚ' : '';
+    document.getElementById(id+'-monto').textContent = fmt(tot);
+    const pct = Math.min((tot/quota)*100, 100);
+    const over = tot>quota;
+    document.getElementById(id+'-bar').style.width = pct+'%';
+    document.getElementById(id+'-bar').style.background = over ? '#f43f5e' : color;
+    document.getElementById(id+'-hint').textContent = over ? `⚠️ +${fmt(tot-quota)} sobre cuota` : `Cuota: ${fmt(quota)}`;
+    document.getElementById(id+'-hint').style.color = over ? '#f43f5e' : '#64748b';
+  });
+
+  // Chips filtro
+  document.getElementById('chip-p1').textContent = p1n;
+  document.getElementById('chip-p2').textContent = p2n;
+
+  // Config modal
+  document.getElementById('cfg-p1').value = p1n;
+  document.getElementById('cfg-p2').value = p2n;
+  document.getElementById('cfg-quota').value = quota;
+
+  // Quien pickers
+  buildQuienGrids();
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────
+function setTab(tab) {
+  state.tabActual = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab===tab));
+  document.getElementById('tab-gastos').style.display  = tab==='gastos'  ? '' : 'none';
+  document.getElementById('tab-resumen').style.display = tab==='resumen' ? '' : 'none';
+  document.getElementById('tab-fijos').style.display   = tab==='fijos'   ? '' : 'none';
+  renderTab();
+}
+
+function renderTab() {
+  if(state.tabActual==='gastos')  renderGastos();
+  if(state.tabActual==='resumen') renderResumen();
+  if(state.tabActual==='fijos')   renderFijos();
+}
+
+// ─── Tab Gastos ───────────────────────────────────────────────
+function setFiltro(f) {
+  state.filtro = f;
+  document.querySelectorAll('#chips-filtro .chip').forEach(c => c.classList.toggle('on', c.dataset.filtro===f));
+  renderGastos();
+}
+
+function limpiarBuscar() {
+  document.getElementById('inp-buscar').value = '';
+  document.getElementById('btn-clear-buscar').style.display = 'none';
+  renderGastos();
+}
+
+function renderGastos() {
+  const buscar = document.getElementById('inp-buscar')?.value?.toLowerCase()||'';
+  document.getElementById('btn-clear-buscar').style.display = buscar ? '' : 'none';
+
+  const {gastos, mes, filtro, config:{person1Name:p1n,person2Name:p2n}} = state;
+  const mG = gastos.filter(g => {
+    if(g.mes!==mes) return false;
+    if(filtro!=='todos' && g.quien!==filtro) return false;
+    if(buscar && !((g.descripcion||'').toLowerCase().includes(buscar))) return false;
+    return true;
+  });
+
+  const el = document.getElementById('lista-gastos');
+  if(!mG.length) { el.innerHTML = `<div class="empty">Sin gastos${buscar?' con esa búsqueda':' este mes'}</div>`; return; }
+
+  el.innerHTML = mG.map(g => {
+    const cat = CMAP[g.categoria]||CMAP['otro'];
+    const isP1 = g.quien==='person1';
+    const color = isP1 ? '#818cf8' : '#f472b6';
+    const nombre = isP1 ? p1n : p2n;
+    const fecha = g.fecha ? new Date(g.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'short'}) : '';
+    const autoTag = g.esRecurrente ? `<span class="tag-auto">auto</span>` : '';
+    return `
+      <div class="row" id="row-${g.id}">
+        <div class="row-emoji">${cat.emoji}</div>
+        <div class="row-body">
+          <div class="row-title">${esc(g.descripcion)}${autoTag}</div>
+          <div class="row-sub"><span style="color:${color};font-weight:600">${nombre}</span> · ${cat.label}${fecha?' · '+fecha:''}</div>
+        </div>
+        <div class="row-right">
+          <div class="row-monto">${fmt(g.monto)}</div>
+          <div class="row-actions" id="acc-${g.id}">
+            <button style="color:#60a5fa" onclick="abrirEditGasto('${g.id}')">✏️</button>
+            <button style="color:#334155" onclick="confirmarBorrar('${g.id}','gasto')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function confirmarBorrar(id, tipo) {
+  const accId = tipo==='gasto' ? `acc-${id}` : `accr-${id}`;
+  document.getElementById(accId).innerHTML = `
+    <button class="btn-si" onclick="${tipo==='gasto'?'borrarGasto':'borrarRec'}('${id}')">Sí</button>
+    <button class="btn-no" onclick="cancelarBorrar('${id}','${tipo}')">No</button>`;
+}
+
+function cancelarBorrar(id, tipo) {
+  if(tipo==='gasto') renderGastos();
+  else renderFijos();
+}
+
+function borrarGasto(id) {
+  ref(`hogares/${HOGAR}/gastos/${id}`).remove();
+  toast('🗑️ Gasto eliminado');
+}
+
+// ─── Tab Resumen ──────────────────────────────────────────────
+function renderResumen() {
+  const {gastos, mes, config:{person1Name:p1n,person2Name:p2n,quota}} = state;
+  const mG = gastos.filter(g=>g.mes===mes);
+  const p1T = mG.filter(g=>g.quien==='person1').reduce((s,g)=>s+g.monto,0);
+  const p2T = mG.filter(g=>g.quien==='person2').reduce((s,g)=>s+g.monto,0);
+  const total = p1T+p2T;
+  const diff = Math.abs(p1T-p2T);
+
+  const cats = CATS.map(c=>({...c, tot:mG.filter(g=>g.categoria===c.id).reduce((s,g)=>s+g.monto,0)}))
+    .filter(c=>c.tot>0).sort((a,b)=>b.tot-a.tot);
+
+  const balanceHTML = diff>0 ? `
+    <div class="card">
+      <span class="lbl">Quién debe este mes</span>
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">
+        <b style="color:#fbbf24">${p1T<p2T?p1n:p2n}</b> le debe a <b style="color:#4ade80">${p1T>p2T?p1n:p2n}</b>
+      </div>
+      <div style="font-size:28px;font-weight:700;font-family:monospace;color:#fbbf24">${fmt(diff)}</div>
+    </div>` : `
+    <div class="card card-green">
+      <div style="font-size:26px;margin-bottom:4px">🤝</div>
+      <div style="color:#4ade80;font-weight:700">¡Están al día este mes!</div>
+    </div>`;
+
+  const difCuotas = quota*2 - total;
+  const statsHTML = `
+    <div class="card">
+      <span class="lbl">Este mes</span>
+      ${[
+        ['Total de gastos', mG.length],
+        [`Gastó ${p1n}`, fmt(p1T)],
+        [`Gastó ${p2n}`, fmt(p2T)],
+        ['Entre los dos', fmt(total)],
+        ['Presupuesto (2 cuotas)', fmt(quota*2)],
+        ['Diferencia', difCuotas>=0
+          ? `<span style="color:#4ade80;font-weight:700">Sobran ${fmt(difCuotas)}</span>`
+          : `<span style="color:#f43f5e;font-weight:700">Se pasaron ${fmt(Math.abs(difCuotas))}</span>`],
+      ].map(([k,v])=>`<div class="stat-row"><span class="stat-key">${k}</span><span class="stat-val">${v}</span></div>`).join('')}
+    </div>`;
+
+  const catsHTML = cats.length ? `
+    <div class="card">
+      <span class="lbl">En qué se fue la plata</span>
+      ${cats.map(c=>{
+        const pct = total>0 ? (c.tot/total)*100 : 0;
+        return `<div class="cat-bar">
+          <div class="cat-bar-top">
+            <span class="cat-bar-lbl">${c.emoji} ${c.label}</span>
+            <span style="font-size:13px;font-weight:700;font-family:monospace;color:${c.color}">${fmt(c.tot)}</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${c.color}"></div></div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  document.getElementById('tab-resumen').innerHTML = balanceHTML + statsHTML + catsHTML;
+}
+
+// ─── Tab Fijos ────────────────────────────────────────────────
+function renderFijos() {
+  const {recurrentes, config:{person1Name:p1n,person2Name:p2n}} = state;
+  const activos = recurrentes.filter(r=>r.activo);
+  const totalActivos = activos.reduce((s,r)=>s+r.monto,0);
+
+  const statsHTML = recurrentes.length ? `
+    <div class="rec-stats">
+      <span>${activos.length} activo${activos.length!==1?'s':''}</span>
+      <span class="rec-total">${fmt(totalActivos)}/mes</span>
+    </div>` : '';
+
+  const listHTML = recurrentes.length ? recurrentes.map(r=>{
+    const cat = CMAP[r.categoria]||CMAP['otro'];
+    const nombre = r.quien==='person1' ? p1n : p2n;
+    return `
+      <div class="row" style="opacity:${r.activo?1:.45}">
+        <div class="row-emoji">${cat.emoji}</div>
+        <div class="row-body">
+          <div class="row-title">${esc(r.nombre)}</div>
+          <div class="row-sub">${nombre} · ${fmt(r.monto)}/mes</div>
+        </div>
+        <div class="row-right" style="display:flex;gap:4px;align-items:center">
+          <button class="toggle-btn ${r.activo?'toggle-on':'toggle-off'}" onclick="toggleRec('${r.id}',${!r.activo})">${r.activo?'✓':'⏸'}</button>
+          <button style="background:none;border:none;color:#60a5fa;font-size:14px;padding:4px 5px" onclick="abrirEditRec('${r.id}')">✏️</button>
+          <div id="accr-${r.id}" style="display:flex;gap:4px">
+            <button style="background:none;border:none;color:#f43f5e;font-size:14px;padding:4px 5px" onclick="confirmarBorrar('${r.id}','rec')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('') : `<div class="empty">Sin gastos fijos aún</div>`;
+
+  document.getElementById('tab-fijos').innerHTML = `
+    <div class="info-box">💡 Los gastos fijos se registran <b style="color:#94a3b8">automáticamente</b> cada mes. Configura aquí los que quieras.</div>
+    ${statsHTML}
+    ${listHTML}
+    <div style="margin-top:12px">
+      <button class="btn-add-rec" onclick="abrirModal('m-rec');resetRecModal()">🔄 Agregar gasto fijo</button>
+    </div>`;
+}
+
+function toggleRec(id, val) {
+  ref(`hogares/${HOGAR}/recurrentes/${id}`).update({activo: val});
+  toast(val ? '✓ Activado' : '⏸ Pausado');
+}
+
+function borrarRec(id) {
+  ref(`hogares/${HOGAR}/recurrentes/${id}`).remove();
+  toast('🗑️ Eliminado');
+}
+
+// ─── Grids pickers ────────────────────────────────────────────
+function buildQuienGrid(containerId, field) {
+  const {config:{person1Name:p1n,person2Name:p2n}} = state;
+  const selected = field==='gastoQuien' ? state.gastoQuien : state.recQuien;
+  document.getElementById(containerId).innerHTML =
+    [['person1',p1n,'#818cf8'],['person2',p2n,'#f472b6']].map(([k,n,c])=>`
+      <button class="quien-btn" onclick="setQuien('${field}','${k}','${containerId}')"
+        style="border-color:${selected===k?c:'#1e293b'};background:${selected===k?c+'18':'#0a0a10'};color:${selected===k?c:'#64748b'}">${n}</button>
+    `).join('');
+}
+
+function buildCatGrid(containerId, field) {
+  const selected = field==='gastoCat' ? state.gastoCat : state.recCat;
+  document.getElementById(containerId).innerHTML = CATS.map(c=>`
+    <button class="cat-btn" onclick="setCat('${field}','${c.id}','${containerId}')"
+      style="border-color:${selected===c.id?c.color:'#1e293b'};background:${selected===c.id?c.color+'18':'#0a0a10'}">
+      <span class="cat-btn-ico">${c.emoji}</span>
+      <span class="cat-btn-lbl" style="color:${selected===c.id?c.color:'#475569'}">${c.label.slice(0,6)}</span>
+    </button>`).join('');
+}
+
+function buildQuienGrids() {
+  buildQuienGrid('quien-grid-gasto','gastoQuien');
+  buildQuienGrid('quien-grid-rec','recQuien');
+}
+
+function buildCatGrids() {
+  buildCatGrid('cat-grid-gasto','gastoCat');
+  buildCatGrid('cat-grid-rec','recCat');
+}
+
+function setQuien(field, val, containerId) {
+  state[field] = val;
+  buildQuienGrid(containerId, field);
+}
+
+function setCat(field, val, containerId) {
+  state[field] = val;
+  buildCatGrid(containerId, field);
+}
+
+// ─── CRUD Gastos ──────────────────────────────────────────────
+function abrirEditGasto(id) {
+  const g = state.gastos.find(x=>x.id===id);
+  if(!g) return;
+  state.editGastoId = id;
+  state.gastoQuien = g.quien;
+  state.gastoCat = g.categoria || 'mercado';
+  buildQuienGrid('quien-grid-gasto','gastoQuien');
+  buildCatGrid('cat-grid-gasto','gastoCat');
+  document.getElementById('g-monto').value = g.monto;
+  document.getElementById('g-desc').value = g.descripcion||'';
+  document.getElementById('m-gasto-title').textContent = '✏️ Editar gasto';
+  document.getElementById('btn-guardar-gasto').textContent = 'Guardar cambios';
+  abrirModal('m-gasto');
+}
+
+function guardarGasto() {
+  const monto = Number(document.getElementById('g-monto').value);
+  const desc  = document.getElementById('g-desc').value.trim() || 'Sin descripción';
+  if(!monto || monto<=0) { toast('⚠️ Ingresa un valor'); return; }
+
+  const data = { quien:state.gastoQuien, monto, descripcion:desc, categoria:state.gastoCat };
+
+  if(state.editGastoId) {
+    ref(`hogares/${HOGAR}/gastos/${state.editGastoId}`).update(data);
+    toast('✏️ Gasto actualizado');
+    state.editGastoId = null;
+  } else {
+    data.mes = state.mes;
+    data.fecha = Date.now();
+    data.esRecurrente = false;
+    ref(`hogares/${HOGAR}/gastos`).push(data);
+    toast('✅ Gasto guardado');
+  }
+  cerrarModal('m-gasto');
+  resetGastoModal();
+}
+
+function resetGastoModal() {
+  state.editGastoId = null;
+  state.gastoQuien = state.mySlot;
+  state.gastoCat = 'mercado';
+  document.getElementById('g-monto').value = '';
+  document.getElementById('g-desc').value = '';
+  document.getElementById('m-gasto-title').textContent = '💸 Nuevo gasto';
+  document.getElementById('btn-guardar-gasto').textContent = 'Guardar gasto';
+  buildQuienGrid('quien-grid-gasto','gastoQuien');
+  buildCatGrid('cat-grid-gasto','gastoCat');
+}
+
+// Limpiar modal al abrir nuevo gasto desde FAB
+document.querySelector('.fab').addEventListener('click', () => {
+  if(!state.editGastoId) resetGastoModal();
+});
+
+// ─── CRUD Recurrentes ─────────────────────────────────────────
+function abrirEditRec(id) {
+  const r = state.recurrentes.find(x=>x.id===id);
+  if(!r) return;
+  state.editRecId = id;
+  state.recQuien = r.quien;
+  state.recCat = r.categoria || 'arriendo';
+  buildQuienGrid('quien-grid-rec','recQuien');
+  buildCatGrid('cat-grid-rec','recCat');
+  document.getElementById('r-nombre').value = r.nombre||'';
+  document.getElementById('r-monto').value = r.monto||'';
+  document.getElementById('m-rec-title').textContent = '✏️ Editar gasto fijo';
+  document.getElementById('btn-guardar-rec').textContent = 'Guardar cambios';
+  abrirModal('m-rec');
+}
+
+function guardarRec() {
+  const nombre = document.getElementById('r-nombre').value.trim();
+  const monto  = Number(document.getElementById('r-monto').value);
+  if(!nombre) { toast('⚠️ Escribe el nombre'); return; }
+  if(!monto || monto<=0) { toast('⚠️ Ingresa un valor'); return; }
+
+  const data = { quien:state.recQuien, monto, nombre, categoria:state.recCat };
+
+  if(state.editRecId) {
+    ref(`hogares/${HOGAR}/recurrentes/${state.editRecId}`).update(data);
+    toast('✏️ Gasto fijo actualizado');
+    state.editRecId = null;
+  } else {
+    data.activo = true;
+    data.ultimoMes = null;
+    ref(`hogares/${HOGAR}/recurrentes`).push(data);
+    toast('🔄 Gasto fijo guardado');
+  }
+  cerrarModal('m-rec');
+  resetRecModal();
+}
+
+function resetRecModal() {
+  state.editRecId = null;
+  state.recQuien = state.mySlot;
+  state.recCat = 'arriendo';
+  document.getElementById('r-nombre').value = '';
+  document.getElementById('r-monto').value = '';
+  document.getElementById('m-rec-title').textContent = '🔄 Nuevo gasto fijo';
+  document.getElementById('btn-guardar-rec').textContent = 'Agregar gasto fijo';
+  buildQuienGrid('quien-grid-rec','recQuien');
+  buildCatGrid('cat-grid-rec','recCat');
+}
+
+// ─── Config ───────────────────────────────────────────────────
+function guardarConfig() {
+  const p1 = document.getElementById('cfg-p1').value.trim();
+  const p2 = document.getElementById('cfg-p2').value.trim();
+  const q  = Number(document.getElementById('cfg-quota').value);
+  if(!p1||!p2||!q) { toast('⚠️ Completa todos los campos'); return; }
+  ref(`hogares/${HOGAR}`).update({ person1Name:p1, person2Name:p2, quota:q });
+  toast('⚙️ Configuración guardada');
+  cerrarModal('m-config');
+}
+
+// ─── Helpers ──────────────────────────────────────────────────
+function esc(str) {
+  return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
