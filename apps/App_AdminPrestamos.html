@@ -409,6 +409,12 @@ input[type=file]{display:none;}
     </div>
   </div>
   <div class="card" style="margin-top:12px">
+    <div class="ct">Notificaciones</div>
+    <div id="notif-admin-status" style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:10px">Desactivadas.</div>
+    <button class="btn btn-primary" id="notif-admin-btn" onclick="activarNotificacionesAdmin()">🔔 Activar notificaciones</button>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Solo avisan mientras la app esté abierta. Para avisos con la app cerrada ya se necesita push real con service worker.</div>
+  </div>
+  <div class="card" style="margin-top:12px">
     <div class="ct">Exportar y datos</div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-ghost btn-full" onclick="exportarCSV()">⬇ Exportar clientes CSV</button>
@@ -578,7 +584,9 @@ input[type=file]{display:none;}
 const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
 let db=null,fbOk=false,clientes=[],actividad=[],caja=[],liquidaciones=[],pendingRefin=null,pendingAbono=null;
 const PIN_KEY='cr_pin_admin';
+const NOTIF_KEY='cr_admin_notif_enabled';
 let pinBuf='',pinMode='check';
+let _prevSolicitudesPendientes=[];
 
 // PIN
 function initPIN(){
@@ -631,6 +639,71 @@ function guardarPIN(){
   localStorage.setItem(PIN_KEY,p1);
   document.getElementById('cfg-pin1').value='';document.getElementById('cfg-pin2').value='';
   notify('PIN actualizado ✓','ok');
+}
+
+function soportaNotificaciones(){
+  return typeof Notification!=='undefined';
+}
+function notifHabilitadas(){
+  return localStorage.getItem(NOTIF_KEY)==='1' && soportaNotificaciones() && Notification.permission==='granted';
+}
+function actualizarUINotificaciones(){
+  const st=document.getElementById('notif-admin-status');
+  const btn=document.getElementById('notif-admin-btn');
+  if(!st||!btn)return;
+  if(!soportaNotificaciones()){
+    st.textContent='Este navegador no soporta notificaciones del sistema.';
+    st.style.color='var(--red)';
+    btn.disabled=true;
+    btn.style.opacity='.6';
+    return;
+  }
+  const permiso=Notification.permission;
+  if(notifHabilitadas()){
+    st.textContent='Activadas. Recibirás aviso mientras la app esté abierta.';
+    st.style.color='var(--green)';
+    btn.textContent='🔔 Notificaciones activas';
+  }else if(permiso==='denied'){
+    st.textContent='Bloqueadas por el navegador. Debes habilitarlas manualmente en el sitio.';
+    st.style.color='var(--red)';
+    btn.textContent='🚫 Notificaciones bloqueadas';
+  }else{
+    st.textContent='Desactivadas. Puedes habilitarlas para avisos de nuevas solicitudes.';
+    st.style.color='var(--text3)';
+    btn.textContent='🔔 Activar notificaciones';
+  }
+}
+async function activarNotificacionesAdmin(){
+  if(!soportaNotificaciones()){notify('Tu navegador no soporta notificaciones','err');return;}
+  try{
+    const perm=await Notification.requestPermission();
+    if(perm==='granted'){
+      localStorage.setItem(NOTIF_KEY,'1');
+      actualizarUINotificaciones();
+      notify('Notificaciones activadas ✓','ok');
+    }else if(perm==='denied'){
+      localStorage.removeItem(NOTIF_KEY);
+      actualizarUINotificaciones();
+      notify('El navegador bloqueó las notificaciones','err');
+    }else{
+      actualizarUINotificaciones();
+      notify('Permiso no concedido','err');
+    }
+  }catch(e){
+    console.error(e);
+    notify('No fue posible activar notificaciones','err');
+  }
+}
+function avisarNuevaSolicitud(s){
+  notify(`Nueva solicitud: ${s.nombre}`,'ok');
+  try{if(typeof navigator!=='undefined'&&navigator.vibrate)navigator.vibrate([120,60,120]);}catch(e){}
+  if(!notifHabilitadas())return;
+  try{
+    new Notification('Nuevo cliente solicitado', {
+      body:`${s.nombre}${s.telefono?' · '+s.telefono:''}${s.capitalSolicitado?` · ${fmt(s.capitalSolicitado)}`:''}`,
+      tag:'credito-rapido-solicitud'
+    });
+  }catch(e){console.error(e);}
 }
 
 // FIREBASE
@@ -708,12 +781,18 @@ function escuchar(){
   db.ref('solicitudes').on('value',s=>{
     const d=s.val();
     window._solicitudes=d?Object.values(d):[];
-    const pendientes=(window._solicitudes).filter(x=>x.estado==='pendiente').length;
+    const pendientesLista=(window._solicitudes).filter(x=>x.estado==='pendiente').sort((a,b)=>a.ts-b.ts);
+    const pendientes=pendientesLista.length;
     const badge=document.getElementById('badge-soli');
     if(badge){
       badge.textContent=pendientes;
       badge.style.display=pendientes>0?'inline':'none';
     }
+    const idsActuales=pendientesLista.map(x=>x.id);
+    if(_prevSolicitudesPendientes.length){
+      pendientesLista.filter(x=>!_prevSolicitudesPendientes.includes(x.id)).forEach(avisarNuevaSolicitud);
+    }
+    _prevSolicitudesPendientes=idsActuales;
     renderSolicitudesAdmin();
   });
   // Escuchar parámetros globales desde Firebase
@@ -725,8 +804,22 @@ function escuchar(){
       aplicarParamsAlFormulario(p);
     }
   });
+  db.ref('config/waTemplate').on('value',s=>{
+    const v=s.val();
+    if(v){
+      localStorage.setItem(WA_TEMPLATE_KEY,v);
+      const el=document.getElementById('wa-template');
+      if(el)el.value=v;
+    }
+  });
 }
-function save(){if(fbOk&&db){const o=clientes.reduce((a,c)=>{a[c.id]=c;return a;},{});db.ref('clientes').set(o);}}
+function save(){
+  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  if(fbOk&&db){
+    const o=clientes.reduce((a,c)=>{a[c.id]=c;return a;},{});
+    db.ref('clientes').set(o);
+  }
+}
 function log(item){actividad.unshift(item);if(fbOk&&db)db.ref('actividad').push(item);}
 
 // INIT
@@ -738,6 +831,7 @@ document.addEventListener('DOMContentLoaded', function(){
   const pLocal=JSON.parse(localStorage.getItem('cr_params_globales')||'{}');
   if(pLocal.tasa||pLocal.tipo){aplicarParamsAlFormulario(pLocal);}else{updatePlazo();preview();}
   updateRefinPlazo(true);
+  actualizarUINotificaciones();
   caja=JSON.parse(localStorage.getItem('cr_caja')||'[]');
   liquidaciones=JSON.parse(localStorage.getItem('cr_liquidaciones')||'[]');
 });
@@ -891,6 +985,7 @@ function crearPrestamo(){
   if(window._soliPendienteAprobacion&&fbOk&&db){
     db.ref('solicitudes/'+window._soliPendienteAprobacion).update({
       estado:'aprobado',
+      accionAdmin:'prestamo_creado',
       notaAdmin:'Préstamo creado',
       fechaRespuesta:new Date().toISOString()
     });
@@ -1198,10 +1293,23 @@ function renderClientes(){
 }
 
 // VER CLIENTE
-function verCliente(id){
+function verCliente(id,soliId=null){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),h=hoy(),m=mora(c),d=diasMora(c);
   const sem=semaforo(c),riesgo=nivelRiesgo(c);
+  const soliCtx=soliId?(window._solicitudes||[]).find(x=>x.id===soliId):null;
+  window._soliContextoActiva=soliCtx?soliId:null;
+  const infoSoli=soliCtx?infoSolicitudAdmin(soliCtx):null;
+  const requestHTML=!soliCtx?'':`<div class="ibox amber" style="font-size:12px;margin-bottom:10px">
+    <div style="font-weight:700;margin-bottom:4px">${infoSoli.icon} Solicitud activa: ${infoSoli.label}</div>
+    ${soliCtx.montoReportado>0?`<div>Monto reportado: <strong>${fmt(soliCtx.montoReportado)}</strong></div>`:''}
+    ${soliCtx.notas?`<div style="margin-top:4px">Nota cobrador: ${soliCtx.notas}</div>`:''}
+    <div style="margin-top:6px;color:var(--text2)">${tipoSolicitudAdmin(soliCtx)==='abono'?'Usa el botón de abono parcial para aplicar esta solicitud.':tipoSolicitudAdmin(soliCtx)==='cobro_anticipado'?'Usa cuota normal, cobrar con mora o abono según corresponda.':'Puedes marcar esta novedad como revisada o rechazarla.'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+      ${tipoSolicitudAdmin(soliCtx)==='novedad'?`<button class="btn btn-blue btn-sm" onclick="marcarSolicitudComoAtendida('${soliCtx.id}')">✅ Marcar revisada</button>`:`<button class="btn btn-ghost btn-sm" onclick="resolverSolicitudActiva('vista_abierta','Solicitud revisada sin aplicar cambios')">✓ Marcar atendida</button>`}
+      <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${soliCtx.id}')">❌ Rechazar solicitud</button>
+    </div>
+  </div>`;
   const moraHTML=m>0?`<div class="ibox red"><div style="font-weight:600;margin-bottom:9px">⚠ ${d} día${d!==1?'s':''} en mora — ${fmt(c.moraDia)}/día</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:9px">
       <div class="cs"><div class="csl">Mora/día</div><div class="csv" style="color:var(--red)">${fmt(c.moraDia)}</div></div>
@@ -1226,6 +1334,7 @@ function verCliente(id){
         <div style="font-size:11px;color:var(--text3)">Riesgo ${riesgo}% · ${c.historialNoPago?.length||0} visita${(c.historialNoPago?.length||0)!==1?'s':''} sin pago · ${c.conteoRefinanciaciones||0} refinanciación${(c.conteoRefinanciaciones||0)!==1?'es':''}</div>
       </div>
     </div>
+    ${requestHTML}
     ${c.refinanciado&&c.dineroExtra>0?`<div class="ibox amber" style="font-size:12px">💵 Incluye <strong>${fmt(c.dineroExtra)}</strong> de dinero adicional en última refinanciación</div>`:''}
     ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];if(!ult||!ult.fecha?.startsWith(h))return '';const mora_acum=mora(c);return`<div style="background:rgba(255,107,107,.12);border:1.5px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px">❌ No pagó hoy${ult.motivo&&ult.motivo!=='Sin motivo'?' — '+ult.motivo:''}</div><div style="font-size:12px;color:var(--text2)">El cobrador ya realizó la visita. Mañana debe cobrar:</div><div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div><div class="cs"><div class="csl">Mora acumulada</div><div class="csv" style="color:var(--red)">${fmt(mora_acum)}</div></div><div class="cs" style="grid-column:span 2"><div class="csl">Total a cobrar mañana</div><div class="csv" style="color:var(--red);font-size:16px">${fmt(c.cuota+mora_acum)}</div></div></div></div>`;})()}
     ${c.notas?`<div class="ibox blue" style="font-size:12px">📝 ${c.notas}</div>`:''}
@@ -1271,54 +1380,111 @@ function verCliente(id){
 }
 
 // ===== SOLICITUDES DE NUEVOS CLIENTES =====
+function tipoSolicitudAdmin(s){return s?.tipoSolicitud||'nuevo_cliente';}
+function infoSolicitudAdmin(s){
+  const tipo=tipoSolicitudAdmin(s);
+  return {
+    nuevo_cliente:{label:'Nuevo cliente',icon:'🆕',color:'var(--green)'},
+    cobro_anticipado:{label:'Cobro anticipado',icon:'⏩',color:'var(--gold)'},
+    abono:{label:'Abono',icon:'💵',color:'var(--amber)'},
+    novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'}
+  }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
+}
+function resolverSolicitudAdmin(soliId,estado='aprobado',accionAdmin='',notaAdmin=''){
+  if(!soliId||!fbOk||!db)return;
+  db.ref('solicitudes/'+soliId).update({
+    estado,
+    accionAdmin:accionAdmin||'',
+    notaAdmin:notaAdmin||accionAdmin||'',
+    fechaRespuesta:new Date().toISOString()
+  });
+}
+function resolverSolicitudActiva(accionAdmin='',notaAdmin='',estado='aprobado'){
+  if(!window._soliContextoActiva)return;
+  resolverSolicitudAdmin(window._soliContextoActiva,estado,accionAdmin,notaAdmin);
+  window._soliContextoActiva=null;
+}
+function marcarSolicitudComoAtendida(soliId){
+  const s=(window._solicitudes||[]).find(x=>x.id===soliId);
+  if(!s)return;
+  resolverSolicitudAdmin(soliId,'aprobado','novedad_revisada','Solicitud revisada por admin');
+  window._soliContextoActiva=null;
+  cerrar('modal-cli');
+  notify(`Solicitud de ${s.clienteNombre||s.nombre} marcada como revisada ✓`,'ok');
+}
+function abrirFichaDesdeSolicitud(soliId){
+  const s=(window._solicitudes||[]).find(x=>x.id===soliId);
+  if(!s)return;
+  if(!s.clienteId){notify('Esta solicitud no está asociada a un cliente activo','err');return;}
+  const c=clientes.find(x=>x.id===s.clienteId);
+  if(!c){notify('No encontré el cliente asociado a la solicitud','err');return;}
+  verCliente(c.id,soliId);
+}
+
 function renderSolicitudesAdmin(){
   const el=document.getElementById('lista-soli-admin');
   if(!el)return;
   const lista=(window._solicitudes||[]).slice().sort((a,b)=>b.ts-a.ts);
   if(!lista.length){
-    el.innerHTML='<div class="empty"><div class="empty-i">📬</div><div class="empty-t">Sin solicitudes pendientes</div></div>';
+    el.innerHTML='<div class="empty"><div class="empty-i">📬</div><div class="empty-t">Sin solicitudes</div></div>';
     return;
   }
   const colores={pendiente:'var(--amber)',aprobado:'var(--green)',rechazado:'var(--red)'};
-  const labels={pendiente:'⏳ Pendiente',aprobado:'✅ Aprobado',rechazado:'❌ Rechazado'};
-  el.innerHTML=lista.map(s=>`
-    <div class="card" style="margin-bottom:10px;${s.estado==='pendiente'?'border-color:var(--goldb)':''}">
+  const labels={pendiente:'⏳ Pendiente',aprobado:'✅ Aprobada',rechazado:'❌ Rechazada'};
+  el.innerHTML=lista.map(s=>{
+    const info=infoSolicitudAdmin(s);
+    const tipo=tipoSolicitudAdmin(s);
+    const nombre=s.clienteNombre||s.nombre||'—';
+    const montoAbono=s.montoReportado>0?`<div style="font-size:12px;color:var(--amber);margin-top:3px">Monto reportado: <strong>${fmt(s.montoReportado)}</strong></div>`:'';
+    const capitalNuevo=s.capitalSolicitado>0?`<div style="font-size:12px;color:var(--amber);margin-top:3px">Solicita: <strong>${fmt(s.capitalSolicitado)}</strong></div>`:'';
+    const nota=s.notas?`<div style="font-size:11px;color:var(--text3);margin-top:3px;font-style:italic">"${s.notas}"</div>`:'';
+    const clienteLink=(tipo!=='nuevo_cliente'&&s.clienteId&&clientes.find(c=>c.id===s.clienteId))?`<div style="font-size:11px;color:var(--text3);margin-top:2px">Cliente activo asociado</div>`:'';
+    const accionesPend=tipo==='nuevo_cliente'
+      ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
+          <button class="btn btn-green btn-sm" onclick="abrirAprobacion('${s.id}')">✅ Abrir creación</button>
+          <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
+        </div>`
+      :`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
+          <button class="btn btn-blue btn-sm" onclick="abrirAprobacion('${s.id}')">📂 Abrir ficha</button>
+          <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
+        </div>`;
+    return`<div class="card" style="margin-bottom:10px;${s.estado==='pendiente'?'border-color:var(--goldb)':''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
-          <div style="font-size:15px;font-weight:700;color:var(--text)">${s.nombre}</div>
-          <div style="font-size:12px;color:var(--text3)">${s.cedula?'CC '+s.cedula+' · ':''}📞 ${s.telefono}</div>
+          <div style="font-size:14px;font-weight:700;color:${info.color}">${info.icon} ${info.label}</div>
+          <div style="font-size:15px;font-weight:700;color:var(--text);margin-top:2px">${nombre}</div>
+          <div style="font-size:12px;color:var(--text3)">${s.cedula?'CC '+s.cedula+' · ':''}${s.telefono?'📞 '+s.telefono:'Sin teléfono'}</div>
           <div style="font-size:12px;color:var(--text3)">${s.negocio?'🏪 '+s.negocio:''}${s.zona?' · 📍 '+s.zona:''}</div>
-          ${s.capitalSolicitado>0?`<div style="font-size:12px;color:var(--amber);margin-top:3px">Solicita: <strong>${fmt(s.capitalSolicitado)}</strong></div>`:''}
-          ${s.notas?`<div style="font-size:11px;color:var(--text3);margin-top:3px;font-style:italic">"${s.notas}"</div>`:''}
+          ${clienteLink}${capitalNuevo}${montoAbono}${nota}
+          ${s.notaAdmin?`<div style="font-size:11px;color:var(--green);margin-top:5px">Admin: ${s.notaAdmin}</div>`:''}
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:8px">
-          <div style="font-size:11px;font-weight:600;color:${colores[s.estado]}">${labels[s.estado]}</div>
+          <div style="font-size:11px;font-weight:600;color:${colores[s.estado]||'var(--text3)'}">${labels[s.estado]||s.estado}</div>
           <div style="font-size:10px;color:var(--text3)">${new Date(s.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
         </div>
       </div>
-      ${s.estado==='pendiente'?`
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
-        <button class="btn btn-green btn-sm" onclick="abrirAprobacion('${s.id}')">✅ Aprobar y crear</button>
-        <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
-      </div>`:''}
-    </div>`).join('');
+      ${s.estado==='pendiente'?accionesPend:''}
+    </div>`;
+  }).join('');
 }
 
 // Modal aprobación — reutiliza el formulario de nuevo préstamo pre-llenado
 function abrirAprobacion(soliId){
   const s=(window._solicitudes||[]).find(x=>x.id===soliId);
   if(!s)return;
-  // Pre-llenar formulario de nuevo préstamo y cambiar al tab
-  document.getElementById('n-nombre').value=s.nombre;
+  const tipo=tipoSolicitudAdmin(s);
+  if(tipo!=='nuevo_cliente'){
+    abrirFichaDesdeSolicitud(soliId);
+    return;
+  }
+  document.getElementById('n-nombre').value=s.nombre||'';
   document.getElementById('n-cedula').value=s.cedula||'';
   document.getElementById('n-telefono').value=s.telefono||'';
   document.getElementById('n-negocio').value=s.negocio||'';
   document.getElementById('n-zona').value=s.zona||'';
   document.getElementById('n-notas').value=s.notas||'';
   if(s.capitalSolicitado>0)document.getElementById('n-capital').value=s.capitalSolicitado;
-  // Guardar referencia a la solicitud para marcarla aprobada al crear
   window._soliPendienteAprobacion=soliId;
-  // Ir al tab de nuevo préstamo
   const tabNuevo=document.querySelector('[onclick*="nuevo"]');
   if(tabNuevo)goTab('nuevo',tabNuevo);
   notify(`Datos de ${s.nombre} pre-llenados — revisa las condiciones y crea el préstamo`,'ok');
@@ -1327,17 +1493,14 @@ function abrirAprobacion(soliId){
 function rechazarSolicitud(soliId){
   const s=(window._solicitudes||[]).find(x=>x.id===soliId);
   if(!s)return;
-  const motivo=prompt(`¿Por qué rechazas la solicitud de ${s.nombre}? (opcional)`,'');
+  const nombre=s.clienteNombre||s.nombre||'la solicitud';
+  const motivo=prompt(`¿Por qué rechazas la solicitud de ${nombre}? (opcional)`,'');
   if(motivo===null)return;
-  if(fbOk&&db){
-    db.ref('solicitudes/'+soliId).update({
-      estado:'rechazado',
-      notaAdmin:motivo||'Sin motivo',
-      fechaRespuesta:new Date().toISOString()
-    });
-  }
-  notify(`Solicitud de ${s.nombre} rechazada`,'ok');
+  resolverSolicitudAdmin(soliId,'rechazado','rechazada',motivo||'Sin motivo');
+  if(window._soliContextoActiva===soliId)window._soliContextoActiva=null;
+  notify(`Solicitud de ${nombre} rechazada`,'ok');
 }
+
 
 // ===== SECCIÓN MORA EN MODAL =====
 function generarSeccionMora(c){
@@ -1539,6 +1702,7 @@ function pagoNormal(id){
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
   c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=new Date().toISOString();save();
   log({tipo:'pago',cliente:c.nombre,monto:c.cuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin'});
+  resolverSolicitudActiva('pago_registrado',`Pago ${c.pagadas}/${c.numCuotas} registrado por admin`);
   notify(`Pago ${c.pagadas}/${c.numCuotas} registrado ✓`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();
 }
@@ -1551,6 +1715,7 @@ function cobrarConMora(id){
   c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
   c.ultimoPago=new Date().toISOString();save();
   log({tipo:'pago',cliente:c.nombre,monto:c.cuota+m,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:`mora ${fmt(m)}`});
+  resolverSolicitudActiva('pago_con_mora',`Cobro aplicado por admin: ${fmt(c.cuota+m)}`);
   notify(`Cobrado ${fmt(c.cuota+m)} ✓`,'ok');
   // Botón de WhatsApp con plantilla personalizada
   if(c.telefono){
@@ -1678,6 +1843,7 @@ function confirmarAbono(){
     notify(`Abono ${fmt(monto)} registrado — base falta ${fmt(Math.max(0,faltaBase))} + mora del día ✓`,'ok');
   }
   save();
+  resolverSolicitudActiva('abono_registrado',`Abono aplicado por admin: ${fmt(monto)}`);
   cerrar('modal-abono');renderClientes();renderInicio();
 }
 
@@ -1887,6 +2053,7 @@ function resetWATemplate(){
   if(!confirm('¿Restaurar la plantilla original?'))return;
   localStorage.removeItem(WA_TEMPLATE_KEY);
   document.getElementById('wa-template').value=WA_TEMPLATE_DEFAULT;
+  if(fbOk&&db)db.ref('config/waTemplate').set(WA_TEMPLATE_DEFAULT);
   notify('Plantilla restaurada ✓','ok');
 }
 function buildWAMsg(c, cuotaNum, montoTotal, moraAmt){
@@ -2087,13 +2254,16 @@ function aplicarParamsAlFormulario(p){
 // ===== BACKUP / RESTORE JSON =====
 function exportarBackupJSON(){
   const backup={
-    version:2,
+    version:3,
     fecha:new Date().toISOString(),
     clientes,
     actividad,
     caja,
     liquidaciones,
-    params:window._paramsGlobalesFB||JSON.parse(localStorage.getItem(PARAMS_KEY)||'{}')
+    solicitudes:window._solicitudes||[],
+    params:window._paramsGlobalesFB||JSON.parse(localStorage.getItem(PARAMS_KEY)||'{}'),
+    waTemplate:getWATemplate(),
+    comisionPct:pctGlobal()
   };
   const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
   const a=document.createElement('a');
@@ -2112,19 +2282,32 @@ function restaurarBackupJSON(input){
       const b=JSON.parse(e.target.result);
       if(!b.clientes||!Array.isArray(b.clientes)){notify('Archivo inválido','err');return;}
       clientes=b.clientes;
-      if(b.actividad)actividad=b.actividad;
-      if(b.caja)caja=b.caja;
-      if(b.liquidaciones)liquidaciones=b.liquidaciones;
+      actividad=Array.isArray(b.actividad)?b.actividad:[];
+      caja=Array.isArray(b.caja)?b.caja:[];
+      liquidaciones=Array.isArray(b.liquidaciones)?b.liquidaciones:[];
+      window._solicitudes=Array.isArray(b.solicitudes)?b.solicitudes:[];
       // Guardar todo en Firebase
       if(fbOk&&db){
         const obj=clientes.reduce((a,c)=>{a[c.id]=c;return a;},{});
         db.ref('clientes').set(obj);
-        if(b.caja){const co=b.caja.reduce((a,c)=>{a[c.id]=c;return a;},{});db.ref('caja').set(co);}
+        const actObj=actividad.reduce((a,c,i)=>{a[c.id||('act_'+i+'_'+(c.ts||Date.now()))]=c;return a;},{});
+        const cajaObj=caja.reduce((a,c)=>{a[c.id||('mov_'+Date.now())]=c;return a;},{});
+        const liqObj=liquidaciones.reduce((a,c,i)=>{a[c.id||('liq_'+i+'_'+(c.ts||Date.now()))]=c;return a;},{});
+        const soliObj=(window._solicitudes||[]).reduce((a,c,i)=>{a[c.id||('soli_'+i+'_'+Date.now())]=c;return a;},{});
+        db.ref('actividad').set(actObj);
+        db.ref('caja').set(cajaObj);
+        db.ref('liquidaciones').set(liqObj);
+        db.ref('solicitudes').set(soliObj);
         if(b.params)db.ref('config/params').set(b.params);
+        if(b.waTemplate)db.ref('config/waTemplate').set(b.waTemplate);
+        if(b.comisionPct!==undefined&&b.comisionPct!==null)db.ref('config/comisionPct').set(parseFloat(b.comisionPct));
       }
+      localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
       localStorage.setItem(PARAMS_KEY,JSON.stringify(b.params||{}));
+      if(b.waTemplate)localStorage.setItem(WA_TEMPLATE_KEY,b.waTemplate);
+      if(b.comisionPct!==undefined&&b.comisionPct!==null)localStorage.setItem(COM_KEY,String(b.comisionPct));
       notify(`Backup restaurado — ${clientes.length} clientes ✓`,'ok');
-      renderInicio();renderClientes();renderCaja();
+      renderInicio();renderClientes();renderActividad();renderCaja();renderSolicitudesAdmin();
     }catch(err){notify('Error leyendo archivo','err');console.error(err);}
   };
   reader.readAsText(file);
@@ -2300,7 +2483,7 @@ function cargarDatosDemo(){
 
   // Registrar en actividad
   demos.forEach(c=>{
-    actividad.unshift({tipo:'nuevo',cliente:c.nombre,monto:c.capital,ts:Date.now()-Math.random()*86400000*30,autor:'Demo'});
+    log({tipo:'nuevo',cliente:c.nombre,monto:c.capital,ts:Date.now()-Math.random()*86400000*30,autor:'Demo'});
   });
 
   notify(`✅ ${demos.length} clientes de prueba cargados`,'ok');
@@ -2310,15 +2493,23 @@ function cargarDatosDemo(){
 function borrarTodo(){
   if(!confirm('¿Borrar TODO?'))return;
   clientes=[];actividad=[];caja=[];liquidaciones=[];
+  window._solicitudes=[];
+  localStorage.removeItem('cr_clientes_local');
   localStorage.removeItem('cr_caja');
   localStorage.removeItem('cr_liquidaciones');
+  localStorage.removeItem(WA_TEMPLATE_KEY);
+  localStorage.removeItem(COM_KEY);
   if(fbOk&&db){
     db.ref('clientes').remove();
     db.ref('actividad').remove();
     db.ref('caja').remove();
     db.ref('liquidaciones').remove();
+    db.ref('solicitudes').remove();
+    db.ref('config/params').remove();
+    db.ref('config/waTemplate').remove();
+    db.ref('config/comisionPct').remove();
   }
-  renderClientes();renderInicio();renderActividad();renderCaja();
+  renderClientes();renderInicio();renderActividad();renderCaja();renderSolicitudesAdmin();
   notify('Datos borrados','ok');
 }
 

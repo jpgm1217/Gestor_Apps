@@ -93,7 +93,8 @@ body{background:var(--bg);color:var(--text);font-family:'Instrument Sans',sans-s
 .ct{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:12px;}
 .fg{margin-bottom:12px;}
 .fl{font-size:11px;color:var(--text2);font-weight:500;margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.04em;}
-input,select{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-family:'Instrument Sans',sans-serif;font-size:14px;padding:10px 12px;outline:none;transition:border .15s;-webkit-appearance:none;}
+input,select,textarea{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-family:'Instrument Sans',sans-serif;font-size:14px;padding:10px 12px;outline:none;transition:border .15s;-webkit-appearance:none;}
+textarea{resize:vertical;min-height:60px;}
 input:focus{border-color:var(--green);}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 18px;border-radius:var(--rs);font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:'Instrument Sans',sans-serif;transition:all .15s;width:100%;}
 .btn:active{transform:scale(0.97);}
@@ -135,7 +136,7 @@ input:focus{border-color:var(--green);}
   <button class="tab" onclick="goTab('todos',this)">Todos</button>
   <button class="tab" onclick="goTab('dia',this)">Mi día</button>
   <button class="tab" onclick="goTab('ganancias',this)">💰 Mis ganancias</button>
-  <button class="tab" onclick="goTab('nuevo',this)" style="color:var(--green)">+ Cliente</button>
+  <button class="tab" onclick="goTab('nuevo',this)" style="color:var(--green)">Solicitudes</button>
   <button class="tab" onclick="goTab('config',this)">Config</button>
 </div>
 
@@ -187,8 +188,8 @@ input:focus{border-color:var(--green);}
 
 <div id="panel-nuevo" class="panel">
   <div class="card">
-    <div class="ct">Nuevo cliente — datos básicos</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">El admin revisará y definirá el capital y condiciones antes de activar el préstamo.</div>
+    <div class="ct">Solicitud de nuevo cliente</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Desde aquí envías solicitudes de nuevos clientes. Para clientes ya activos, entra por <strong>Todos</strong> y usa la ficha del cliente para pedir cobro anticipado, abono o reportar novedad.</div>
     <div class="fg"><label class="fl">Nombre completo *</label><input type="text" id="soli-nombre" placeholder="Ej: María López"></div>
     <div class="fr">
       <div class="fg"><label class="fl">Cédula</label><input type="tel" id="soli-cedula" placeholder="000000000"></div>
@@ -225,9 +226,12 @@ input:focus{border-color:var(--green);}
     <div class="ct">Acceso del cobrador</div>
     <div style="font-size:13px;color:var(--text2);line-height:1.9">
       <div>✅ Ver todos los clientes</div>
-      <div>✅ Marcar pagos del día</div>
+      <div>✅ Marcar pagos normales del día</div>
       <div>✅ Ver su historial diario</div>
+      <div>✅ Enviar solicitudes al admin</div>
       <div>🔒 No puede crear préstamos</div>
+      <div>🔒 No puede registrar pagos anticipados</div>
+      <div>🔒 No puede aplicar abonos al saldo</div>
       <div>🔒 No puede eliminar clientes</div>
       <div>🔒 No puede modificar montos</div>
     </div>
@@ -269,6 +273,14 @@ input:focus{border-color:var(--green);}
       <button class="confirm-no" onclick="cerrarAbono()">Cancelar</button>
       <button class="confirm-yes" id="abono-btn-confirm" onclick="confirmarAbonoCobrador()" style="background:var(--amber)">💵 Abonar</button>
     </div>
+  </div>
+</div>
+
+
+<!-- DETALLE CLIENTE -->
+<div class="confirm-overlay" id="cliente-overlay" onclick="if(event.target===this)cerrarClienteDetalle()">
+  <div class="confirm-box" style="width:100%;max-width:390px;text-align:left;max-height:88vh;overflow-y:auto;padding:20px">
+    <div id="cliente-detalle-body"></div>
   </div>
 </div>
 
@@ -336,7 +348,7 @@ function guardarPIN(){
 // FIREBASE
 function initFirebase(){
   try{
-    const app=firebase.initializeApp(FB);
+    const app=firebase.apps&&firebase.apps.length?firebase.app():firebase.initializeApp(FB);
     db=firebase.database(app);fbOk=true;
     setConn(true);escuchar();
   }catch(e){setConn(false);console.error(e);}
@@ -525,7 +537,115 @@ function diasMora(c){
   if(!v.length)return 0;
   return Math.max(0,Math.floor((new Date(h)-new Date(v[0].fechaISO))/86400000));
 }
-function saldo(c){return Math.max(0,c.total-c.pagadas*c.cuota-(c.abonoParcial||0));}
+function saldo(c){
+  if(c.pagadas>=c.numCuotas)return 0;
+  const pendientes=c.cuotasData?.slice(c.pagadas)||[];
+  const totalPendiente=pendientes.reduce((s,q)=>s+q.cuota,0);
+  return Math.max(0,totalPendiente-(c.abonoPendiente||0));
+}
+
+// SOLICITUDES Y FICHA DE CLIENTE
+function tipoSolicitudInfo(tipo){
+  return {
+    nuevo_cliente:{label:'Nuevo cliente',icon:'🆕',color:'var(--green)'},
+    cobro_anticipado:{label:'Cobro anticipado',icon:'⏩',color:'var(--gold)'},
+    abono:{label:'Abono',icon:'💵',color:'var(--amber)'},
+    novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'}
+  }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
+}
+function tipoSolicitudDe(s){return s.tipoSolicitud||'nuevo_cliente';}
+function solicitudesPendientesCliente(clienteId,tipo=null){
+  return (window._misSolicitudes||[]).filter(s=>s.estado==='pendiente'&&s.clienteId===clienteId&&(!tipo||tipoSolicitudDe(s)===tipo));
+}
+function crearSolicitudClienteExistente(clienteId,tipo,montoReportado=0,notas=''){
+  const c=clientes.find(x=>x.id===clienteId);if(!c){notify('Cliente no encontrado','err');return;}
+  if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
+  if(solicitudesPendientesCliente(clienteId,tipo).length){notify('Ya existe una solicitud pendiente de este tipo','err');return;}
+  const soli={
+    id:'soli_'+Date.now(),
+    tipoSolicitud:tipo,
+    origen:'cliente_activo',
+    clienteId:c.id,
+    clienteNombre:c.nombre,
+    nombre:c.nombre,
+    cedula:c.cedula||'',
+    telefono:c.telefono||'',
+    negocio:c.negocio||'',
+    zona:c.zona||'',
+    capitalSolicitado:0,
+    montoReportado:parseFloat(montoReportado)||0,
+    notas:(notas||'').trim(),
+    estado:'pendiente',
+    autor:'Cobrador',
+    fecha:new Date().toISOString(),
+    ts:Date.now()
+  };
+  db.ref('solicitudes/'+soli.id).set(soli).then(()=>{
+    notify(`${tipoSolicitudInfo(tipo).label} enviada ✓`,'ok');
+    cerrarClienteDetalle();
+  }).catch(()=>notify('Error al enviar la solicitud','err'));
+}
+function solicitarCobroAnticipado(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);if(!c)return;
+  const nota=prompt(`Nota opcional para ${c.nombre}:`,'');
+  if(nota===null)return;
+  crearSolicitudClienteExistente(clienteId,'cobro_anticipado',0,nota);
+}
+function solicitarAbonoCliente(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);if(!c)return;
+  const montoTxt=prompt(`¿Cuánto recibió de abono ${c.nombre}?`,'');
+  if(montoTxt===null)return;
+  const monto=parseFloat(String(montoTxt).replace(/[^\d.]/g,''))||0;
+  if(monto<=0){notify('Monto inválido','err');return;}
+  const nota=prompt('Nota opcional para el admin:','')||'';
+  crearSolicitudClienteExistente(clienteId,'abono',monto,nota);
+}
+function solicitarNovedadCliente(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);if(!c)return;
+  const nota=prompt(`Describe la novedad de ${c.nombre}:`,'');
+  if(nota===null)return;
+  if(!nota.trim()){notify('La novedad no puede ir vacía','err');return;}
+  crearSolicitudClienteExistente(clienteId,'novedad',0,nota);
+}
+function abrirDetalleClienteCobrador(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const h=hoy(),pag=c.pagadas>=c.numCuotas,m=mora(c),d=diasMora(c),sd=saldo(c);
+  const pendientes=(window._misSolicitudes||[]).filter(s=>s.estado==='pendiente'&&s.clienteId===c.id);
+  const próximas=(c.cuotasData||[]).filter((q,i)=>i>=c.pagadas).slice(0,8);
+  const filas=próximas.length?próximas.map(q=>{
+    const estado=q.fechaISO===h?'Hoy':q.fechaISO<h?'Vencida':'Pendiente';
+    const color=q.fechaISO===h?'var(--gold)':q.fechaISO<h?'var(--red)':'var(--text2)';
+    return `<tr><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${q.fecha}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px;font-size:11px;color:${color}">${estado}</td></tr>`;
+  }).join(''):'<tr><td colspan="4" style="padding:8px 4px;font-size:11px;color:var(--text3)">Sin cuotas pendientes</td></tr>';
+  const acciones=pag?'<div style="font-size:12px;color:var(--text3);padding:10px 0;text-align:center">Préstamo completado. No hay acciones disponibles.</div>':`
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px">
+      <button class="btn btn-primary" onclick="solicitarCobroAnticipado('${c.id}')">⏩ Solicitar cobro anticipado</button>
+      <button class="btn" style="background:var(--amberd);color:var(--amber);border:1px solid rgba(255,170,68,.2)" onclick="solicitarAbonoCliente('${c.id}')">💵 Solicitar abono</button>
+      <button class="btn" style="background:var(--blued);color:var(--blue);border:1px solid rgba(110,179,255,.2)" onclick="solicitarNovedadCliente('${c.id}')">📝 Reportar novedad</button>
+    </div>`;
+  document.getElementById('cliente-detalle-body').innerHTML=`
+    <div class="confirm-title" style="margin-bottom:8px">${c.nombre}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${c.negocio||'—'}${c.zona?' · '+c.zona:''}${c.telefono?' · 📞 '+c.telefono:''}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
+      <div class="cs"><div class="csl">Cuota actual</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
+      <div class="cs"><div class="csl">Progreso</div><div class="csv">${c.pagadas}/${c.numCuotas}</div></div>
+      <div class="cs"><div class="csl">Mora</div><div class="csv" style="color:${m>0?'var(--red)':'var(--text2)'}">${m>0?fmt(m):'$0'}</div></div>
+    </div>
+    ${m>0?`<div style="font-size:12px;color:var(--red);margin-bottom:10px">⚠ ${d} día${d!==1?'s':''} en mora</div>`:''}
+    ${pendientes.length?`<div style="background:var(--amberd);border:1px solid rgba(255,170,68,.2);border-radius:10px;padding:10px;font-size:12px;color:var(--amber);margin-bottom:10px">⏳ Tiene ${pendientes.length} solicitud${pendientes.length!==1?'es':''} pendiente${pendientes.length!==1?'s':''} con admin</div>`:''}
+    <div class="ct" style="margin-bottom:8px">Próximas fechas de pago</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="font-size:10px;color:var(--text3);padding:4px 3px;text-align:left">#</th><th style="font-size:10px;color:var(--text3);padding:4px 3px;text-align:left">Fecha</th><th style="font-size:10px;color:var(--text3);padding:4px 3px;text-align:left">Cuota</th><th style="font-size:10px;color:var(--text3);padding:4px 3px;text-align:left">Estado</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+    ${acciones}
+    <button class="confirm-no" style="width:100%;margin-top:10px" onclick="cerrarClienteDetalle()">Cerrar</button>`;
+  document.getElementById('cliente-overlay').classList.add('open');
+}
+function cerrarClienteDetalle(){document.getElementById('cliente-overlay').classList.remove('open');}
 
 // RENDER RUTA
 function renderRuta(){
@@ -574,7 +694,7 @@ function renderRuta(){
       </button>
       ${!yp&&!noPagoHoy?`
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
-          <button onclick="abrirAbonoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">💵 Abono parcial</button>
+          <button onclick="solicitarAbonoCliente('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">💵 Solicitar abono</button>
           <button onclick="registrarNoPagoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--red);color:var(--red);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">❌ No pagó</button>
         </div>`:''}
       ${yp&&(c.abonoPendiente||0)>0?`<div style="font-size:11px;color:var(--amber);text-align:center;margin-top:6px">💵 Abono parcial registrado hoy</div>`:''}
@@ -593,18 +713,21 @@ function renderTodos(){
   el.innerHTML=lista.map(c=>{
     const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),pag=c.pagadas>=c.numCuotas;
     const yp=c.ultimoPago?.startsWith(h),tieneH=c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas);
+    const pendientes=solicitudesPendientesCliente(c.id).length;
     const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
-    return`<div class="cobro-card" style="margin-bottom:10px">
+    const badgeSoli=pendientes?`<span class="badge ba">⏳ ${pendientes} solicitud${pendientes!==1?'es':''}</span>`:'';
+    return`<div class="cobro-card" style="margin-bottom:10px;cursor:pointer" onclick="abrirDetalleClienteCobrador('${c.id}')">
       <div class="cc-top" style="margin-bottom:9px">
         <div><div class="cc-name" style="font-size:14px">${c.nombre}</div><div class="cc-det">${c.tipo} · ${c.pagadas}/${c.numCuotas} cuotas</div></div>
-        ${badge}
+        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">${badge}${badgeSoli}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:9px">
         <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
         <div class="cs"><div class="csl">Cuota</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
       </div>
       <div class="prog"><div class="prog-f" style="width:${pct}%"></div></div>
-      ${!pag&&tieneH&&!yp?`<button class="pay-btn pending" style="margin-top:11px" onclick="abrirConfirm('${c.id}')">💰 Registrar pago</button>`:''}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Toca la tarjeta para ver próximas fechas y enviar solicitudes.</div>
+      ${!pag&&tieneH&&!yp?`<button class="pay-btn pending" style="margin-top:11px" onclick="event.stopPropagation();abrirConfirm('${c.id}')">💰 Registrar pago</button>`:''}
     </div>`;
   }).join('');
 }
@@ -804,12 +927,17 @@ function enviarSolicitud(){
   if(!telefono){notify('El teléfono es obligatorio','err');return;}
   const soli={
     id:'soli_'+Date.now(),
+    tipoSolicitud:'nuevo_cliente',
+    origen:'nuevo_cliente',
+    clienteId:'',
+    clienteNombre:nombre,
     nombre,
     cedula:document.getElementById('soli-cedula').value.trim(),
     telefono,
     negocio:document.getElementById('soli-negocio').value.trim(),
     zona:document.getElementById('soli-zona').value.trim(),
     capitalSolicitado:parseFloat(document.getElementById('soli-capital').value)||0,
+    montoReportado:0,
     notas:document.getElementById('soli-notas').value.trim(),
     estado:'pendiente',
     autor:'Cobrador',
@@ -818,7 +946,6 @@ function enviarSolicitud(){
   };
   db.ref('solicitudes/'+soli.id).set(soli).then(()=>{
     notify(`Solicitud de ${nombre} enviada ✓`,'ok');
-    // Limpiar formulario
     ['soli-nombre','soli-cedula','soli-telefono','soli-negocio','soli-zona','soli-notas'].forEach(id=>{
       const el=document.getElementById(id);if(el)el.value='';
     });
@@ -835,14 +962,20 @@ function renderSolicitudes(){
     return;
   }
   const colores={pendiente:'var(--amber)',aprobado:'var(--green)',rechazado:'var(--red)'};
-  const labels={pendiente:'⏳ Pendiente',aprobado:'✅ Aprobado',rechazado:'❌ Rechazado'};
-  el.innerHTML=lista.map(s=>`
-    <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+  const labels={pendiente:'⏳ Pendiente',aprobado:'✅ Aprobada',rechazado:'❌ Rechazada'};
+  el.innerHTML=lista.map(s=>{
+    const info=tipoSolicitudInfo(tipoSolicitudDe(s));
+    const nombre=s.clienteNombre||s.nombre||'—';
+    const monto=s.montoReportado>0?`<div style="font-size:11px;color:var(--amber)">Monto reportado: ${fmt(s.montoReportado)}</div>`:'';
+    const capital=s.capitalSolicitado>0?`<div style="font-size:11px;color:var(--text3)">Solicitó: ${fmt(s.capitalSolicitado)}</div>`:'';
+    return`<div style="padding:10px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
-          <div style="font-size:13px;font-weight:600;color:var(--text)">${s.nombre}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${info.icon} ${info.label}</div>
+          <div style="font-size:12px;color:var(--text)">${nombre}</div>
           <div style="font-size:11px;color:var(--text3)">${s.negocio||'—'} · ${s.zona||'—'}</div>
-          ${s.capitalSolicitado>0?`<div style="font-size:11px;color:var(--text3)">Solicitó: ${fmt(s.capitalSolicitado)}</div>`:''}
+          ${capital}${monto}
+          ${s.notas?`<div style="font-size:11px;color:var(--text3);margin-top:3px">Nota: ${s.notas}</div>`:''}
         </div>
         <div style="text-align:right">
           <div style="font-size:11px;font-weight:600;color:${colores[s.estado]||'var(--text3)'}">${labels[s.estado]||s.estado}</div>
@@ -850,7 +983,8 @@ function renderSolicitudes(){
         </div>
       </div>
       ${s.notaAdmin?('<div style="font-size:11px;color:var(--green);margin-top:4px;padding:4px 8px;background:var(--greend);border-radius:6px">Admin: '+s.notaAdmin+'</div>'):''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function renderDia(){
