@@ -180,6 +180,8 @@ input[type=file]{display:none;}
   </div>
   <!-- Alertas inteligentes -->
   <div id="panel-alertas"></div>
+  <div class="card"><div class="ct">Resumen ejecutivo</div><div id="inicio-resumen"></div></div>
+  <div class="card"><div class="ct">Bandeja rápida</div><div id="inicio-bandeja"></div></div>
   <!-- Ruta de hoy -->
   <div class="card"><div class="ct">Ruta de hoy</div><div id="ruta-hoy"></div></div>
   <!-- Próximos 7 días -->
@@ -273,7 +275,7 @@ input[type=file]{display:none;}
 </div>
 
 <div id="panel-solicitudes" class="panel">
-  <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Clientes nuevos enviados por el cobrador. Revisa, completa las condiciones y aprueba o rechaza.</div>
+  <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Solicitudes enviadas por el cobrador. Aquí puedes revisar nuevos clientes, cobros anticipados, abonos y novedades antes de aprobar o rechazar.</div>
   <div id="lista-soli-admin"></div>
 </div>
 
@@ -314,6 +316,8 @@ input[type=file]{display:none;}
     <div class="metric"><div class="ml">Interés realizado</div><div class="mv" style="color:var(--green)" id="cj-int">$0</div></div>
     <div class="metric"><div class="ml">Interés pendiente</div><div class="mv" style="color:var(--amber)" id="cj-int-pend">$0</div></div>
     <div class="metric"><div class="ml">Mora cobrada</div><div class="mv" style="color:var(--blue)" id="cj-mora-real">$0</div></div>
+    <div class="metric"><div class="ml">Comisiones pagadas</div><div class="mv" style="color:var(--red)" id="cj-com-pagadas">$0</div></div>
+    <div class="metric"><div class="ml">Utilidad neta</div><div class="mv" style="color:var(--gold)" id="cj-util-neta">$0</div></div>
   </div>
   <div class="card">
     <div class="ct">Resumen inteligente</div>
@@ -361,6 +365,16 @@ input[type=file]{display:none;}
       <span>Tú: <strong style="color:var(--green)" id="com-split-admin">60%</strong></span>
     </div>
     <button class="btn btn-primary" onclick="guardarPctGlobal()">💾 Guardar porcentaje global</button>
+  </div>
+
+  <div class="card">
+    <div class="ct">Resumen por período</div>
+    <div id="com-periodos"></div>
+  </div>
+
+  <div class="card">
+    <div class="ct">Auditoría de comisiones</div>
+    <div id="com-auditoria"></div>
   </div>
 
   <!-- Desglose por cliente -->
@@ -710,8 +724,9 @@ function avisarNuevaSolicitud(s){
   try{if(typeof navigator!=='undefined'&&navigator.vibrate)navigator.vibrate([120,60,120]);}catch(e){}
   if(!notifHabilitadas())return;
   try{
-    new Notification('Nuevo cliente solicitado', {
-      body:`${s.nombre}${s.telefono?' · '+s.telefono:''}${s.capitalSolicitado?` · ${fmt(s.capitalSolicitado)}`:''}`,
+    const info=(typeof infoSolicitudAdmin==='function')?infoSolicitudAdmin(s):{label:'Solicitud',icon:'📩'};
+    new Notification(`${info.icon} ${info.label}`, {
+      body:`${s.nombre||s.clienteNombre||'Cliente'}${s.telefono?' · '+s.telefono:''}${s.capitalSolicitado?` · ${fmt(s.capitalSolicitado)}`:''}${s.montoReportado?` · ${fmt(s.montoReportado)}`:''}`,
       tag:'credito-rapido-solicitud'
     });
   }catch(e){console.error(e);}
@@ -762,6 +777,7 @@ function setConn(ok){
 function escuchar(){
   db.ref('clientes').on('value',s=>{
     const d=s.val();clientes=d?Object.values(d):[];
+    migrarComisionesClientes();
     renderInicio();renderClientes();renderCaja();
   });
   db.ref('actividad').limitToLast(50).on('child_added',s=>{
@@ -773,10 +789,12 @@ function escuchar(){
   });
   db.ref('liquidaciones').on('value',s=>{
     const d=s.val();
-    if(d){
-      liquidaciones=Object.values(d);
-      localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
-    }
+    liquidaciones=d?Object.values(d):[];
+    localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
+    syncCajaConLiquidaciones();
+    renderCaja();
+    renderInicio();
+    renderComisiones();
   });
   // Escuchar % comisión global desde Firebase (sincroniza entre dispositivos)
   db.ref('config/comisionPct').on('value',s=>{
@@ -845,6 +863,7 @@ document.addEventListener('DOMContentLoaded', function(){
   actualizarUINotificaciones();
   caja=JSON.parse(localStorage.getItem('cr_caja')||'[]');
   liquidaciones=JSON.parse(localStorage.getItem('cr_liquidaciones')||'[]');
+  syncCajaConLiquidaciones();
 });
 // Mantener window.onload vacío para compatibilidad
 window.onload=()=>{};
@@ -989,7 +1008,7 @@ function crearPrestamo(){
   const diasCustom=tipo==='personalizado'?parseInt(document.getElementById('n-dias-custom')?.value)||3:null;
   const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
-  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,moraCobradaTotal:0,historialMora:[],creado:new Date().toISOString()};
+  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,moraCobradaTotal:0,historialMora:[],comisionEventos:[],creado:new Date().toISOString()};
   clientes.push(c);save();
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
   log({tipo:'nuevo',cliente:nombre,monto:capital,ts:Date.now(),autor:'Admin'});
@@ -1093,15 +1112,14 @@ function renderInicio(){
 
   // — Métricas principales —
   document.getElementById('m-capital').textContent=fmt(act.reduce((s,c)=>s+capitalPendiente(c),0));
-  document.getElementById('m-hoy').textContent=fmt(clientes.reduce((s,c)=>{
-    const t=c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas);
-    return s+(t?c.cuota+mora(c):0);
-  },0));
+  document.getElementById('m-hoy').textContent=fmt(clientes.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0));
   document.getElementById('m-activos').textContent=act.length;
-  document.getElementById('m-cobrado').textContent=fmt(clientes.reduce((s,c)=>s+(c.ultimoPago?.startsWith(h)?c.cuota:0),0));
+  document.getElementById('m-cobrado').textContent=fmt(totalCobradoHoyCaja(h));
 
   // — Alertas inteligentes —
   renderAlertas(h, act);
+  renderInicioResumen(h,act);
+  renderInicioBandeja(h,act);
 
   // — Ruta de hoy —
   const ruta=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
@@ -1119,7 +1137,7 @@ function renderInicio(){
           <div class="ri-det">${c.zona||c.tipo} · cuota ${c.pagadas+1}/${c.numCuotas}${m>0?' · mora '+fmt(m):''}</div>
         </div>
         <div style="text-align:right">
-          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;${m>0?'color:var(--red)':''}">${fmt(c.cuota+(m>0?m:0))}</div>
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;${m>0?'color:var(--red)':''}">${fmt(totalPendienteHoyCliente(c,h)||0)}</div>
           <div style="margin-top:3px">${p?'<span class="badge bg">✓ Pagó</span>':noPagoHoy?'<span class="badge br">❌ No pagó</span>':'<span class="badge ba">Pendiente</span>'}</div>
         </div>
       </div>`;
@@ -1715,7 +1733,9 @@ function pagoNormal(id){
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
   const cuotaNo=c.pagadas+1;
   const partes=partesCuotaIndex(c,c.pagadas);
-  c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=new Date().toISOString();save();
+  c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=new Date().toISOString();
+  registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
+  save();
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
   log({tipo:'pago',cliente:c.nombre,monto:c.cuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin'});
@@ -1732,7 +1752,9 @@ function cobrarConMora(id){
   registrarEventoMora(c,'cobrada',m,`Cobrada junto con cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
   c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.moraPerdonada=(c.moraPerdonada||0)+m;
   c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
-  c.ultimoPago=new Date().toISOString();save();
+  c.ultimoPago=new Date().toISOString();
+  registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas} con mora`});
+  save();
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
@@ -1759,6 +1781,7 @@ function perdonarMora(id){
 function eliminar(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   if(c.pagadas<c.numCuotas){notify('No puedes eliminar un cliente con préstamo activo','err');return;}
+  if(resumenComisionCliente(c).generada>0){notify('No puedes eliminar un cliente con historial de comisión. Consérvalo para auditoría.','err');return;}
   if(!confirm('¿Eliminar este cliente?'))return;
   clientes=clientes.filter(x=>x.id!==id);save();
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();notify('Eliminado','ok');
@@ -1846,6 +1869,7 @@ function confirmarAbono(){
     c.abonoPendiente=sobrante>0?sobrante:0;
     c.moraBaseDate=null; // limpiar — la cuota quedó pagada
     c.ultimoPago=new Date().toISOString();
+    registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Abono completo cuota ${cuotaNo}/${c.numCuotas}`});
     registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
     registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
     if(m>0)registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
@@ -1865,11 +1889,14 @@ function confirmarAbono(){
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+abonoEnMora;
       registrarCajaAuto('mora_cobrada', abonoEnMora, `Mora parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:mora:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
     }
+    const deltaPartes=deltaDesgloseAbono(c,abonoEnCuota);
     c.abonoPendiente=(c.abonoPendiente||0)+abonoEnCuota;
-    const partesParciales=desgloseAbonoPendienteActual(c);
     if(abonoEnCuota>0){
-      if(partesParciales.capitalParcial>0)registrarCajaAuto('recuperacion_capital', partesParciales.capitalParcial, `Capital parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:capital:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
-      if(partesParciales.interesParcial>0)registrarCajaAuto('interes_cobrado', partesParciales.interesParcial, `Interés parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:interes:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+      if(deltaPartes.capitalDelta>0)registrarCajaAuto('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:capital:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+      if(deltaPartes.interesDelta>0)registrarCajaAuto('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:interes:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+    }
+    if(deltaPartes.interesDelta>0||abonoEnMora>0){
+      registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:abonoEnMora,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
     }
     c.moraBaseDate=hoy(); // mora reinicia desde hoy → mañana suma 1 día nuevo
     c.ultimoPago=new Date().toISOString();
@@ -1897,8 +1924,7 @@ function abrirRefin(id){
   document.getElementById('rf-plazo').value=sanitizarCuotas(c.numCuotas||c.plazo||15,15);
   updateRefinPlazo();
   // Label mora dinámico según frecuencia actual del cliente
-  const lblMora={diario:'Mora por día vencido ($)',semanal:'Mora por semana vencida ($)',quincenal:'Mora por quincena vencida ($)',mensual:'Mora por mes vencido ($)'}[c.tipo]||'Mora por cuota vencida ($)';
-  document.getElementById('lbl-rf-mora').textContent=lblMora;
+  document.getElementById('lbl-rf-mora').textContent='Mora por día vencido ($)';
   prevRefin();cerrar('modal-cli');
   document.getElementById('modal-refin').classList.add('open');
 }
@@ -1924,8 +1950,7 @@ function prevRefin(){
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center">${plazo} cuotas · ${tipo}</div>`;
   // Actualizar label mora cuando cambia frecuencia
-  const lblMora={diario:'Mora por día vencido ($)',semanal:'Mora por semana vencida ($)',quincenal:'Mora por quincena vencida ($)',mensual:'Mora por mes vencido ($)'}[tipo];
-  document.getElementById('lbl-rf-mora').textContent=lblMora;
+  document.getElementById('lbl-rf-mora').textContent='Mora por día vencido ($)';
 }
 function confirmarRefin(){
   const c=clientes.find(x=>x.id===pendingRefin);if(!c)return;
@@ -2233,11 +2258,82 @@ function registrarCajaAuto(subtipo,monto,desc,refKey,extra={}){
   monto=Math.round(parseFloat(monto)||0);
   if(monto<=0)return null;
   if(refKey&&caja.some(m=>m.auto&&m.refKey===refKey))return null;
-  const egresos=['desembolso_prestamo','refinanciacion_extra'];
+  const egresos=['desembolso_prestamo','refinanciacion_extra','liquidacion_comision'];
   const mov={id:'m'+Date.now()+Math.floor(Math.random()*1000),tipo:egresos.includes(subtipo)?'egreso':'ingreso',monto,desc,subtipo,auto:true,refKey:refKey||null,ts:Date.now(),...extra};
   caja.push(mov);
   persistCaja();
   return mov;
+}
+function syncCajaConLiquidaciones(){
+  if(!Array.isArray(liquidaciones)||!liquidaciones.length)return;
+  liquidaciones.forEach(liq=>{
+    const monto=Math.max(0,Math.round(liq.monto||0));
+    if(!monto)return;
+    registrarCajaAuto('liquidacion_comision', monto, `Liquidación cobrador · ${liq.periodo||liq.nota||'Comisión'}`, `liquidacion:${liq.id}`, {liquidacionId:liq.id, cliente:'Cobrador'});
+  });
+}
+function rangoDiaISO(iso){
+  const base=iso||hoy();
+  return {start:new Date(base+'T00:00:00').getTime(),end:new Date(base+'T23:59:59').getTime()};
+}
+function totalCobradoHoyCaja(iso){
+  const {start,end}=rangoDiaISO(iso||hoy());
+  const subtipos=['recuperacion_capital','interes_cobrado','mora_cobrada','abono_adelantado'];
+  return (caja||[]).filter(m=>m.tipo==='ingreso'&&subtipos.includes(m.subtipo)&&(m.ts||0)>=start&&(m.ts||0)<=end).reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+}
+function solicitudesPendientesLista(){
+  return (window._solicitudes||[]).filter(x=>x.estado==='pendiente').sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
+function clientesFinalizanEnDias(activos,dias){
+  const h=hoy();
+  const limite=new Date(h+'T12:00:00');
+  limite.setDate(limite.getDate()+dias);
+  const lim=limite.toISOString().split('T')[0];
+  return (activos||[]).filter(c=>{
+    const ult=c.cuotasData?.[Math.max(0,(c.numCuotas||1)-1)]?.fechaISO;
+    return ult&&ult>=h&&ult<=lim;
+  });
+}
+function totalPendienteHoyCliente(c,fecha){
+  const f=fecha||hoy();
+  const cuotaHoy=c.cuotasData?.find(q=>q.fechaISO===f&&q.num>c.pagadas);
+  if(!cuotaHoy)return 0;
+  return Math.max(0,(cuotaHoy.cuota||c.cuota||0)+mora(c)-(c.abonoPendiente||0));
+}
+function renderInicioResumen(h,act){
+  const el=document.getElementById('inicio-resumen');
+  if(!el)return;
+  const m=metricasCaja();
+  const solicitudes=solicitudesPendientesLista();
+  const finalizan=clientesFinalizanEnDias(act,7);
+  const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>String(n.fecha||'').startsWith(h)));
+  const rutaHoy=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const faltanHoy=rutaHoy.filter(c=>!(c.ultimoPago?.startsWith(h))&&!c.historialNoPago?.some(n=>String(n.fecha||'').startsWith(h)));
+  const items=[
+    {lbl:'Disponible para prestar',val:fmt(m.disponibleReal),color:m.disponibleReal<0?'var(--red)':'var(--green)'},
+    {lbl:'Solicitudes pendientes',val:String(solicitudes.length),color:solicitudes.length?'var(--amber)':'var(--text)'},
+    {lbl:'Comisión pendiente',val:fmt(totalComisionPendiente()),color:'var(--gold)'},
+    {lbl:'Finalizan en 7 días',val:String(finalizan.length),color:finalizan.length?'var(--blue)':'var(--text)'},
+    {lbl:'No pagaron hoy',val:String(noPagoHoy.length),color:noPagoHoy.length?'var(--red)':'var(--text)'},
+    {lbl:'Cobros por hacer hoy',val:String(faltanHoy.length),color:faltanHoy.length?'var(--amber)':'var(--text)'}
+  ];
+  el.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${items.map(it=>`<div class="cs"><div class="csl">${it.lbl}</div><div class="csv" style="color:${it.color}">${it.val}</div></div>`).join('')}</div>`;
+}
+function renderInicioBandeja(h,act){
+  const el=document.getElementById('inicio-bandeja');
+  if(!el)return;
+  const solicitudes=solicitudesPendientesLista();
+  const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>String(n.fecha||'').startsWith(h)));
+  const rutaHoy=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const faltanHoy=rutaHoy.filter(c=>!(c.ultimoPago?.startsWith(h))&&!c.historialNoPago?.some(n=>String(n.fecha||'').startsWith(h)));
+  const finalizan=clientesFinalizanEnDias(act,7).slice(0,3);
+  const items=[];
+  if(solicitudes.length)items.push({tit:`${solicitudes.length} solicitud(es) pendientes`,sub:`Primera: ${solicitudes[0].nombre||solicitudes[0].clienteNombre||'Cliente'}`,badge:'Solicitudes',color:'var(--amber)'});
+  if(faltanHoy.length)items.push({tit:`${faltanHoy.length} cobro(s) siguen pendientes hoy`,sub:`Pendiente por ruta: ${fmt(faltanHoy.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0))}`,badge:'Cobranza',color:'var(--gold)'});
+  if(noPagoHoy.length)items.push({tit:`${noPagoHoy.length} cliente(s) no pagaron hoy`,sub:noPagoHoy.slice(0,3).map(c=>c.nombre).join(', '),badge:'Seguimiento',color:'var(--red)'});
+  if(finalizan.length)items.push({tit:`${clientesFinalizanEnDias(act,7).length} préstamo(s) finalizan en 7 días`,sub:finalizan.map(c=>c.nombre).join(', '),badge:'Renovar',color:'var(--blue)'});
+  items.push({tit:'Caja y comisiones sincronizadas',sub:`Liquidado al cobrador: ${fmt(totalLiquidacionesComision())}`,badge:'Caja',color:'var(--green)'});
+  el.innerHTML=items.map(it=>`<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:13px;font-weight:600">${it.tit}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">${it.sub||'—'}</div></div><div class="badge" style="background:rgba(255,255,255,.04);color:${it.color};border:1px solid var(--border)">${it.badge}</div></div>`).join('');
 }
 function capitalRecuperadoPagado(c,count){
   const cuotasPagadas=Math.max(0,Math.min(count===undefined?c.pagadas:count,c.numCuotas||0));
@@ -2273,16 +2369,27 @@ function partesCuotaIndex(c,idx){
   }
   return {capital,interes,cuota};
 }
-function desgloseAbonoPendienteActual(c){
-  const abono=Math.max(0,Math.round(c.abonoPendiente||0));
-  if(abono<=0||c.pagadas>=c.numCuotas)return {capitalParcial:0,interesParcial:0};
+function desgloseAbonoConMonto(c,abono){
+  const valor=Math.max(0,Math.round(abono||0));
+  if(valor<=0||c.pagadas>=c.numCuotas)return {capitalParcial:0,interesParcial:0};
   const partes=partesCuotaIndex(c,c.pagadas);
   const base=Math.max(1,partes.cuota||c.cuota||1);
-  const usado=Math.min(abono,base);
+  const usado=Math.min(valor,base);
   const ratioCap=Math.max(0,Math.min(1,(partes.capital||0)/base));
   const capitalParcial=Math.min(partes.capital||0,Math.round(usado*ratioCap));
   const interesParcial=Math.max(0,usado-capitalParcial);
   return {capitalParcial,interesParcial};
+}
+function desgloseAbonoPendienteActual(c){
+  return desgloseAbonoConMonto(c,c.abonoPendiente||0);
+}
+function deltaDesgloseAbono(c,delta){
+  const previo=desgloseAbonoConMonto(c,c.abonoPendiente||0);
+  const siguiente=desgloseAbonoConMonto(c,(c.abonoPendiente||0)+Math.max(0,delta||0));
+  return {
+    capitalDelta:Math.max(0,(siguiente.capitalParcial||0)-(previo.capitalParcial||0)),
+    interesDelta:Math.max(0,(siguiente.interesParcial||0)-(previo.interesParcial||0))
+  };
 }
 function capitalPendiente(c){
   const rec=capitalRecuperadoPagado(c)+(desgloseAbonoPendienteActual(c).capitalParcial||0);
@@ -2290,6 +2397,97 @@ function capitalPendiente(c){
 }
 function interesRealizadoCaja(c){
   return Math.max(0,Math.round(interesRealizadoPagado(c)+(desgloseAbonoPendienteActual(c).interesParcial||0)));
+}
+
+function resumenLegacyComision(c){
+  const pct=(c.comisionPct!==undefined&&c.comisionPct!==null&&c.comisionPct!=='')?parseFloat(c.comisionPct):(window._comPctFB!==undefined?window._comPctFB:parseFloat(localStorage.getItem(COM_KEY)||'40'));
+  const interesCobrado=Math.max(0,Math.round(interesRealizadoPagado(c)+(desgloseAbonoPendienteActual(c).interesParcial||0)));
+  const moraCobrada=Math.max(0,Math.round(c.moraCobradaTotal||0));
+  const comInteres=Math.round(interesCobrado*pct/100);
+  const comMora=Math.round(moraCobrada*pct/100);
+  const total=comInteres+comMora;
+  const admin=Math.max(0,Math.round((interesCobrado+moraCobrada)-total));
+  return {pct,interesCobrado,moraCobrada,total,admin};
+}
+function comisionEventosCliente(c){
+  if(Array.isArray(c.comisionEventos)&&c.comisionEventos.length)return c.comisionEventos.filter(Boolean);
+  const legacy=resumenLegacyComision(c);
+  if(legacy.total<=0)return [];
+  const tsBase=Date.parse(c.ultimoPago||c.creado||new Date().toISOString())||Date.now();
+  return [{id:`legacy_${c.id||'cli'}`,ts:tsBase,origen:'legacy',interes:legacy.interesCobrado,mora:legacy.moraCobrada,pct:legacy.pct,comision:legacy.total,admin:legacy.admin,liquidado:false,nota:'Migración inicial'}];
+}
+function resumenComisionCliente(c){
+  return comisionEventosCliente(c).reduce((acc,e)=>{
+    const com=Math.max(0,Math.round(e.comision||0));
+    const admin=Math.max(0,Math.round(e.admin||0));
+    const interes=Math.max(0,Math.round(e.interes||0));
+    const mora=Math.max(0,Math.round(e.mora||0));
+    acc.generada+=com;
+    acc.liquidada+=e.liquidado?com:0;
+    acc.pendiente+=e.liquidado?0:com;
+    acc.admin+=admin;
+    acc.interes+=interes;
+    acc.mora+=mora;
+    acc.eventos++;
+    return acc;
+  },{generada:0,liquidada:0,pendiente:0,admin:0,interes:0,mora:0,eventos:0});
+}
+function registrarComisionEventoCliente(c,{interes=0,mora=0,autor='Admin',nota='',ts=null}={}){
+  const interesVal=Math.max(0,Math.round(interes||0));
+  const moraVal=Math.max(0,Math.round(mora||0));
+  if(interesVal<=0&&moraVal<=0)return null;
+  if(!Array.isArray(c.comisionEventos))c.comisionEventos=[];
+  const pct=pctCliente(c);
+  const comInteres=Math.round(interesVal*pct/100);
+  const comMora=Math.round(moraVal*pct/100);
+  const total=comInteres+comMora;
+  const admin=Math.max(0,Math.round((interesVal+moraVal)-total));
+  const ev={id:`ce_${c.id}_${Date.now()}_${Math.floor(Math.random()*1000)}`,ts:ts||Date.now(),origen:'cobro',interes:interesVal,mora:moraVal,pct,comision:total,admin,liquidado:false,liquidacionId:null,autor,nota};
+  c.comisionEventos.push(ev);
+  return ev;
+}
+function migrarComisionesClientes(){
+  if(!Array.isArray(clientes)||!clientes.length)return;
+  let changed=false;
+  clientes.forEach(c=>{
+    if(!Array.isArray(c.comisionEventos)){
+      c.comisionEventos=comisionEventosCliente(c);
+      changed=true;
+    }
+  });
+  if(changed)save();
+}
+function rangoPeriodoLiquidacion(periodo){
+  if(periodo==='todo')return {start:0,end:Date.now()+86400000};
+  const now=new Date();
+  const start=new Date(now);
+  start.setHours(0,0,0,0);
+  if(periodo==='semana'){
+    const day=(start.getDay()+6)%7; // lunes=0
+    start.setDate(start.getDate()-day);
+  } else if(periodo==='quincena'){
+    start.setDate(start.getDate()<=15?1:16);
+  } else if(periodo==='mes'){
+    start.setDate(1);
+  }
+  const end=Date.now()+86400000;
+  return {start:start.getTime(),end};
+}
+function eventosPendientesLiquidacion(periodo='todo'){
+  const rango=rangoPeriodoLiquidacion(periodo);
+  const items=[];
+  clientes.forEach(c=>{
+    comisionEventosCliente(c).forEach(ev=>{
+      const ts=Math.max(0,parseInt(ev.ts||0,10)||0);
+      if(ev.liquidado)return;
+      if(periodo!=='todo'&&(ts<rango.start||ts>rango.end))return;
+      items.push({cliente:c,evento:ev});
+    });
+  });
+  return items;
+}
+function totalLiquidacionesComision(){
+  return (liquidaciones||[]).reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
 }
 function metricasCaja(){
   const ingresosCapital=caja.filter(m=>!m.auto&&m.tipo==='ingreso').reduce((s,m)=>s+(m.monto||0),0);
@@ -2303,8 +2501,10 @@ function metricasCaja(){
   const interesPendiente=activos.reduce((s,c)=>s+Math.max(0,Math.round((c.interes||0)-interesRealizadoCaja(c))),0);
   const moraReal=clientes.reduce((s,c)=>s+(c.moraCobradaTotal||0),0);
   const moraActiva=activos.reduce((s,c)=>s+mora(c),0);
-  const disponibleReal=capitalBase-gastos-principalCalle+interesRealizado+moraReal;
-  return {ingresosCapital,retirosCapital,gastos,capitalBase,principalCalle,carteraTotal,interesRealizado,interesPendiente,moraReal,moraActiva,disponibleReal};
+  const comisionesPagadas=totalLiquidacionesComision();
+  const utilidadNeta=Math.round(interesRealizado+moraReal-comisionesPagadas-gastos);
+  const disponibleReal=capitalBase-principalCalle+interesRealizado+moraReal-comisionesPagadas-gastos;
+  return {ingresosCapital,retirosCapital,gastos,capitalBase,principalCalle,carteraTotal,interesRealizado,interesPendiente,moraReal,moraActiva,comisionesPagadas,utilidadNeta,disponibleReal};
 }
 function renderCaja(){
   const m=metricasCaja();
@@ -2314,26 +2514,31 @@ function renderCaja(){
   const cjInt=document.getElementById('cj-int'); if(cjInt)cjInt.textContent=fmt(m.interesRealizado);
   const cjIntPend=document.getElementById('cj-int-pend'); if(cjIntPend)cjIntPend.textContent=fmt(m.interesPendiente);
   const cjMora=document.getElementById('cj-mora-real'); if(cjMora)cjMora.textContent=fmt(m.moraReal);
+  const cjCom=document.getElementById('cj-com-pagadas'); if(cjCom)cjCom.textContent=fmt(m.comisionesPagadas);
+  const cjUtil=document.getElementById('cj-util-neta'); if(cjUtil){cjUtil.textContent=fmt(m.utilidadNeta); cjUtil.style.color=m.utilidadNeta<0?'var(--red)':'var(--gold)';}
   const resumen=document.getElementById('cj-resumen');
   if(resumen){
     let alertas='';
     if(m.capitalBase<=0&&clientes.some(c=>(c.pagadas||0)<(c.numCuotas||0)))alertas+=`<div class="ibox red" style="margin-bottom:8px">No has registrado capital base manual y ya tienes préstamos activos. Registra el capital inicial para que Caja tenga sentido.</div>`;
-    if(m.disponibleReal<0)alertas+=`<div class="ibox red" style="margin-bottom:8px">Tu disponible real está negativo. Estás prestando más de lo que registraste como capital base.</div>`;
+    if(m.disponibleReal<0)alertas+=`<div class="ibox red" style="margin-bottom:8px">Tu disponible real está negativo. Estás prestando más de lo que registraste como capital base o ya pagaste comisiones/gastos por encima de tu caja disponible.</div>`;
+    if(m.utilidadNeta<0)alertas+=`<div class="ibox amber" style="margin-bottom:8px">Tu utilidad neta realizada está en negativo. Revisa gastos, comisiones liquidadas y mora realmente cobrada.</div>`;
     resumen.innerHTML=`${alertas}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="cs"><div class="csl">Ingresos de capital</div><div class="csv" style="color:var(--green)">${fmt(m.ingresosCapital)}</div></div>
         <div class="cs"><div class="csl">Retiros de capital</div><div class="csv" style="color:var(--red)">${fmt(m.retirosCapital)}</div></div>
         <div class="cs"><div class="csl">Gastos operativos</div><div class="csv" style="color:var(--red)">${fmt(m.gastos)}</div></div>
+        <div class="cs"><div class="csl">Comisiones pagadas</div><div class="csv" style="color:var(--red)">${fmt(m.comisionesPagadas)}</div></div>
         <div class="cs"><div class="csl">Cartera total pendiente</div><div class="csv" style="color:var(--amber)">${fmt(m.carteraTotal)}</div></div>
         <div class="cs"><div class="csl">Mora activa</div><div class="csv" style="color:${m.moraActiva>0?'var(--red)':'var(--text2)'}">${fmt(m.moraActiva)}</div></div>
+        <div class="cs"><div class="csl">Utilidad neta</div><div class="csv" style="color:${m.utilidadNeta<0?'var(--red)':'var(--gold)'}">${fmt(m.utilidadNeta)}</div></div>
         <div class="cs"><div class="csl">Disponible para prestar</div><div class="csv" style="color:${m.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(m.disponibleReal)}</div></div>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:10px">El disponible real ahora separa principal pendiente, interés realizado y mora cobrada. Ya no descuenta intereses futuros como si fueran plata disponible.</div>`;
+      <div style="font-size:11px;color:var(--text3);margin-top:10px">Ahora Caja también descuenta las comisiones liquidadas al cobrador. Así el disponible real refleja mejor la plata realmente libre para seguir prestando.</div>`;
   }
   const el=document.getElementById('cj-historial');
   if(!el)return;
   if(!caja.length){el.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin movimientos</div>';return;}
-  const labelSubtipo={desembolso_prestamo:'Desembolso',recuperacion_capital:'Capital recuperado',interes_cobrado:'Interés',mora_cobrada:'Mora',refinanciacion_extra:'Extra refinanciación',abono_adelantado:'Abono adelantado'};
+  const labelSubtipo={desembolso_prestamo:'Desembolso',recuperacion_capital:'Capital recuperado',interes_cobrado:'Interés',mora_cobrada:'Mora',refinanciacion_extra:'Extra refinanciación',abono_adelantado:'Abono adelantado',liquidacion_comision:'Pago comisión cobrador'};
   el.innerHTML=caja.slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).map(mv=>{
     const ts=new Date(mv.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit'});
     const positivo=mv.tipo==='ingreso';
@@ -2779,43 +2984,32 @@ function verFotoGrande(src){
 const COM_KEY='cr_com_pct'; // % global — sincronizado con Firebase
 
 function pctGlobal(){
-  // Primero intenta desde Firebase (config sincronizada), luego localStorage como fallback
   if(window._comPctFB!==undefined)return window._comPctFB;
   return parseFloat(localStorage.getItem(COM_KEY)||'40');
 }
 
 function pctCliente(c){
-  // usa el % del préstamo si está definido, sino el global
   return (c.comisionPct!==undefined&&c.comisionPct!==null&&c.comisionPct!=='')
     ? parseFloat(c.comisionPct) : pctGlobal();
 }
 
-// Calcula cuánta comisión generó un préstamo hasta ahora (sobre interés + mora cobrada)
 function comisionGenerada(c){
-  const interesPorCuota=c.interes/c.numCuotas;
-  const interesCobrado=c.pagadas*interesPorCuota;
-  const moraCobrada=c.moraCobradaTotal||0;
-  return Math.round((interesCobrado+moraCobrada)*pctCliente(c)/100);
+  return Math.round(resumenComisionCliente(c).generada||0);
 }
 
 function comisionAdmin(c){
-  const interesPorCuota=c.interes/c.numCuotas;
-  const interesCobrado=c.pagadas*interesPorCuota;
-  const moraCobrada=c.moraCobradaTotal||0;
-  return Math.round((interesCobrado+moraCobrada)*(1-pctCliente(c)/100));
+  return Math.round(resumenComisionCliente(c).admin||0);
 }
 
 function totalComisionPendiente(){
-  const totalGen=clientes.reduce((s,c)=>s+comisionGenerada(c),0);
-  const totalLiq=liquidaciones.reduce((s,l)=>s+l.monto,0);
-  return Math.max(0,totalGen-totalLiq);
+  return eventosPendientesLiquidacion('todo').reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
 }
 
 function actualizarPctGlobal(val){
   document.getElementById('com-pct-display').textContent=val+'%';
   document.getElementById('com-split-cobrador').textContent=val+'%';
   document.getElementById('com-split-admin').textContent=(100-val)+'%';
-  document.getElementById('com-pct-lbl').textContent=val+'% del interés+mora';
+  document.getElementById('com-pct-lbl').textContent=val+'% sobre interés y mora cobrados';
 }
 function guardarPctGlobal(){
   const val=document.getElementById('com-pct-slider').value;
@@ -2828,49 +3022,157 @@ function guardarPctGlobal(){
   renderComisiones();
 }
 
+function etiquetaPeriodo(periodo){
+  return {semana:'Esta semana',quincena:'Esta quincena',mes:'Este mes',todo:'Histórico'}[periodo]||periodo;
+}
+function rangoPeriodo(periodo,baseTs=Date.now()){
+  const base=new Date(baseTs);
+  base.setHours(0,0,0,0);
+  if(periodo==='todo')return{ini:0,fin:Number.MAX_SAFE_INTEGER};
+  if(periodo==='semana'){
+    const day=(base.getDay()+6)%7;
+    const ini=new Date(base);ini.setDate(base.getDate()-day);
+    const fin=new Date(ini);fin.setDate(ini.getDate()+7);
+    return{ini:ini.getTime(),fin:fin.getTime()};
+  }
+  if(periodo==='quincena'){
+    const ini=new Date(base.getFullYear(),base.getMonth(),base.getDate()<=15?1:16);
+    const fin=base.getDate()<=15?new Date(base.getFullYear(),base.getMonth(),16):new Date(base.getFullYear(),base.getMonth()+1,1);
+    return{ini:ini.getTime(),fin:fin.getTime()};
+  }
+  if(periodo==='mes'){
+    const ini=new Date(base.getFullYear(),base.getMonth(),1);
+    const fin=new Date(base.getFullYear(),base.getMonth()+1,1);
+    return{ini:ini.getTime(),fin:fin.getTime()};
+  }
+  return{ini:0,fin:Number.MAX_SAFE_INTEGER};
+}
+function eventoEnPeriodoTs(ev,periodo,baseTs=Date.now()){
+  if(periodo==='todo')return true;
+  const ts=Number(ev?.ts||0)||0;
+  const {ini,fin}=rangoPeriodo(periodo,baseTs);
+  return ts>=ini&&ts<fin;
+}
+function eventosComisionTodos(periodo='todo',opts={}){
+  const soloPendientes=!!opts.soloPendientes;
+  const soloLiquidados=!!opts.soloLiquidados;
+  const out=[];
+  clientes.forEach(c=>{
+    comisionEventosCliente(c).forEach(ev=>{
+      if(!eventoEnPeriodoTs(ev,periodo))return;
+      if(soloPendientes&&ev.liquidado)return;
+      if(soloLiquidados&&!ev.liquidado)return;
+      out.push({cliente:c,evento:ev});
+    });
+  });
+  return out;
+}
+function resumenPeriodoComisiones(periodo='todo'){
+  const items=eventosComisionTodos(periodo);
+  const acc={generada:0,liquidada:0,pendiente:0,interes:0,mora:0,eventos:items.length,clientes:new Set(items.map(i=>i.cliente.id)).size};
+  items.forEach(({evento})=>{
+    const com=Math.max(0,Math.round(evento.comision||0));
+    const interes=Math.max(0,Math.round(evento.interes||0));
+    const mora=Math.max(0,Math.round(evento.mora||0));
+    acc.generada+=com;
+    acc.liquidada+=evento.liquidado?com:0;
+    acc.pendiente+=evento.liquidado?0:com;
+    acc.interes+=interes;
+    acc.mora+=mora;
+  });
+  return acc;
+}
+function topClientesComision(periodo='todo',limit=3){
+  const mapa=new Map();
+  eventosComisionTodos(periodo).forEach(({cliente,evento})=>{
+    const id=cliente.id||cliente.nombre;
+    if(!mapa.has(id))mapa.set(id,{cliente,nombre:cliente.nombre,total:0,pendiente:0});
+    const row=mapa.get(id);
+    const com=Math.max(0,Math.round(evento.comision||0));
+    row.total+=com;
+    row.pendiente+=evento.liquidado?0:com;
+  });
+  return [...mapa.values()].sort((a,b)=>b.total-a.total).slice(0,limit);
+}
+function auditoriaComisiones(){
+  const issues=[];
+  const items=eventosComisionTodos('todo');
+  const totalEventosLiquidado=items.filter(x=>x.evento.liquidado).reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
+  const totalLiquidaciones=liquidaciones.reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
+  if(Math.abs(totalEventosLiquidado-totalLiquidaciones)>1){
+    issues.push({tipo:'red',msg:'Diferencia entre eventos liquidados y historial de liquidaciones',sub:`Eventos: ${fmt(totalEventosLiquidado)} · Historial: ${fmt(totalLiquidaciones)}`});
+  }
+  const eventosInvalidos=items.filter(({evento})=>{
+    const pct=Math.max(0,Math.round(evento.pct||0));
+    const esperado=Math.round(Math.max(0,Math.round(evento.interes||0))*pct/100)+Math.round(Math.max(0,Math.round(evento.mora||0))*pct/100);
+    return Math.abs(Math.round(evento.comision||0)-esperado)>1;
+  });
+  if(eventosInvalidos.length){
+    issues.push({tipo:'red',msg:`${eventosInvalidos.length} evento(s) de comisión con fórmula inconsistente`,sub:'Conviene revisar historial anterior o ajustes manuales.'});
+  }
+  const sinLiqId=items.filter(({evento})=>evento.liquidado&&!evento.liquidacionId);
+  if(sinLiqId.length){
+    issues.push({tipo:'amber',msg:`${sinLiqId.length} evento(s) marcados como liquidados sin id de liquidación`,sub:'No rompe el cálculo, pero limita la trazabilidad.'});
+  }
+  const viejosPend=items.filter(({evento})=>!evento.liquidado&&(Date.now()-(Number(evento.ts||0)||0))>7*86400000);
+  if(viejosPend.length){
+    issues.push({tipo:'amber',msg:`${viejosPend.length} evento(s) pendientes con más de 7 días`,sub:'Te conviene liquidarlos o revisarlos pronto.'});
+  }
+  const legacy=clientes.filter(c=>comisionEventosCliente(c).some(ev=>String(ev.origen||'').startsWith('legacy'))).length;
+  if(legacy){
+    issues.push({tipo:'blue',msg:`${legacy} cliente(s) conservan comisión migrada del historial anterior`,sub:'Las cuentas siguen funcionando, pero el detalle fino existe mejor desde esta versión en adelante.'});
+  }
+  return issues;
+}
+
 function renderComisiones(){
   const pct=pctGlobal();
   document.getElementById('com-pct-slider').value=pct;
   actualizarPctGlobal(pct);
 
-  const totalGen=clientes.reduce((s,c)=>s+comisionGenerada(c),0);
-  const totalLiq=liquidaciones.reduce((s,l)=>s+l.monto,0);
-  const pendiente=Math.max(0,totalGen-totalLiq);
-  const tuGanancia=clientes.reduce((s,c)=>s+comisionAdmin(c),0);
-  const moraTot=clientes.reduce((s,c)=>s+(c.moraCobradaTotal||0),0);
+  const resumen=clientes.reduce((acc,c)=>{
+    const r=resumenComisionCliente(c);
+    acc.generada+=r.generada;
+    acc.liquidada+=r.liquidada;
+    acc.pendiente+=r.pendiente;
+    acc.admin+=r.admin;
+    acc.mora+=r.mora;
+    return acc;
+  },{generada:0,liquidada:0,pendiente:0,admin:0,mora:0});
 
-  document.getElementById('com-pendiente').textContent=fmt(pendiente);
-  document.getElementById('com-liquidado').textContent=fmt(totalLiq);
-  document.getElementById('com-tuya').textContent=fmt(tuGanancia);
-  document.getElementById('com-mora').textContent=fmt(moraTot);
+  document.getElementById('com-pendiente').textContent=fmt(resumen.pendiente);
+  document.getElementById('com-liquidado').textContent=fmt(resumen.liquidada);
+  document.getElementById('com-tuya').textContent=fmt(resumen.admin);
+  document.getElementById('com-mora').textContent=fmt(resumen.mora);
 
-  // Desglose por cliente
-  const activos=clientes.filter(c=>c.pagadas>0);
+  const activos=clientes.filter(c=>resumenComisionCliente(c).generada>0||c.pagadas>0);
   const el=document.getElementById('com-desglose');
   if(!activos.length){
     el.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin movimientos aún</div>';
   } else {
     el.innerHTML=activos.map(c=>{
-      const gen=comisionGenerada(c);
+      const r=resumenComisionCliente(c);
       const pCli=pctCliente(c);
-      const intC=Math.round(c.pagadas*(c.interes/c.numCuotas));
-      const moraC=c.moraCobradaTotal||0;
       const custom=c.comisionPct!==undefined&&c.comisionPct!==null&&c.comisionPct!=='';
       return`<div style="padding:10px 0;border-bottom:1px solid var(--border)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div>
             <div style="font-size:13px;font-weight:500">${c.nombre}</div>
-            <div style="font-size:11px;color:var(--text3)">${c.pagadas}/${c.numCuotas} cuotas · ${pCli}%${custom?' (personalizado)':' (global)'}</div>
+            <div style="font-size:11px;color:var(--text3)">${custom?`${pCli}% personalizado`:`${pCli}% global`} · aplica a próximos cobros</div>
           </div>
           <div style="text-align:right">
-            <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--gold)">${fmt(gen)}</div>
-            <div style="font-size:10px;color:var(--text3)">comisión cobrador</div>
+            <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--gold)">${fmt(r.pendiente)}</div>
+            <div style="font-size:10px;color:var(--text3)">pendiente cobrador</div>
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
-          <div class="cs"><div class="csl">Interés cobrado</div><div class="csv" style="font-size:12px">${fmt(intC)}</div></div>
-          <div class="cs"><div class="csl">Mora cobrada</div><div class="csv" style="font-size:12px">${fmt(moraC)}</div></div>
-          <div class="cs"><div class="csl">Tu parte</div><div class="csv" style="font-size:12px;color:var(--green)">${fmt(comisionAdmin(c))}</div></div>
+          <div class="cs"><div class="csl">Generada</div><div class="csv" style="font-size:12px">${fmt(r.generada)}</div></div>
+          <div class="cs"><div class="csl">Liquidada</div><div class="csv" style="font-size:12px;color:var(--green)">${fmt(r.liquidada)}</div></div>
+          <div class="cs"><div class="csl">Tu parte</div><div class="csv" style="font-size:12px;color:var(--green)">${fmt(r.admin)}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px">
+          <div class="cs"><div class="csl">Interés cobrado</div><div class="csv" style="font-size:12px">${fmt(r.interes)}</div></div>
+          <div class="cs"><div class="csl">Mora cobrada</div><div class="csv" style="font-size:12px">${fmt(r.mora)}</div></div>
         </div>
         <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
           <span style="font-size:11px;color:var(--text3)">% de este préstamo:</span>
@@ -2882,7 +3184,25 @@ function renderComisiones(){
     }).join('');
   }
 
-  // Historial liquidaciones
+  const periodos=['semana','quincena','mes'];
+  const periodEl=document.getElementById('com-periodos');
+  if(periodEl){
+    const tops=topClientesComision('mes',3);
+    periodEl.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${periodos.map(p=>{
+      const r=resumenPeriodoComisiones(p);
+      return `<div class="cs"><div class="csl">${etiquetaPeriodo(p)}</div><div class="csv" style="color:var(--gold)">${fmt(r.generada)}</div><div style="font-size:10px;color:var(--text3);margin-top:4px">Pendiente: ${fmt(r.pendiente)} · ${r.eventos} evento(s)</div></div>`;
+    }).join('')}</div>`+
+    `<div style="margin-top:10px">`+
+      (tops.length?`<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Top clientes del mes</div>`+tops.map((t,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px">${i+1}. ${t.nombre}</div><div style="font-size:12px;font-weight:700;color:var(--gold)">${fmt(t.total)}</div></div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Sin movimientos en el mes.</div>`)+
+    `</div>`;
+  }
+
+  const auditEl=document.getElementById('com-auditoria');
+  if(auditEl){
+    const issues=auditoriaComisiones();
+    auditEl.innerHTML=issues.length?issues.map(a=>`<div class="ibox ${a.tipo==='red'?'red':a.tipo==='amber'?'amber':'blue'}" style="margin-bottom:8px"><div style="font-weight:700;margin-bottom:4px">${a.msg}</div>${a.sub?`<div style="font-size:12px">${a.sub}</div>`:''}</div>`).join(''):'<div class="ibox green">✓ Sin inconsistencias críticas detectadas en comisiones.</div>';
+  }
+
   const hEl=document.getElementById('com-historial-liq');
   if(!liquidaciones.length){
     hEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin liquidaciones aún</div>';
@@ -2892,7 +3212,7 @@ function renderComisiones(){
       return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
         <div>
           <div style="font-size:13px;font-weight:500">${l.nota||'Liquidación'}</div>
-          <div style="font-size:11px;color:var(--text3)">${ts} · ${l.periodo}</div>
+          <div style="font-size:11px;color:var(--text3)">${ts} · ${l.periodo} · ${l.eventos||0} evento(s)</div>
         </div>
         <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--green)">${fmt(l.monto)}</div>
       </div>`;
@@ -2902,43 +3222,67 @@ function renderComisiones(){
 
 function cambiarPctCliente(id, val){
   const c=clientes.find(x=>x.id===id);if(!c)return;
-  c.comisionPct=parseFloat(val)||0;
+  const raw=String(val??'').trim();
+  if(raw===''){
+    c.comisionPct=null;
+    save();
+    notify(`% de ${c.nombre} restaurado al global para próximos cobros ✓`,'ok');
+    renderComisiones();
+    return;
+  }
+  const pct=Math.max(0,Math.min(100,parseFloat(raw)||0));
+  c.comisionPct=pct;
   save();
-  notify(`% de ${c.nombre} actualizado a ${val}% ✓`,'ok');
+  notify(`% de ${c.nombre} actualizado a ${pct}% para próximos cobros ✓`,'ok');
   renderComisiones();
 }
 
 function abrirLiquidar(){
-  const pend=totalComisionPendiente();
+  const periodo=document.getElementById('liq-periodo').value;
+  const items=eventosPendientesLiquidacion(periodo);
+  const pend=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
   document.getElementById('liq-resumen').innerHTML=
-    `Comisión pendiente total: <strong>${fmt(pend)}</strong>`;
+    `Comisión pendiente total: <strong>${fmt(totalComisionPendiente())}</strong><br><span style="font-size:12px;color:var(--text2)">Seleccionado para ${etiquetaPeriodo(periodo).toLowerCase()}: <strong>${fmt(pend)}</strong></span>`;
   calcLiqPreview();
   document.getElementById('modal-liquidar').classList.add('open');
 }
 
 function calcLiqPreview(){
-  const pend=totalComisionPendiente();
   const periodo=document.getElementById('liq-periodo').value;
   const labels={semana:'esta semana',quincena:'esta quincena',mes:'este mes',todo:'todo lo pendiente'};
-  // Simplificación: liquidamos el total pendiente (se puede refinar por fechas)
+  const items=eventosPendientesLiquidacion(periodo);
+  const monto=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
+  const clientesUnicos=new Set(items.map(item=>item.cliente.id)).size;
   document.getElementById('liq-preview').innerHTML=
-    `Vas a liquidar <strong>${fmt(pend)}</strong> correspondiente a <strong>${labels[periodo]}</strong>`;
+    items.length
+      ? `Vas a liquidar <strong>${fmt(monto)}</strong> de <strong>${items.length}</strong> evento(s) de comisión en <strong>${clientesUnicos}</strong> cliente(s), correspondiente a <strong>${labels[periodo]}</strong>`
+      : `No hay comisión pendiente para <strong>${labels[periodo]}</strong>`;
 }
 
 function confirmarLiquidar(){
-  const pend=totalComisionPendiente();
-  if(pend<=0){notify('No hay comisión pendiente','err');return;}
   const periodo=document.getElementById('liq-periodo').value;
+  const items=eventosPendientesLiquidacion(periodo);
+  const pend=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
+  if(pend<=0){notify('No hay comisión pendiente en ese período','err');return;}
   const nota=document.getElementById('liq-nota').value.trim();
   const labels={semana:'Semana',quincena:'Quincena',mes:'Mes',todo:'Total pendiente'};
-  const liq={id:'l'+Date.now(),monto:pend,periodo:labels[periodo],nota:nota||labels[periodo],ts:Date.now()};
+  const liq={id:'l'+Date.now(),monto:pend,periodo:labels[periodo],nota:nota||labels[periodo],ts:Date.now(),eventos:items.length};
+  items.forEach(({evento})=>{
+    evento.liquidado=true;
+    evento.liquidacionId=liq.id;
+    evento.liquidadoTs=liq.ts;
+  });
+  save();
   liquidaciones.push(liq);
   localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
+  registrarCajaAuto('liquidacion_comision', pend, `Liquidación cobrador · ${liq.periodo}`, `liquidacion:${liq.id}`, {liquidacionId:liq.id, cliente:'Cobrador'});
   if(fbOk&&db)db.ref('liquidaciones/'+liq.id).set(liq);
   log({tipo:'liquidacion',cliente:'Cobrador',monto:pend,ts:Date.now(),autor:'Admin',nota:liq.nota});
   notify(`Liquidación de ${fmt(pend)} registrada ✓`,'ok');
   cerrar('modal-liquidar');
   renderComisiones();
+  renderCaja();
+  renderInicio();
 }
 
 // UTILS
