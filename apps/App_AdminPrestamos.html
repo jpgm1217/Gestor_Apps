@@ -307,10 +307,16 @@ input[type=file]{display:none;}
 
 <div id="panel-caja" class="panel">
   <div class="g2">
-    <div class="metric gold"><div class="ml">Capital total registrado</div><div class="mv" id="cj-total">$0</div></div>
-    <div class="metric"><div class="ml">En la calle</div><div class="mv" style="color:var(--amber)" id="cj-calle">$0</div></div>
-    <div class="metric green"><div class="ml">Disponible</div><div class="mv" id="cj-disp">$0</div></div>
-    <div class="metric"><div class="ml">Intereses ganados</div><div class="mv" style="color:var(--green)" id="cj-int">$0</div></div>
+    <div class="metric gold"><div class="ml">Capital de trabajo</div><div class="mv" id="cj-total">$0</div></div>
+    <div class="metric"><div class="ml">Capital en calle</div><div class="mv" style="color:var(--amber)" id="cj-calle">$0</div></div>
+    <div class="metric green"><div class="ml">Disponible real</div><div class="mv" id="cj-disp">$0</div></div>
+    <div class="metric"><div class="ml">Interés realizado</div><div class="mv" style="color:var(--green)" id="cj-int">$0</div></div>
+  </div>
+  <div id="cj-alerta"></div>
+  <div class="card">
+    <div class="ct">Desglose de caja</div>
+    <div id="cj-resumen"></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px">Disponible real = capital de trabajo − capital pendiente en calle. Los intereses se muestran aparte y no se cuentan como efectivo libre hasta que realmente entren.</div>
   </div>
   <div class="card">
     <div class="ct">Registrar movimiento</div>
@@ -324,7 +330,7 @@ input[type=file]{display:none;}
       </div>
       <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="cj-monto" placeholder="0"></div>
     </div>
-    <div class="fg"><label class="fl">Descripción</label><input type="text" id="cj-desc" placeholder="Ej: Capital inicial"></div>
+    <div class="fg"><label class="fl">Descripción</label><input type="text" id="cj-desc" placeholder="Ej: Capital inicial, retiro personal, gasolina"></div>
     <button class="btn btn-primary" onclick="registrarMovimiento()">+ Registrar</button>
   </div>
   <div class="card"><div class="ct">Historial</div><div id="cj-historial"></div></div>
@@ -2185,20 +2191,68 @@ function renderActividad(){
 }
 
 // CAJA
+function capitalPendiente(c){
+  if(!c||c.pagadas>=c.numCuotas)return 0;
+  const pendientes=c.cuotasData?.slice(c.pagadas)||[];
+  let capital=pendientes.reduce((s,q)=>s+(parseFloat(q.capital)||0),0);
+  if(!capital&&c.numCuotas>0)capital=(c.capital||0)*((c.numCuotas-c.pagadas)/c.numCuotas);
+  capital=Math.round(capital||0);
+  return Math.max(0,Math.min(c.capital||capital,capital));
+}
+function interesPendiente(c){
+  return Math.max(0,saldo(c)-capitalPendiente(c));
+}
+function cajaStats(){
+  const ingresosCapital=caja.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+m.monto,0);
+  const retirosCapital=caja.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+m.monto,0);
+  const gastosOperativos=caja.filter(m=>m.tipo==='gasto').reduce((s,m)=>s+m.monto,0);
+  const capitalTrabajo=ingresosCapital-retirosCapital-gastosOperativos;
+  const activos=clientes.filter(c=>c.pagadas<c.numCuotas);
+  const capitalEnCalle=activos.reduce((s,c)=>s+capitalPendiente(c),0);
+  const carteraTotal=activos.reduce((s,c)=>s+saldo(c),0);
+  const interesPorCobrar=activos.reduce((s,c)=>s+interesPendiente(c),0);
+  const interesRealizado=clientes.reduce((s,c)=>s+(c.pagadas*(c.interes/c.numCuotas)),0);
+  const moraAcumulada=activos.reduce((s,c)=>s+mora(c),0);
+  const disponibleReal=capitalTrabajo-capitalEnCalle;
+  return{ingresosCapital,retirosCapital,gastosOperativos,capitalTrabajo,capitalEnCalle,carteraTotal,interesPorCobrar,interesRealizado,moraAcumulada,disponibleReal};
+}
 function renderCaja(){
-  const capCalle=clientes.filter(c=>c.pagadas<c.numCuotas).reduce((s,c)=>s+saldo(c),0);
-  const total=caja.reduce((s,m)=>s+(m.tipo==='ingreso'?m.monto:-m.monto),0);
-  const intG=clientes.reduce((s,c)=>s+c.pagadas*(c.interes/c.numCuotas),0);
-  document.getElementById('cj-total').textContent=fmt(total);
-  document.getElementById('cj-calle').textContent=fmt(capCalle);
-  document.getElementById('cj-disp').textContent=fmt(Math.max(0,total-capCalle));
-  document.getElementById('cj-int').textContent=fmt(intG);
+  const st=cajaStats();
+  document.getElementById('cj-total').textContent=fmt(st.capitalTrabajo);
+  document.getElementById('cj-calle').textContent=fmt(st.capitalEnCalle);
+  document.getElementById('cj-disp').textContent=fmt(st.disponibleReal);
+  document.getElementById('cj-disp').style.color=st.disponibleReal<0?'var(--red)':'var(--green)';
+  document.getElementById('cj-int').textContent=fmt(st.interesRealizado);
+  const alerta=document.getElementById('cj-alerta');
+  if(alerta){
+    if(!caja.length&&clientes.length){
+      alerta.innerHTML='<div class="ibox amber">Aún no has registrado capital en Caja. Por eso las métricas pueden verse incompletas aunque ya existan préstamos.</div>';
+    }else if(st.disponibleReal<0){
+      alerta.innerHTML=`<div class="ibox red">Tu capital en calle supera el capital de trabajo registrado por ${fmt(Math.abs(st.disponibleReal))}. Revisa ingresos, retiros o préstamos creados antes de registrar caja.</div>`;
+    }else{
+      alerta.innerHTML='<div class="ibox green">La caja ahora separa capital real, cartera e intereses para evitar confusiones.</div>';
+    }
+  }
+  const resumen=document.getElementById('cj-resumen');
+  if(resumen){
+    resumen.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="cs"><div class="csl">Ingresos de capital</div><div class="csv" style="color:var(--green)">${fmt(st.ingresosCapital)}</div></div>
+        <div class="cs"><div class="csl">Retiros de capital</div><div class="csv" style="color:var(--red)">${fmt(st.retirosCapital)}</div></div>
+        <div class="cs"><div class="csl">Gastos operativos</div><div class="csv" style="color:var(--red)">${fmt(st.gastosOperativos)}</div></div>
+        <div class="cs"><div class="csl">Cartera total por cobrar</div><div class="csv" style="color:var(--gold)">${fmt(st.carteraTotal)}</div></div>
+        <div class="cs"><div class="csl">Interés por cobrar</div><div class="csv" style="color:var(--amber)">${fmt(st.interesPorCobrar)}</div></div>
+        <div class="cs"><div class="csl">Mora acumulada</div><div class="csv" style="color:${st.moraAcumulada>0?'var(--red)':'var(--text3)'}">${fmt(st.moraAcumulada)}</div></div>
+      </div>`;
+  }
   const el=document.getElementById('cj-historial');
   if(!caja.length){el.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin movimientos</div>';return;}
   el.innerHTML=caja.slice().reverse().map(m=>{
     const ts=new Date(m.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'});
-    const col=m.tipo==='ingreso'?'var(--green)':'var(--red)',sg=m.tipo==='ingreso'?'+':'-';
-    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:13px;font-weight:500">${m.desc||m.tipo}</div><div style="font-size:11px;color:var(--text3)">${ts}</div></div><div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${col}">${sg}${fmt(m.monto)}</div></div>`;
+    const esIngreso=m.tipo==='ingreso';
+    const col=esIngreso?'var(--green)':'var(--red)',sg=esIngreso?'+':'-';
+    const lbl=m.tipo==='ingreso'?'Ingreso':m.tipo==='egreso'?'Retiro':'Gasto';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:13px;font-weight:500">${m.desc||lbl}</div><div style="font-size:11px;color:var(--text3)">${lbl} · ${ts}</div></div><div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${col}">${sg}${fmt(m.monto)}</div></div>`;
   }).join('');
 }
 function registrarMovimiento(){
@@ -2211,7 +2265,7 @@ function registrarMovimiento(){
   localStorage.setItem('cr_caja',JSON.stringify(caja));
   if(fbOk&&db)db.ref('caja/'+mov.id).set(mov);
   document.getElementById('cj-monto').value='';document.getElementById('cj-desc').value='';
-  renderCaja();notify('Registrado ✓','ok');
+  renderCaja();notify('Movimiento registrado ✓','ok');
 }
 
 // EXPORTAR
