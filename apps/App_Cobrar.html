@@ -9,7 +9,7 @@
 <title>CréditoRápido — Cobrador</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#080f0d;--bg2:#0f1a15;--bg3:#172218;--bg4:#1f2e21;--card:#101a12;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);--green:#3de89a;--green2:#6ffab6;--greend:rgba(61,232,154,0.12);--greenb:rgba(61,232,154,0.25);--gold:#f0c060;--goldd:rgba(240,192,96,0.1);--red:#ff6b6b;--redd:rgba(255,107,107,0.12);--amber:#ffaa44;--amberd:rgba(255,170,68,0.12);--blue:#6eb3ff;--blued:rgba(110,179,255,0.12);--text:#e8f5ee;--text2:#7aaa8e;--text3:#446655;--r:14px;--rs:10px;}
+:root{--bg:#080809;--bg2:#0f1013;--bg3:#17191f;--bg4:#1f2330;--card:#131518;--border:rgba(255,255,255,0.065);--border2:rgba(255,255,255,0.12);--green:#3de89a;--green2:#6ffab6;--greend:rgba(61,232,154,0.11);--greenb:rgba(61,232,154,0.24);--gold:#f0c060;--goldd:rgba(240,192,96,0.1);--red:#ff6b6b;--redd:rgba(255,107,107,0.11);--amber:#ffaa44;--amberd:rgba(255,170,68,0.11);--blue:#6eb3ff;--blued:rgba(110,179,255,0.11);--text:#e8f5ee;--text2:#7aaa8e;--text3:#446655;--r:14px;--rs:10px;}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;overflow:hidden;}
 body{background:var(--bg);color:var(--text);font-family:'Instrument Sans',sans-serif;font-size:14px;display:flex;flex-direction:column;position:relative;}
@@ -118,6 +118,19 @@ input:focus{border-color:var(--green);}
 .preview-value{font-family:'Syne',sans-serif;font-size:18px;color:var(--gold);font-weight:700;}
 .preview-sub{font-size:10px;color:var(--text3);margin-top:4px;}
 </style>
+<script>
+const ICON_SVG = {
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+  alertTriangle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l10 18H2L12 2z"/><path d="M12 9v4m0 4h.01"/></svg>',
+  trendingUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13 16 8 11 2 17"/><polyline points="23 6 23 12 17 12"/></svg>',
+  map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 10 23 10 17 16 19 24 12 19 5 24 7 16 1 10 9 10"/></svg>',
+  calculator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><rect x="8" y="9" width="2" height="2"/><rect x="14" y="9" width="2" height="2"/><rect x="8" y="13" width="2" height="2"/><rect x="14" y="13" width="2" height="2"/><rect x="8" y="17" width="8" height="2"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m5.08 5.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m5.08-5.08l4.24-4.24"/></svg>',
+};
+function renderIcons(){document.querySelectorAll('.ti[data-icon]').forEach(el=>{const svg=ICON_SVG[el.getAttribute('data-icon')];if(svg){el.innerHTML=svg;el.style.display='inline-block';el.style.width='14px';el.style.height='14px';el.style.marginRight='5px';el.style.verticalAlign='middle';}});
+document.readyState==='loading'?document.addEventListener('DOMContentLoaded',renderIcons):renderIcons();
+</script>
 </head>
 <body>
 
@@ -149,13 +162,13 @@ input:focus{border-color:var(--green);}
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="goTab('ruta',this)" id="tab-ruta"><span class="ti">◉</span>Mi ruta <span id="badge-ruta" style="display:none;background:var(--amber);color:#000;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
-  <button class="tab" onclick="goTab('todos',this)"><span class="ti">≡</span>Todos</button>
-  <button class="tab" onclick="goTab('dia',this)"><span class="ti">☀</span>Mi día</button>
-  <button class="tab" onclick="goTab('ganancias',this)"><span class="ti">◈</span>Ganancias</button>
-  <button class="tab" onclick="goTab('nuevo',this)" id="tab-solicitudes"><span class="ti">✦</span>Solicitudes <span id="badge-soli" style="display:none;background:var(--red);color:#fff;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
-  <button class="tab" onclick="goTab('simulador',this)"><span class="ti">▣</span>Simular</button>
-  <button class="tab" onclick="goTab('config',this)"><span class="ti">⚙</span>Config</button>
+  <button class="tab active" onclick="goTab('ruta',this)" id="tab-ruta"><span class="ti" data-icon="map"></span>Mi ruta <span id="badge-ruta" style="display:none;background:var(--amber);color:#000;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
+  <button class="tab" onclick="goTab('todos',this)"><span class="ti" data-icon="users"></span>Todos</button>
+  <button class="tab" onclick="goTab('dia',this)"><span class="ti" data-icon="calendar"></span>Mi día</button>
+  <button class="tab" onclick="goTab('ganancias',this)"><span class="ti" data-icon="trendingUp"></span>Ganancias</button>
+  <button class="tab" onclick="goTab('nuevo',this)" id="tab-solicitudes"><span class="ti" data-icon="alertTriangle"></span>Solicitudes <span id="badge-soli" style="display:none;background:var(--red);color:#fff;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
+  <button class="tab" onclick="goTab('simulador',this)"><span class="ti" data-icon="calculator"></span>Simular</button>
+  <button class="tab" onclick="goTab('config',this)"><span class="ti" data-icon="settings"></span>Config</button>
 </div>
 
 <div class="scroll">
