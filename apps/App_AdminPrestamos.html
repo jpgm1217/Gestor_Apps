@@ -688,9 +688,14 @@ let _prevSolicitudesPendientes=[];
 
 // PIN
 function initPIN(){
+  // Reset de emergencia: agrega ?resetpin=1 a la URL para limpiar el PIN
+  if(new URLSearchParams(window.location.search).get('resetpin')==='1'){
+    localStorage.removeItem(PIN_KEY);
+    history.replaceState(null,'',window.location.pathname);
+  }
+  // PIN por defecto QA — si no hay PIN guardado, usar 1816
   if(!localStorage.getItem(PIN_KEY)){
-    pinMode='setup1';
-    document.getElementById('pin-sub').textContent='Primera vez — crea tu PIN de 4 dígitos';
+    localStorage.setItem(PIN_KEY,'1816');
   }
 }
 function pinKey(k){
@@ -960,6 +965,7 @@ function goTab(name,el){
   if(name==='finanzas')renderFinanzas();
   if(name==='inicio')renderInicio();
   if(name==='comisiones')renderComisiones();
+  if(name==='pool')renderPool();
 }
 
 // PLAZO
@@ -3657,31 +3663,7 @@ function marcarSoliRenovacionAprobada(){
   }
 }
 
-// Inicializar pool al conectar
-const _escucharOrig=escuchar;
-function escucharConPool(){
-  _escucharOrig();
-  initPool();
-}
-
-// Reemplazar goTab para incluir pool
-const _goTabOrig=goTab;
-function goTab(name,el){
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('panel-'+name).classList.add('active');
-  el.classList.add('active');
-  if(name==='clientes')renderClientes();
-  if(name==='actividad')renderActividad();
-  if(name==='caja')renderCaja();
-  if(name==='config')cargarParamsGlobales();
-  if(name==='calendario')renderCalendario();
-  if(name==='solicitudes')renderSolicitudesAdmin();
-  if(name==='finanzas')renderFinanzas();
-  if(name==='inicio')renderInicio();
-  if(name==='comisiones')renderComisiones();
-  if(name==='pool')renderPool();
-}
+// Inicializar pool al conectar — ver initPool() en _initFB
 </script>
 </body>
 </html>
