@@ -106,9 +106,20 @@ input:focus{border-color:var(--green);}
 .empty{text-align:center;padding:36px 16px;color:var(--text3);}
 .empty-i{font-size:36px;margin-bottom:10px;}
 .empty-t{font-size:14px;color:var(--text2);}
+/* ── SIMULADOR ── */
+.tabla-cuotas{width:100%;border-collapse:collapse;font-size:12px;margin-top:12px;}
+.tabla-cuotas th{background:var(--bg3);color:var(--text2);padding:8px 4px;text-align:left;font-weight:600;border-bottom:1px solid var(--border);}
+.tabla-cuotas td{padding:8px 4px;border-bottom:1px solid var(--border);}
+.tabla-cuotas tr:hover{background:var(--bg3);}
+.preview-box{background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:12px;margin:12px 0;}
+.preview-title{font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:8px;}
+.preview-value{font-family:'Syne',sans-serif;font-size:18px;color:var(--gold);font-weight:700;}
+.preview-sub{font-size:10px;color:var(--text3);margin-top:4px;}
 </style>
 </head>
 <body>
+<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#ff6b00;color:#fff;text-align:center;font-size:12px;font-weight:700;padding:5px;letter-spacing:.1em">⚠️ AMBIENTE QA — NO ES PRODUCCIÓN ⚠️</div>
+<div style="height:28px;flex-shrink:0"></div>
 
 <div class="pin-screen" id="pin-screen">
   <div class="pin-logo">CréditoRápido</div>
@@ -138,6 +149,7 @@ input:focus{border-color:var(--green);}
   <button class="tab" onclick="goTab('ganancias',this)">💰 Mis ganancias</button>
   <button class="tab" onclick="goTab('nuevo',this)" style="color:var(--green)">Solicitudes</button>
   <button class="tab" onclick="goTab('config',this)">Config</button>
+  <button class="tab" onclick="goTab('simulador',this)">📊 Simular</button>
 </div>
 
 <div class="scroll">
@@ -246,6 +258,27 @@ input:focus{border-color:var(--green);}
   </div>
 </div>
 
+<!-- SIMULADOR -->
+<div id="panel-simulador" class="panel">
+  <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Simula un crédito para cotizar al cliente. Verás la tabla de cuotas con fechas de pago.</div>
+  <div class="card">
+    <div class="ct">Parámetros de Simulación</div>
+    <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="sim-monto" placeholder="100000" min="1" oninput="simularCredito()"></div>
+    <div class="fg"><label class="fl">Tasa de interés (%)</label><input type="number" id="sim-tasa" placeholder="20" min="1" max="100" value="20" oninput="simularCredito()"></div>
+    <div class="fg"><label class="fl">Frecuencia de pago</label>
+      <select id="sim-frecuencia" oninput="simularCredito()">
+        <option value="diario">Diario</option>
+        <option value="semanal">Semanal</option>
+        <option value="quincenal">Quincenal</option>
+        <option value="mensual">Mensual</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">Nº de cuotas</label><input type="number" id="sim-plazo" placeholder="10" min="1" max="365" oninput="simularCredito()"></div>
+    <div class="fg"><label class="fl">Mora por día ($) <span style="color:var(--text3);font-weight:400">(opcional)</span></label><input type="number" id="sim-mora" placeholder="3000" min="0" step="1000"></div>
+  </div>
+  <div id="sim-resultado"></div>
+</div>
+
 </div>
 
 <!-- CONFIRM -->
@@ -305,7 +338,7 @@ input:focus{border-color:var(--green);}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
-const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
+const FB={apiKey:"AIzaSyC64ZC22ew28ELjjM6Sg1p6_ECKEyOBliA",authDomain:"prestamosjv-qa.firebaseapp.com",projectId:"prestamosjv-qa",databaseURL:"https://prestamosjv-qa-default-rtdb.firebaseio.com",storageBucket:"prestamosjv-qa.firebasestorage.app",messagingSenderId:"377793551607",appId:"1:377793551607:web:c149c8a35e118a800f87f2"};
 let db=null,fbOk=false,clientes=[],cobrosHoy=[],pendingPago=null,liquidaciones=[];
 const PIN_KEY='cr_pin_cobrador';
 let pinBuf='',pinMode='check';
@@ -358,14 +391,72 @@ function initFirebase(){
   try{
     const app=firebase.apps&&firebase.apps.length?firebase.app():firebase.initializeApp(FB);
     db=firebase.database(app);fbOk=true;
-    setConn(true);escuchar();
+    // Conexión real — no asumir, escuchar Firebase
+    db.ref('.info/connected').on('value',snap=>{
+      setConn(snap.val()===true);
+    });
+    escuchar();
   }catch(e){setConn(false);console.error(e);}
 }
 function setConn(ok){
-  document.getElementById('conn-status').textContent=ok?'En línea':'Error';
+  document.getElementById('conn-status').textContent=ok?'En línea':'Sin conexión';
   document.getElementById('dot').style.background=ok?'var(--green)':'var(--red)';
-  document.getElementById('cfg-estado').textContent=ok?'Conectado ✓':'Error';
+  document.getElementById('cfg-estado').textContent=ok?'Conectado ✓':'Sin conexión';
   document.getElementById('cfg-estado').style.color=ok?'var(--green)':'var(--red)';
+}
+
+// ── SIMULADOR ──
+const SIM_DIAS={diario:1,semanal:7,quincenal:15,mensual:30};
+
+function simularCredito(){
+  const monto=parseFloat(document.getElementById('sim-monto').value)||0;
+  const tasa=parseFloat(document.getElementById('sim-tasa').value)||20;
+  const frecuencia=document.getElementById('sim-frecuencia').value;
+  const plazo=parseInt(document.getElementById('sim-plazo').value)||0;
+  const mora=parseFloat(document.getElementById('sim-mora').value)||0;
+  const el=document.getElementById('sim-resultado');
+
+  if(!monto||!plazo){el.innerHTML='';return;}
+
+  const interes=monto*(tasa/100);
+  const total=monto+interes;
+  const cuotaExacta=total/plazo;
+  const cuota=Math.ceil(cuotaExacta/1000)*1000;
+  const cuotaUltima=Math.max(1000,total-(cuota*(plazo-1)));
+  const diasEntre=SIM_DIAS[frecuencia]||1;
+  const inicio=new Date();
+  inicio.setDate(inicio.getDate()+diasEntre);
+
+  let html=`
+    <div class="preview-box">
+      <div class="preview-title">Resumen del crédito</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div><div class="preview-title">Capital</div><div class="preview-value">${fmt(monto)}</div></div>
+        <div><div class="preview-title">Interés (${tasa}%)</div><div class="preview-value">${fmt(interes)}</div></div>
+        <div><div class="preview-title">Total a cobrar</div><div class="preview-value" style="color:var(--green)">${fmt(total)}</div></div>
+        <div><div class="preview-title">Cuota aprox.</div><div class="preview-value">${fmt(cuota)}</div></div>
+      </div>
+      <div class="preview-sub">📅 ${plazo} cuotas · cada ${diasEntre} día${diasEntre>1?'s':''} · redondeo $1.000</div>
+    </div>
+    <div class="ct" style="margin-top:16px;margin-bottom:8px">Tabla de cuotas</div>
+    <table class="tabla-cuotas">
+      <thead><tr><th>#</th><th>Fecha</th><th>Cuota</th><th>Saldo</th></tr></thead>
+      <tbody>`;
+
+  for(let i=1;i<=plazo;i++){
+    const f=new Date(inicio);
+    f.setDate(inicio.getDate()+(i-1)*diasEntre);
+    const esFinal=i===plazo;
+    const cq=esFinal?Math.round(cuotaUltima):cuota;
+    const saldoRest=Math.max(0,total-cuota*(i-1)-cq);
+    const fechaStr=f.toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
+    html+=`<tr><td>${i}</td><td>${fechaStr}</td><td>${fmt(cq)}</td><td>${fmt(saldoRest)}</td></tr>`;
+  }
+  html+=`</tbody></table>`;
+  if(mora>0){
+    html+=`<div style="margin-top:12px;padding:8px;background:var(--amberd);border-radius:var(--rs);font-size:11px;color:var(--amber)">ℹ️ Mora por retraso: ${fmt(mora)}/día</div>`;
+  }
+  el.innerHTML=html;
 }
 const WA_TEMPLATE_KEY='cr_wa_template';
 const WA_TEMPLATE_DEFAULT=`✅ *Recibo de pago*
