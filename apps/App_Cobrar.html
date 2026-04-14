@@ -118,8 +118,6 @@ input:focus{border-color:var(--green);}
 </style>
 </head>
 <body>
-<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#ff6b00;color:#fff;text-align:center;font-size:12px;font-weight:700;padding:5px;letter-spacing:.1em">⚠️ AMBIENTE QA — NO ES PRODUCCIÓN ⚠️</div>
-<div style="height:28px;flex-shrink:0"></div>
 
 <div class="pin-screen" id="pin-screen">
   <div class="pin-logo">CréditoRápido</div>
@@ -148,8 +146,8 @@ input:focus{border-color:var(--green);}
   <button class="tab" onclick="goTab('dia',this)">Mi día</button>
   <button class="tab" onclick="goTab('ganancias',this)">💰 Mis ganancias</button>
   <button class="tab" onclick="goTab('nuevo',this)" style="color:var(--green)">Solicitudes</button>
-  <button class="tab" onclick="goTab('config',this)">Config</button>
   <button class="tab" onclick="goTab('simulador',this)">📊 Simular</button>
+  <button class="tab" onclick="goTab('config',this)">Config</button>
 </div>
 
 <div class="scroll">
@@ -228,6 +226,27 @@ input:focus{border-color:var(--green);}
   </div>
 </div>
 
+<!-- SIMULADOR -->
+<div id="panel-simulador" class="panel">
+  <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Simula un crédito para cotizar al cliente. Verás la tabla de cuotas con fechas de pago.</div>
+  <div class="card">
+    <div class="ct">Parámetros de Simulación</div>
+    <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="sim-monto" placeholder="100000" min="1" oninput="simularCredito()"></div>
+    <div class="fg"><label class="fl">Tasa de interés (%)</label><input type="number" id="sim-tasa" placeholder="20" min="1" max="100" value="20" oninput="simularCredito()"></div>
+    <div class="fg"><label class="fl">Frecuencia de pago</label>
+      <select id="sim-frecuencia" oninput="simularCredito()">
+        <option value="diario">Diario</option>
+        <option value="semanal">Semanal</option>
+        <option value="quincenal">Quincenal</option>
+        <option value="mensual">Mensual</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">Nº de cuotas</label><input type="number" id="sim-plazo" placeholder="10" min="1" max="365" oninput="simularCredito()"></div>
+    <div class="fg"><label class="fl">Mora por día ($) <span style="color:var(--text3);font-weight:400">(opcional)</span></label><input type="number" id="sim-mora" placeholder="3000" min="0" step="1000"></div>
+  </div>
+  <div id="sim-resultado"></div>
+</div>
+
 <div id="panel-config" class="panel">
   <div class="card">
     <div class="ct">Mi PIN</div>
@@ -256,27 +275,6 @@ input:focus{border-color:var(--green);}
       <div>🔒 No puede modificar montos</div>
     </div>
   </div>
-</div>
-
-<!-- SIMULADOR -->
-<div id="panel-simulador" class="panel">
-  <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Simula un crédito para cotizar al cliente. Verás la tabla de cuotas con fechas de pago.</div>
-  <div class="card">
-    <div class="ct">Parámetros de Simulación</div>
-    <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="sim-monto" placeholder="100000" min="1" oninput="simularCredito()"></div>
-    <div class="fg"><label class="fl">Tasa de interés (%)</label><input type="number" id="sim-tasa" placeholder="20" min="1" max="100" value="20" oninput="simularCredito()"></div>
-    <div class="fg"><label class="fl">Frecuencia de pago</label>
-      <select id="sim-frecuencia" oninput="simularCredito()">
-        <option value="diario">Diario</option>
-        <option value="semanal">Semanal</option>
-        <option value="quincenal">Quincenal</option>
-        <option value="mensual">Mensual</option>
-      </select>
-    </div>
-    <div class="fg"><label class="fl">Nº de cuotas</label><input type="number" id="sim-plazo" placeholder="10" min="1" max="365" oninput="simularCredito()"></div>
-    <div class="fg"><label class="fl">Mora por día ($) <span style="color:var(--text3);font-weight:400">(opcional)</span></label><input type="number" id="sim-mora" placeholder="3000" min="0" step="1000"></div>
-  </div>
-  <div id="sim-resultado"></div>
 </div>
 
 </div>
@@ -338,7 +336,7 @@ input:focus{border-color:var(--green);}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
-const FB={apiKey:"AIzaSyC64ZC22ew28ELjjM6Sg1p6_ECKEyOBliA",authDomain:"prestamosjv-qa.firebaseapp.com",projectId:"prestamosjv-qa",databaseURL:"https://prestamosjv-qa-default-rtdb.firebaseio.com",storageBucket:"prestamosjv-qa.firebasestorage.app",messagingSenderId:"377793551607",appId:"1:377793551607:web:c149c8a35e118a800f87f2"};
+const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
 let db=null,fbOk=false,clientes=[],cobrosHoy=[],pendingPago=null,liquidaciones=[];
 const PIN_KEY='cr_pin_cobrador';
 let pinBuf='',pinMode='check';
@@ -404,7 +402,6 @@ function setConn(ok){
   document.getElementById('cfg-estado').textContent=ok?'Conectado ✓':'Sin conexión';
   document.getElementById('cfg-estado').style.color=ok?'var(--green)':'var(--red)';
 }
-
 // ── SIMULADOR ──
 const SIM_DIAS={diario:1,semanal:7,quincenal:15,mensual:30};
 
@@ -458,6 +455,7 @@ function simularCredito(){
   }
   el.innerHTML=html;
 }
+
 const WA_TEMPLATE_KEY='cr_wa_template';
 const WA_TEMPLATE_DEFAULT=`✅ *Recibo de pago*
 
