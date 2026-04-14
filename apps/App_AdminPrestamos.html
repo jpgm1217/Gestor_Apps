@@ -165,6 +165,7 @@ input[type=file]{display:none;}
   <button class="tab" onclick="goTab('caja',this)"><span class="ti">◍</span>Caja</button>
   <button class="tab" onclick="goTab('finanzas',this)"><span class="ti">◈</span>Finanzas</button>
   <button class="tab" onclick="goTab('comisiones',this)"><span class="ti">◎</span>Comisión</button>
+  <button class="tab" onclick="goTab('pool',this)"><span class="ti">💰</span>Pool</button>
   <button class="tab" onclick="goTab('config',this)"><span class="ti">⚙</span>Config</button>
 </div>
 
@@ -396,6 +397,37 @@ input[type=file]{display:none;}
   </div>
 </div>
 
+<!-- ── PANEL POOL ── -->
+<div id="panel-pool" class="panel">
+  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Capital disponible para reinvertir. Se alimenta automáticamente con cada pago recibido.</div>
+
+  <!-- Métricas -->
+  <div class="g2" id="pool-metricas"></div>
+
+  <!-- Registrar movimiento manual -->
+  <div class="card" style="margin-top:12px">
+    <div class="ct">Registrar movimiento</div>
+    <div class="fg"><label class="fl">Tipo</label>
+      <select id="pool-tipo">
+        <option value="entrada">↓ Entrada (capital recuperado)</option>
+        <option value="salida">↑ Salida (nuevo préstamo)</option>
+        <option value="ajuste">↔ Ajuste manual</option>
+      </select>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="pool-monto" min="0" step="10000" placeholder="0"></div>
+      <div class="fg"><label class="fl">Concepto</label><input type="text" id="pool-concepto" placeholder="Ej: Pago María López"></div>
+    </div>
+    <button class="btn btn-primary" onclick="agregarMovimientoPool()">Registrar</button>
+  </div>
+
+  <!-- Historial -->
+  <div class="card" style="margin-top:12px">
+    <div class="ct">Últimos 20 movimientos</div>
+    <div id="pool-historial"></div>
+  </div>
+</div>
+
 <div id="panel-config" class="panel">
   <div class="card">
     <div class="ct">⚙️ Parámetros por defecto</div>
@@ -511,6 +543,47 @@ input[type=file]{display:none;}
 <!-- MODAL CLIENTE -->
 <div class="modal-overlay" id="modal-cli" onclick="if(event.target===this)cerrar('modal-cli')">
   <div class="modal"><div class="mhandle"></div><div id="modal-cli-body"></div></div>
+</div>
+
+<!-- MODAL CICLO DETALLE -->
+<div class="modal-overlay" id="modal-ciclo" onclick="if(event.target===this)cerrar('modal-ciclo')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle" id="ciclo-titulo">Ciclo</div>
+    <div id="ciclo-body"></div>
+    <button class="btn btn-ghost btn-full" style="margin-top:12px" onclick="cerrar('modal-ciclo')">Cerrar</button>
+  </div>
+</div>
+
+<!-- MODAL NUEVO CICLO (Admin crea ciclo para cliente existente) -->
+<div class="modal-overlay" id="modal-nuevo-ciclo" onclick="if(event.target===this)cerrar('modal-nuevo-ciclo')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔄 Nuevo ciclo</div>
+    <div id="nuevo-ciclo-info" class="ibox blue" style="margin-bottom:12px"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Capital ($)</label><input type="number" id="nc-capital" step="50000" value="200000" oninput="previewNuevoCiclo()"></div>
+      <div class="fg"><label class="fl">Tasa (%)</label><input type="number" id="nc-tasa" value="20" oninput="previewNuevoCiclo()"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Frecuencia</label>
+        <select id="nc-tipo" onchange="previewNuevoCiclo()">
+          <option value="diario">Diario</option>
+          <option value="semanal">Semanal</option>
+          <option value="quincenal">Quincenal</option>
+          <option value="mensual">Mensual</option>
+        </select>
+      </div>
+      <div class="fg"><label class="fl">Nº cuotas</label><input type="number" id="nc-plazo" value="15" min="1" oninput="previewNuevoCiclo()"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Fecha inicio</label><input type="date" id="nc-fecha"></div>
+      <div class="fg"><label class="fl">Mora/día ($)</label><input type="number" id="nc-mora" value="3000" step="1000" min="0"></div>
+    </div>
+    <div id="nc-preview" class="ibox amber" style="margin-bottom:12px"></div>
+    <button class="btn btn-primary" onclick="confirmarNuevoCiclo()">🔄 Crear ciclo</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-nuevo-ciclo')">Cancelar</button>
+  </div>
 </div>
 
 <!-- MODAL REFINANCIAR -->
@@ -761,7 +834,12 @@ function _initFB(){
     // Evitar inicializar dos veces
     const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FB);
     db=firebase.database(app);fbOk=true;
-    setConn(true);escuchar();
+    // Conexión real — escuchar Firebase, no asumir
+    db.ref('.info/connected').on('value',snap=>{
+      setConn(snap.val()===true);
+    });
+    escuchar();
+    initPool();
   }catch(e){
     setConn(false);
     console.error('Firebase error:',e);
@@ -1402,9 +1480,11 @@ function verCliente(id,soliId=null){
     <div style="margin-bottom:8px">
       <button class="btn btn-red btn-full btn-sm" onclick="eliminar('${c.id}')">🗑 Eliminar cliente</button>
     </div>
+    ${c.pagadas>=c.numCuotas?`<button class="btn btn-green btn-full" style="margin-top:4px" onclick="abrirNuevoCiclo('${c.id}')">🔄 Crear nuevo ciclo</button>`:''}
     ${c.telefono?`<a href="https://wa.me/57${c.telefono.replace(/\D/g,'')}" target="_blank" class="wa-btn btn-full" style="justify-content:center;margin-top:4px">💬 WhatsApp al cliente</a>`:''}
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cli');abrirFotos('${c.id}')">📷 Ver / agregar fotos</button>
     <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="abrirAjusteSaldo('${c.id}')">⚖️ Ajuste manual de saldo</button>
+    ${htmlCiclosCliente(c)}
     ${generarHistorialCliente(c)}
     ${generarSeccionMora(c)}`;
   document.getElementById('modal-cli').classList.add('open');
@@ -1418,7 +1498,8 @@ function infoSolicitudAdmin(s){
     nuevo_cliente:{label:'Nuevo cliente',icon:'🆕',color:'var(--green)'},
     cobro_anticipado:{label:'Cobro anticipado',icon:'⏩',color:'var(--gold)'},
     abono:{label:'Abono',icon:'💵',color:'var(--amber)'},
-    novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'}
+    novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'},
+    renovacion:{label:'Renovación de ciclo',icon:'🔄',color:'var(--green)'}
   }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
 }
 function resolverSolicitudAdmin(soliId,estado='aprobado',accionAdmin='',notaAdmin=''){
@@ -1473,6 +1554,11 @@ function renderSolicitudesAdmin(){
     const accionesPend=tipo==='nuevo_cliente'
       ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
           <button class="btn btn-green btn-sm" onclick="abrirAprobacion('${s.id}')">✅ Abrir creación</button>
+          <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
+        </div>`
+      :tipo==='renovacion'
+      ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
+          <button class="btn btn-green btn-sm" onclick="procesarSolicitudRenovacion('${s.id}')">🔄 Crear ciclo</button>
           <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
         </div>`
       :`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
@@ -1736,10 +1822,22 @@ function pagoNormal(id){
   c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=new Date().toISOString();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
   save();
+  // Alimentar pool con cuota cobrada
+  alimentarPool(c.cuota,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
   log({tipo:'pago',cliente:c.nombre,monto:c.cuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin'});
   resolverSolicitudActiva('pago_registrado',`Pago ${c.pagadas}/${c.numCuotas} registrado por admin`);
+  // Última cuota — ofrecer nuevo ciclo
+  if(c.pagadas>=c.numCuotas){
+    cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+    if(confirm(`✅ ${c.nombre} terminó de pagar.\n¿Crear un nuevo ciclo de préstamo?`)){
+      abrirNuevoCiclo(c.id);
+    } else {
+      notify(`${c.nombre} — préstamo completado ✓`,'ok');
+    }
+    return;
+  }
   notify(`Pago ${c.pagadas}/${c.numCuotas} registrado ✓`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
 }
@@ -1755,18 +1853,27 @@ function cobrarConMora(id){
   c.ultimoPago=new Date().toISOString();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas} con mora`});
   save();
+  // Alimentar pool con cuota + mora
+  alimentarPool(c.cuota+m,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
   log({tipo:'pago',cliente:c.nombre,monto:c.cuota+m,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:`mora ${fmt(m)}`});
   resolverSolicitudActiva('pago_con_mora',`Cobro aplicado por admin: ${fmt(c.cuota+m)}`);
-  notify(`Cobrado ${fmt(c.cuota+m)} ✓`,'ok');
-  // Botón de WhatsApp con plantilla personalizada
   if(c.telefono){
     const msg=encodeURIComponent(buildWAMsg(c,c.pagadas,c.cuota+m,m));
     const waUrl=`https://wa.me/57${c.telefono.replace(/\D/g,'')}?text=${msg}`;
     if(confirm(`¿Enviar recibo por WhatsApp a ${c.nombre}?`))window.open(waUrl,'_blank');
   }
+  // Última cuota — ofrecer nuevo ciclo
+  if(c.pagadas>=c.numCuotas){
+    cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+    if(confirm(`✅ ${c.nombre} terminó de pagar.\n¿Crear un nuevo ciclo de préstamo?`)){
+      abrirNuevoCiclo(c.id);
+    }
+    return;
+  }
+  notify(`Cobrado ${fmt(c.cuota+m)} ✓`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
 }
 function perdonarMora(id){
@@ -3294,6 +3401,286 @@ function notify(msg,type){
   const el=document.getElementById('notif');
   el.textContent=msg;el.className='notif '+type+' show';
   clearTimeout(_nt);_nt=setTimeout(()=>el.classList.remove('show'),3000);
+}
+
+// ══════════════════════════════════════════════
+// BLOQUE 1 — POOL DE REINVERSIÓN
+// ══════════════════════════════════════════════
+let pool={saldo:0,totalEntradas:0,totalSalidas:0,movimientos:[]};
+
+function initPool(){
+  if(!fbOk||!db)return;
+  db.ref('pool').on('value',snap=>{
+    const d=snap.val();
+    if(d){pool=d;if(!pool.movimientos)pool.movimientos=[];}
+    else pool={saldo:0,totalEntradas:0,totalSalidas:0,movimientos:[]};
+    renderPool();
+  });
+}
+
+function savePool(){
+  if(!fbOk||!db)return;
+  pool.movimientos=pool.movimientos.slice(0,200);
+  db.ref('pool').set(pool);
+}
+
+function moverPool(tipo,monto,concepto,clienteNombre){
+  if(!monto||monto<=0)return;
+  const mov={fecha:new Date().toISOString(),fechaLocal:new Date().toLocaleDateString('es-CO'),tipo,monto,concepto,cliente:clienteNombre||'',saldoAntes:pool.saldo};
+  if(tipo==='entrada'){pool.saldo+=monto;pool.totalEntradas+=monto;}
+  else if(tipo==='salida'){pool.saldo=Math.max(0,pool.saldo-monto);pool.totalSalidas+=monto;}
+  else{pool.saldo+=monto;}
+  mov.saldoDespues=pool.saldo;
+  pool.movimientos.unshift(mov);
+  savePool();
+}
+
+function agregarMovimientoPool(){
+  const tipo=document.getElementById('pool-tipo').value;
+  const monto=parseFloat(document.getElementById('pool-monto').value)||0;
+  const concepto=document.getElementById('pool-concepto').value.trim();
+  if(!monto||!concepto){notify('Completa monto y concepto','err');return;}
+  moverPool(tipo,monto,concepto);
+  document.getElementById('pool-monto').value='';
+  document.getElementById('pool-concepto').value='';
+  notify('Movimiento registrado ✓','ok');
+}
+
+function renderPool(){
+  const el=document.getElementById('pool-metricas');
+  if(!el)return;
+  el.innerHTML=`
+    <div class="metric green"><div class="ml">Disponible</div><div class="mv">${fmt(pool.saldo)}</div></div>
+    <div class="metric gold"><div class="ml">Total entrado</div><div class="mv">${fmt(pool.totalEntradas)}</div></div>
+    <div class="metric"><div class="ml">Total prestado</div><div class="mv" style="color:var(--amber)">${fmt(pool.totalSalidas)}</div></div>
+    <div class="metric"><div class="ml">Ciclos</div><div class="mv" style="color:var(--blue)">${pool.totalEntradas>0?Math.round(pool.totalSalidas/pool.totalEntradas*100):0}%</div></div>`;
+  const hist=document.getElementById('pool-historial');
+  if(!hist)return;
+  const movs=(pool.movimientos||[]).slice(0,20);
+  if(!movs.length){hist.innerHTML='<div class="empty"><div class="empty-t">Sin movimientos aún</div></div>';return;}
+  hist.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px">
+    <tr style="background:var(--bg3)"><th style="padding:6px;text-align:left">Fecha</th><th style="padding:6px;text-align:left">Tipo</th><th style="padding:6px;text-align:left">Concepto</th><th style="padding:6px;text-align:right">Monto</th><th style="padding:6px;text-align:right">Saldo</th></tr>
+    ${movs.map(m=>{
+      const col=m.tipo==='entrada'?'var(--green)':m.tipo==='salida'?'var(--amber)':'var(--blue)';
+      const ic=m.tipo==='entrada'?'↓':m.tipo==='salida'?'↑':'↔';
+      return`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px">${m.fechaLocal}</td>
+        <td style="padding:6px;color:${col}">${ic} ${m.tipo}</td>
+        <td style="padding:6px">${m.concepto}${m.cliente?' · '+m.cliente:''}</td>
+        <td style="padding:6px;text-align:right;color:${col}">${fmt(m.monto)}</td>
+        <td style="padding:6px;text-align:right;color:var(--gold)">${fmt(m.saldoDespues)}</td>
+      </tr>`;
+    }).join('')}
+  </table>`;
+}
+
+// Alimentar pool automáticamente cuando Admin registra pago
+function alimentarPool(monto,clienteNombre){
+  moverPool('entrada',monto,`Pago recibido`,clienteNombre);
+}
+
+// ══════════════════════════════════════════════
+// BLOQUE 2 — CICLOS EN FICHA DE CLIENTE
+// ══════════════════════════════════════════════
+let _clienteCicloActivo=null;
+
+function abrirNuevoCiclo(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);
+  if(!c)return;
+  _clienteCicloActivo=clienteId;
+  document.getElementById('nuevo-ciclo-info').textContent=`Cliente: ${c.nombre} · Ciclo ${((c.ciclos||[]).length)+2}`;
+  document.getElementById('nc-fecha').value=hoy();
+  document.getElementById('nc-capital').value=c.capital||200000;
+  document.getElementById('nc-tasa').value=c.tasa||20;
+  document.getElementById('nc-tipo').value=c.tipo||'diario';
+  document.getElementById('nc-plazo').value=c.numCuotas||15;
+  document.getElementById('nc-mora').value=c.moraDia||3000;
+  previewNuevoCiclo();
+  cerrar('modal-cli');
+  document.getElementById('modal-nuevo-ciclo').classList.add('open');
+}
+
+function previewNuevoCiclo(){
+  const capital=parseFloat(document.getElementById('nc-capital').value)||0;
+  const tasa=parseFloat(document.getElementById('nc-tasa').value)||20;
+  const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
+  if(!capital||!plazo){document.getElementById('nc-preview').textContent='';return;}
+  const interes=capital*(tasa/100);
+  const total=capital+interes;
+  const cuota=Math.ceil((total/plazo)/1000)*1000;
+  document.getElementById('nc-preview').textContent=`Total: ${fmt(total)} · Cuota aprox: ${fmt(cuota)} · ${plazo} cuotas`;
+}
+
+function confirmarNuevoCiclo(){
+  const c=clientes.find(x=>x.id===_clienteCicloActivo);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  const capital=parseFloat(document.getElementById('nc-capital').value)||0;
+  const tasa=parseFloat(document.getElementById('nc-tasa').value)||20;
+  const tipo=document.getElementById('nc-tipo').value;
+  const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
+  const fechaStr=document.getElementById('nc-fecha').value;
+  const moraDia=parseFloat(document.getElementById('nc-mora').value)||0;
+  if(!capital||capital<=0){notify('Capital inválido','err');return;}
+
+  // Archivar ciclo actual en historial
+  if(!c.ciclos)c.ciclos=[];
+  const rd=c.redondeo||1000;
+  const diasCustom=c.diasCuota||null;
+  c.ciclos.push({
+    cicloNum:(c.ciclos.length)+1,
+    capital:c.capital,tasa:c.tasa,tipo:c.tipo,plazo:c.numCuotas,
+    pagadas:c.pagadas,total:c.total,interes:c.interes,cuota:c.cuota,
+    fechaInicio:c.fechaInicio,fechaCierre:new Date().toISOString(),
+    moraCobradaTotal:c.moraCobradaTotal||0,
+    comisionEventos:c.comisionEventos||[],
+    cuotasData:c.cuotasData||[]
+  });
+
+  // Aplicar nuevo ciclo sobre el mismo cliente
+  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
+  const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  c.capital=capital;c.tasa=tasa;c.tipo=tipo;c.plazo=plazo;c.numCuotas=plazo;
+  c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
+  c.tipoLabel=tl;c.cuotasData=arr;c.fechaInicio=fechaStr;c.moraDia=moraDia;
+  c.pagadas=0;c.ultimoPago=null;c.moraBaseDate=null;c.abonoPendiente=0;
+  c.moraPerdonada=0;c.moraCobradaTotal=0;c.historialMora=[];c.comisionEventos=[];
+
+  // Registrar salida en pool si corresponde
+  moverPool('salida',capital,`Ciclo nuevo: ${c.nombre}`,c.nombre);
+
+  save();
+  log({tipo:'nuevo_ciclo',cliente:c.nombre,monto:capital,ts:Date.now(),autor:'Admin',nota:`Ciclo ${c.ciclos.length+1}`});
+  registrarCajaAuto('desembolso_prestamo',capital,`Nuevo ciclo: ${c.nombre}`,`prestamo:${c.id}:ciclo${c.ciclos.length}`,{clienteId:c.id,cliente:c.nombre});
+  cerrar('modal-nuevo-ciclo');
+  notify(`Ciclo ${c.ciclos.length+1} creado para ${c.nombre} ✓`,'ok');
+  renderInicio();renderClientes();
+}
+
+function abrirDetalleCiclo(clienteId,cicloIdx){
+  const c=clientes.find(x=>x.id===clienteId);
+  if(!c)return;
+  const ciclo=cicloIdx===-1?{
+    cicloNum:(c.ciclos||[]).length+1,capital:c.capital,tasa:c.tasa,tipo:c.tipo,
+    plazo:c.numCuotas,pagadas:c.pagadas,total:c.total,interes:c.interes,cuota:c.cuota,
+    fechaInicio:c.fechaInicio,moraCobradaTotal:c.moraCobradaTotal||0,
+    cuotasData:c.cuotasData||[],activo:true
+  }:(c.ciclos||[])[cicloIdx];
+  if(!ciclo)return;
+  document.getElementById('ciclo-titulo').textContent=`${c.nombre} — Ciclo ${ciclo.cicloNum||cicloIdx+1}`;
+  const estadoBadge=ciclo.activo?'<span class="badge bg">🟢 Activo</span>':'<span class="badge bgray">✅ Cerrado</span>';
+  let cuotasHtml='<div style="font-size:11px;color:var(--text3);margin-top:8px">Sin tabla de cuotas</div>';
+  if(ciclo.cuotasData&&ciclo.cuotasData.length){
+    cuotasHtml=`<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+      <tr style="background:var(--bg3)"><th style="padding:5px;text-align:left">#</th><th style="padding:5px">Fecha</th><th style="padding:5px;text-align:right">Cuota</th><th style="padding:5px;text-align:center">Estado</th></tr>
+      ${ciclo.cuotasData.map((q,i)=>{
+        const pagada=i<(ciclo.pagadas||0);
+        const estadoCuota=pagada?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--text3)">○</span>';
+        return`<tr style="border-bottom:1px solid var(--border);${pagada?'opacity:.55':''}">
+          <td style="padding:5px">${q.num}</td>
+          <td style="padding:5px;text-align:center">${q.fechaISO}</td>
+          <td style="padding:5px;text-align:right">${fmt(q.cuota)}</td>
+          <td style="padding:5px;text-align:center">${estadoCuota}</td>
+        </tr>`;
+      }).join('')}
+    </table>`;
+  }
+  document.getElementById('ciclo-body').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      ${estadoBadge}
+      <span style="font-size:11px;color:var(--text3)">${ciclo.fechaInicio||'—'}</span>
+    </div>
+    <div class="g2" style="margin-bottom:10px">
+      <div class="metric gold"><div class="ml">Capital</div><div class="mv">${fmt(ciclo.capital)}</div></div>
+      <div class="metric"><div class="ml">Total</div><div class="mv" style="color:var(--amber)">${fmt(ciclo.total)}</div></div>
+      <div class="metric green"><div class="ml">Pagadas</div><div class="mv">${ciclo.pagadas||0}/${ciclo.plazo}</div></div>
+      <div class="metric"><div class="ml">Mora cobrada</div><div class="mv" style="color:var(--blue)">${fmt(ciclo.moraCobradaTotal||0)}</div></div>
+    </div>
+    ${cuotasHtml}`;
+  document.getElementById('modal-ciclo').classList.add('open');
+}
+
+// Mostrar historial de ciclos en modal cliente
+function htmlCiclosCliente(c){
+  const ciclosAnt=c.ciclos||[];
+  if(!ciclosAnt.length&&c.pagadas<c.numCuotas)return'';
+  let html=`<hr><div class="sl">Historial de ciclos</div>`;
+  ciclosAnt.forEach((ciclo,i)=>{
+    html+=`<div onclick="abrirDetalleCiclo('${c.id}',${i})" style="cursor:pointer;padding:9px 11px;background:var(--bg3);border-radius:var(--rs);margin-bottom:7px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:13px;font-weight:600">Ciclo ${ciclo.cicloNum||i+1} <span class="badge bgray" style="font-size:9px">✅ Cerrado</span></div>
+        <div style="font-size:11px;color:var(--text3)">${fmt(ciclo.capital)} · ${ciclo.pagadas}/${ciclo.plazo} cuotas · ${ciclo.fechaInicio||'—'}</div>
+      </div>
+      <span style="color:var(--text3);font-size:16px">›</span>
+    </div>`;
+  });
+  html+=`<div onclick="abrirDetalleCiclo('${c.id}',-1)" style="cursor:pointer;padding:9px 11px;background:var(--bg3);border-radius:var(--rs);margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--goldb)">
+    <div>
+      <div style="font-size:13px;font-weight:600">Ciclo ${ciclosAnt.length+1} <span class="badge bg" style="font-size:9px">🟢 Activo</span></div>
+      <div style="font-size:11px;color:var(--text3)">${fmt(c.capital)} · ${c.pagadas}/${c.numCuotas} cuotas · ${c.fechaInicio||'—'}</div>
+    </div>
+    <span style="color:var(--text3);font-size:16px">›</span>
+  </div>`;
+  return html;
+}
+
+// ══════════════════════════════════════════════
+// BLOQUE 3 — SOLICITUDES MEJORADAS
+// ══════════════════════════════════════════════
+// Escuchar solicitudes tipo 'renovacion' y procesarlas
+function procesarSolicitudRenovacion(soliId){
+  const s=(window._solicitudes||[]).find(x=>x.id===soliId);
+  if(!s||s.tipoSolicitud!=='renovacion')return;
+  const c=clientes.find(x=>x.id===s.clienteId);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  _clienteCicloActivo=c.id;
+  document.getElementById('nuevo-ciclo-info').textContent=`Solicitud de ${c.nombre} · Ciclo ${((c.ciclos||[]).length)+2}`;
+  document.getElementById('nc-fecha').value=hoy();
+  document.getElementById('nc-capital').value=s.capitalSolicitado||c.capital||200000;
+  document.getElementById('nc-tasa').value=c.tasa||20;
+  document.getElementById('nc-tipo').value=c.tipo||'diario';
+  document.getElementById('nc-plazo').value=c.numCuotas||15;
+  document.getElementById('nc-mora').value=c.moraDia||3000;
+  window._soliPendienteRenovacion=soliId;
+  previewNuevoCiclo();
+  document.getElementById('modal-nuevo-ciclo').classList.add('open');
+}
+
+// Hook: cuando se crea ciclo nuevo desde solicitud, marcar solicitud aprobada
+const _confirmarNuevoCicloOrig=confirmarNuevoCiclo;
+// (ya integrado arriba, solo marcar soli si existe)
+function marcarSoliRenovacionAprobada(){
+  if(window._soliPendienteRenovacion&&fbOk&&db){
+    db.ref('solicitudes/'+window._soliPendienteRenovacion).update({
+      estado:'aprobado',accionAdmin:'ciclo_creado',fechaRespuesta:new Date().toISOString()
+    });
+    window._soliPendienteRenovacion=null;
+  }
+}
+
+// Inicializar pool al conectar
+const _escucharOrig=escuchar;
+function escucharConPool(){
+  _escucharOrig();
+  initPool();
+}
+
+// Reemplazar goTab para incluir pool
+const _goTabOrig=goTab;
+function goTab(name,el){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  el.classList.add('active');
+  if(name==='clientes')renderClientes();
+  if(name==='actividad')renderActividad();
+  if(name==='caja')renderCaja();
+  if(name==='config')cargarParamsGlobales();
+  if(name==='calendario')renderCalendario();
+  if(name==='solicitudes')renderSolicitudesAdmin();
+  if(name==='finanzas')renderFinanzas();
+  if(name==='inicio')renderInicio();
+  if(name==='comisiones')renderComisiones();
+  if(name==='pool')renderPool();
 }
 </script>
 </body>
