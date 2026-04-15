@@ -128,7 +128,7 @@ const ICON_SVG = {
   calculator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><rect x="8" y="9" width="2" height="2"/><rect x="14" y="9" width="2" height="2"/><rect x="8" y="13" width="2" height="2"/><rect x="14" y="13" width="2" height="2"/><rect x="8" y="17" width="8" height="2"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m5.08 5.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m5.08-5.08l4.24-4.24"/></svg>',
 };
-function renderIcons(){document.querySelectorAll('.ti[data-icon]').forEach(el=>{const svg=ICON_SVG[el.getAttribute('data-icon')];if(svg){el.innerHTML=svg;el.style.display='inline-block';el.style.width='14px';el.style.height='14px';el.style.marginRight='5px';el.style.verticalAlign='middle';}});
+function renderIcons(){document.querySelectorAll('.ti[data-icon]').forEach(el=>{const svg=ICON_SVG[el.getAttribute('data-icon')];if(svg){el.innerHTML=svg;el.style.display='inline-block';el.style.width='14px';el.style.height='14px';el.style.marginRight='5px';el.style.verticalAlign='middle';}});}
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',renderIcons):renderIcons();
 </script>
 </head>
@@ -164,7 +164,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div class="tabs">
   <button class="tab active" onclick="goTab('ruta',this)" id="tab-ruta"><span class="ti" data-icon="map"></span>Mi ruta <span id="badge-ruta" style="display:none;background:var(--amber);color:#000;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
   <button class="tab" onclick="goTab('todos',this)"><span class="ti" data-icon="users"></span>Todos</button>
-  <button class="tab" onclick="goTab('dia',this)"><span class="ti" data-icon="calendar"></span>Mi día</button>
+  <button class="tab" onclick="goTab('dia',this)"><span class="ti" data-icon="calendar"></span>Agenda</button>
   <button class="tab" onclick="goTab('ganancias',this)"><span class="ti" data-icon="trendingUp"></span>Ganancias</button>
   <button class="tab" onclick="goTab('nuevo',this)" id="tab-solicitudes"><span class="ti" data-icon="alertTriangle"></span>Solicitudes <span id="badge-soli" style="display:none;background:var(--red);color:#fff;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
   <button class="tab" onclick="goTab('simulador',this)"><span class="ti" data-icon="calculator"></span>Simular</button>
@@ -188,6 +188,10 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px" id="r-pct-label">Progreso 0%</div>
     <div class="prog"><div class="prog-f" id="r-prog-bar" style="width:0%"></div></div>
   </div>
+  <div class="card" style="padding:12px;margin-bottom:12px">
+    <div class="ct" style="margin-bottom:10px">Próximos 3 días</div>
+    <div id="ruta-proximos"></div>
+  </div>
   <div id="lista-ruta"></div>
 </div>
 
@@ -198,8 +202,24 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 
 <div id="panel-dia" class="panel">
   <div class="card">
+    <div class="ct">Resumen rápido</div>
+    <div id="agenda-resumen-rapido"></div>
+  </div>
+  <div class="card">
     <div class="ct">Resumen de hoy</div>
     <div id="resumen-dia"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <button class="btn" type="button" style="width:auto;padding:8px 12px;background:transparent;border:1px solid var(--border2);color:var(--text2)" onclick="cambiarMesAgenda(-1)">←</button>
+      <div id="agenda-cal-titulo" style="font-size:14px;font-weight:700;color:var(--text)">Calendario</div>
+      <button class="btn" type="button" style="width:auto;padding:8px 12px;background:transparent;border:1px solid var(--border2);color:var(--text2)" onclick="cambiarMesAgenda(1)">→</button>
+    </div>
+    <div id="agenda-cal-grid"></div>
+  </div>
+  <div class="card">
+    <div class="ct">Detalle del día</div>
+    <div id="agenda-detalle"></div>
   </div>
   <div class="card">
     <div class="ct">Cobros realizados hoy</div>
@@ -1043,6 +1063,7 @@ function renderRuta(){
   // Header progreso
   const hp=document.getElementById('header-progreso');
   if(hp)hp.textContent=countCob+' / '+total+' cobros hoy';
+  renderRutaProximosDias();
   const el=document.getElementById('lista-ruta');
   if(!ruta.length){el.innerHTML='<div class="empty"><div class="empty-i">🎉</div><div class="empty-t">Sin cobros para hoy</div></div>';return;}
   const ord=[...ruta].sort((a,b)=>(a.ultimoPago?.startsWith(h)?1:0)-(b.ultimoPago?.startsWith(h)?1:0));
@@ -1327,6 +1348,159 @@ async function confirmarPago(){
 }
 
 // RENDER DÍA
+let agendaMes=new Date().getMonth(), agendaAno=new Date().getFullYear(), agendaDiaSeleccionado=hoy();
+
+function fechaISODate(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function mapaAgendaCobros(){
+  const mapa={};
+  const hoyStr=hoy();
+  clientes.filter(c=>c.pagadas<c.numCuotas).forEach(c=>{
+    (c.cuotasData||[]).forEach(q=>{
+      if(q.num>c.pagadas){
+        if(!mapa[q.fechaISO])mapa[q.fechaISO]=[];
+        const moraAplicable=q.fechaISO<=hoyStr?mora(c):0;
+        mapa[q.fechaISO].push({
+          id:c.id,
+          nombre:c.nombre,
+          cuota:q.cuota||c.cuota||0,
+          mora:moraAplicable,
+          zona:c.zona||'',
+          negocio:c.negocio||'',
+          telefono:c.telefono||'',
+          cuotaNum:q.num,
+          totalCuotas:c.numCuotas||0
+        });
+      }
+    });
+  });
+  return mapa;
+}
+
+function resumenAgendaDia(fecha,mapa){
+  const items=(mapa&&mapa[fecha])||[];
+  return {
+    cantidad:items.length,
+    total:items.reduce((s,x)=>s+(x.cuota||0)+(x.mora>0?x.mora:0),0),
+    mora:items.filter(x=>(x.mora||0)>0).length
+  };
+}
+
+function cambiarMesAgenda(delta){
+  agendaMes+=delta;
+  if(agendaMes>11){agendaMes=0;agendaAno++;}
+  if(agendaMes<0){agendaMes=11;agendaAno--;}
+  renderAgendaCalendario();
+}
+
+function seleccionarAgendaDia(fecha){
+  agendaDiaSeleccionado=agendaDiaSeleccionado===fecha?null:fecha;
+  renderAgendaCalendario();
+}
+
+function renderAgendaResumenRapido(mapa){
+  const el=document.getElementById('agenda-resumen-rapido');
+  if(!el)return;
+  const base=new Date();
+  base.setHours(0,0,0,0);
+  const hoyIso=fechaISODate(base);
+  const man=new Date(base); man.setDate(base.getDate()+1);
+  const mananaIso=fechaISODate(man);
+  const rh=resumenAgendaDia(hoyIso,mapa);
+  const rm=resumenAgendaDia(mananaIso,mapa);
+  const fmtFecha=d=>d.toLocaleDateString('es-CO',{weekday:'short',day:'2-digit',month:'2-digit'});
+  el.innerHTML=''+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+      '<div class="cs"><div class="csl">Hoy · '+fmtFecha(base)+'</div><div class="csv" style="color:'+(rh.cantidad?'var(--green)':'var(--text2)')+'">'+rh.cantidad+' cobro'+(rh.cantidad===1?'':'s')+'</div><div style="font-size:11px;color:var(--text3);margin-top:4px">'+(rh.cantidad?fmt(rh.total):'Sin ruta')+(rh.mora?' · '+rh.mora+' con mora':'')+'</div></div>'+
+      '<div class="cs"><div class="csl">Mañana · '+fmtFecha(man)+'</div><div class="csv" style="color:'+(rm.cantidad?'var(--green)':'var(--text2)')+'">'+rm.cantidad+' cobro'+(rm.cantidad===1?'':'s')+'</div><div style="font-size:11px;color:var(--text3);margin-top:4px">'+(rm.cantidad?fmt(rm.total):'Sin ruta')+(rm.mora?' · '+rm.mora+' con mora':'')+'</div></div>'+
+    '</div>';
+}
+
+function renderAgendaCalendario(){
+  const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const ttl=document.getElementById('agenda-cal-titulo');
+  if(ttl)ttl.textContent=meses[agendaMes]+' '+agendaAno;
+  const mapa=mapaAgendaCobros();
+  const primerDia=new Date(agendaAno,agendaMes,1).getDay();
+  const diasMes=new Date(agendaAno,agendaMes+1,0).getDate();
+  const hoyStr=hoy();
+  let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:6px">';
+  ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].forEach(d=>{ html+='<div style="text-align:center;font-size:10px;color:var(--text3);padding:4px 0;font-weight:600">'+d+'</div>'; });
+  html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">';
+  for(let i=0;i<primerDia;i++) html+='<div style="min-height:52px"></div>';
+  for(let d=1; d<=diasMes; d++){
+    const fecha=`${agendaAno}-${String(agendaMes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const items=mapa[fecha]||[];
+    const esHoy=fecha===hoyStr;
+    const esSel=fecha===agendaDiaSeleccionado;
+    const totalDia=items.reduce((s,x)=>s+(x.cuota||0)+(x.mora>0?x.mora:0),0);
+    const tiene=items.length>0;
+    let bg='var(--bg3)';
+    if(esSel) bg='var(--green)';
+    else if(esHoy) bg='rgba(61,232,154,.15)';
+    else if(tiene) bg='rgba(61,232,154,.09)';
+    const txtColor=esSel?'#07110d':esHoy?'var(--green2)':'var(--text2)';
+    html += `<div onclick="seleccionarAgendaDia('${fecha}')" style="min-height:52px;background:${bg};border-radius:8px;padding:5px;cursor:pointer;border:${esSel?'1.5px solid var(--green)':esHoy?'1.5px solid var(--greenb)':'1px solid var(--border)'}">`+
+      `<div style="font-size:11px;font-weight:${esHoy?'700':'500'};color:${txtColor}">${d}</div>`+
+      (tiene?`<div style="font-size:9px;color:${esSel?'#07110d':'var(--green)'};font-weight:700;margin-top:3px">${items.length} cobro${items.length===1?'':'s'}</div><div style="font-size:9px;color:${esSel?'#07110d':'var(--text3)'};margin-top:1px">${fmt(totalDia)}</div>`:'')+
+      '</div>';
+  }
+  html+='</div>';
+  const grid=document.getElementById('agenda-cal-grid');
+  if(grid)grid.innerHTML=html;
+  renderAgendaDetalle(agendaDiaSeleccionado||hoyStr,mapa);
+}
+
+function renderAgendaDetalle(fecha,mapa){
+  const el=document.getElementById('agenda-detalle');
+  if(!el)return;
+  const items=(mapa&&mapa[fecha])||[];
+  const fechaFmt=new Date(fecha+'T00:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'2-digit',month:'long'});
+  if(!items.length){
+    el.innerHTML='<div style="font-size:12px;color:var(--text3);text-align:center;padding:8px 0">Sin cobros programados para '+fechaFmt+'</div>';
+    return;
+  }
+  const total=items.reduce((s,x)=>s+(x.cuota||0)+(x.mora>0?x.mora:0),0);
+  el.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
+      '<div style="font-size:13px;font-weight:600;color:var(--text)">'+fechaFmt+'</div>'+
+      '<div style="font-size:14px;font-weight:700;color:var(--green)">'+fmt(total)+'</div>'+
+    '</div>'+
+    items.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="abrirDetalleClienteCobrador('${x.id}')">`+
+      `<div><div style="font-size:13px;font-weight:600;color:var(--text)">${x.nombre}</div><div style="font-size:11px;color:var(--text3)">${x.zona||x.negocio||'Sin zona'} · cuota ${x.cuotaNum}/${x.totalCuotas}</div></div>`+
+      `<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:${x.mora>0?'var(--red)':'var(--green)'}">${fmt((x.cuota||0)+(x.mora>0?x.mora:0))}</div>${x.mora>0?'<div style="font-size:10px;color:var(--red)">Incluye mora</div>':'<div style="font-size:10px;color:var(--text3)">Programado</div>'}</div>`+
+    '</div>').join('');
+}
+
+function renderRutaProximosDias(){
+  const el=document.getElementById('ruta-proximos');
+  if(!el)return;
+  const mapa=mapaAgendaCobros();
+  const base=new Date();
+  base.setHours(0,0,0,0);
+  const rows=[];
+  for(let i=1;i<=3;i++){
+    const d=new Date(base); d.setDate(base.getDate()+i);
+    const iso=fechaISODate(d);
+    const items=mapa[iso]||[];
+    const total=items.reduce((s,x)=>s+(x.cuota||0)+(x.mora>0?x.mora:0),0);
+    rows.push({
+      fecha:d.toLocaleDateString('es-CO',{weekday:'short',day:'2-digit',month:'2-digit'}),
+      cantidad:items.length,
+      total
+    });
+  }
+  el.innerHTML=rows.map(r=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'+
+    '<div><div style="font-size:12px;font-weight:600;color:var(--text)">'+r.fecha+'</div><div style="font-size:11px;color:var(--text3)">'+(r.cantidad?r.cantidad+' cobro'+(r.cantidad===1?'':'s'):'Sin ruta')+'</div></div>'+
+    '<div style="font-size:12px;font-weight:700;color:'+(r.cantidad?'var(--green)':'var(--text3)')+'">'+(r.cantidad?fmt(r.total):'—')+'</div>'+
+  '</div>').join('');
+}
+
 // ===== SOLICITUDES DE NUEVOS CLIENTES =====
 function enviarSolicitud(){
   if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
@@ -1410,6 +1584,11 @@ function renderDia(){
     '</div>'+
     '<div style="font-size:11px;color:var(--text3);margin-bottom:5px">Progreso: '+pct+'%</div>'+
     '<div class="prog"><div class="prog-f" style="width:'+pct+'%"></div></div>';
+
+  const mapa=mapaAgendaCobros();
+  renderAgendaResumenRapido(mapa);
+  renderAgendaCalendario();
+
   const hEl=document.getElementById('historial-dia');
   const lista=cobrosHoy.filter(c=>c.fecha===h).slice().reverse();
   if(!lista.length){hEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin cobros hoy</div>';return;}
