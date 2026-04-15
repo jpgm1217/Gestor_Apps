@@ -7,9 +7,28 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <style>
+    :root{
+      --bg:#071411;
+      --bg-2:#0b1b17;
+      --surface:#10241f;
+      --surface-2:#132c26;
+      --surface-3:#0d1f1b;
+      --border:#22453c;
+      --muted:#7ba79b;
+      --text:#edf7f3;
+      --accent:#14b8a6;
+      --accent-dark:#0f766e;
+      --accent-soft:#14b8a61a;
+      --secondary:#fb7185;
+      --secondary-soft:#fb71851a;
+      --warning:#fbbf24;
+      --success:#4ade80;
+      --danger:#f43f5e;
+      --chip:#103029;
+    }
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html,body{height:100%}
-    body{background:#0a0a10;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overscroll-behavior:none}
+    body{background:radial-gradient(circle at top,#0f2923 0%,#071411 52%,#06110f 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overscroll-behavior:none}
     #app{max-width:480px;margin:0 auto;min-height:100%;padding-bottom:100px}
     .screen{display:none}
     .screen.active{display:block}
@@ -19,131 +38,151 @@
 
     /* ── Loader ── */
     #s-loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px}
-    .spinner{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#6366f1;border-radius:50%;animation:spin 1s linear infinite}
+    .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
 
     /* ── Nombre ── */
     #s-nombre{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:32px 24px}
     #s-nombre h1{font-size:24px;font-weight:700;margin-bottom:6px;text-align:center}
-    #s-nombre p{color:#64748b;font-size:14px;text-align:center;margin-bottom:36px;max-width:270px}
+    #s-nombre p{color:var(--muted);font-size:14px;text-align:center;margin-bottom:36px;max-width:270px}
 
     /* ── Main ── */
     .header{padding:20px 20px 0;display:flex;align-items:center;justify-content:space-between}
-    .header-sub{font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+    .header-sub{font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;font-weight:600}
     .header-title{font-size:20px;font-weight:700;margin-top:2px}
-    .btn-icon{background:#12121e;border:none;color:#94a3b8;width:38px;height:38px;border-radius:10px;font-size:16px}
+    .btn-icon{background:var(--surface);border:1px solid var(--border);color:#c4ddd5;width:38px;height:38px;border-radius:12px;font-size:16px}
 
-    .mes-nav{display:flex;align-items:center;margin:14px 20px 0;background:#12121e;border-radius:12px;padding:10px 16px;border:1px solid #1e293b}
-    .mes-nav button{background:none;border:none;color:#64748b;font-size:22px;padding:0 8px}
-    .mes-nav button.dis{color:#2d3748}
+    .mes-nav{display:flex;align-items:center;margin:14px 20px 0;background:var(--surface);border-radius:14px;padding:10px 16px;border:1px solid var(--border);box-shadow:0 12px 24px rgba(0,0,0,.18)}
+    .mes-nav button{background:none;border:none;color:var(--muted);font-size:22px;padding:0 8px}
+    .mes-nav button.dis{color:#36574e}
     .mes-label{font-weight:600;font-size:15px;flex:1;text-align:center}
 
-    .hero{margin:12px 20px 0;background:linear-gradient(135deg,#141830,#0a0f24);border-radius:18px;padding:18px 20px;border:1px solid #1e2a4a}
-    .hero-sub{font-size:11px;color:#4a6fa5;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+    .hero{margin:12px 20px 0;background:linear-gradient(135deg,#10332e,#0a1d1a 58%,#09221f);border-radius:22px;padding:18px 20px;border:1px solid #285a4d;box-shadow:0 18px 40px rgba(0,0,0,.25)}
+    .hero-sub{font-size:11px;color:#8ed6ca;letter-spacing:2px;text-transform:uppercase;font-weight:600}
     .hero-total{font-size:34px;font-weight:700;font-family:monospace;margin-top:4px}
-    .hero-balance{margin-top:8px;font-size:13px;color:#94a3b8}
+    .hero-balance{margin-top:8px;font-size:13px;color:#d0e4de}
 
-    .cards-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 20px 0}
-    .p-card{background:#12121e;border-radius:16px;padding:14px}
+    .cards-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 20px 0}
+    .p-card{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-3) 100%);border-radius:18px;padding:14px;box-shadow:0 12px 26px rgba(0,0,0,.16)}
     .p-card-top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
     .p-dot{width:8px;height:8px;border-radius:50%}
-    .p-name{font-size:13px;font-weight:600;color:#cbd5e1;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .p-name{font-size:13px;font-weight:700;color:#dff2ec;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .p-you{font-size:9px;font-weight:700}
     .p-monto{font-size:18px;font-weight:700;font-family:monospace}
-    .progress-bar{height:5px;background:#1e293b;border-radius:99px;overflow:hidden;margin-top:8px}
+    .progress-bar{height:6px;background:#18322c;border-radius:99px;overflow:hidden;margin-top:8px}
     .progress-fill{height:100%;border-radius:99px;transition:width .5s}
-    .p-hint{margin-top:5px;font-size:11px;color:#64748b}
+    .p-hint{margin-top:6px;font-size:11px;color:var(--muted)}
 
-    .tabs{display:flex;margin:14px 20px 0;background:#12121e;border-radius:12px;padding:4px;gap:2px;border:1px solid #1e293b}
-    .tab{flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:11px;font-weight:600;background:transparent;color:#475569;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .tabs{display:flex;margin:14px 20px 0;background:var(--surface);border-radius:14px;padding:4px;gap:2px;border:1px solid var(--border)}
+    .tab{flex:1;padding:9px 4px;border-radius:10px;border:none;font-size:11px;font-weight:700;background:transparent;color:#6b8f84;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:2px}
     .tab .ticon{font-size:15px}
-    .tab.active{background:#1e2a4a;color:#60a5fa}
+    .tab.active{background:#163f37;color:#8ff4e6}
 
     .tab-body{margin:12px 20px 0}
 
     /* ── FAB ── */
-    .fab{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;border-radius:100px;padding:14px 28px;font-size:15px;font-weight:700;box-shadow:0 8px 32px #6366f166;display:flex;align-items:center;gap:8px;z-index:50;white-space:nowrap}
+    .fab{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,var(--accent),var(--accent-dark));border:none;color:#fff;border-radius:100px;padding:14px 28px;font-size:15px;font-weight:700;box-shadow:0 10px 34px rgba(20,184,166,.34);display:flex;align-items:center;gap:8px;z-index:50;white-space:nowrap}
     .fab-icon{font-size:20px;line-height:1}
 
     /* ── Listas ── */
-    .row{background:#12121e;border-radius:12px;padding:12px 14px;border:1px solid #1e293b;display:flex;align-items:center;gap:12px;margin-bottom:6px}
+    .row{background:var(--surface);border-radius:14px;padding:12px 14px;border:1px solid var(--border);display:flex;align-items:center;gap:12px;margin-bottom:8px}
     .row-emoji{font-size:22px;flex-shrink:0}
     .row-body{flex:1;min-width:0}
-    .row-title{font-size:13px;font-weight:600;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .row-sub{font-size:11px;color:#475569;margin-top:2px}
+    .row-title{font-size:13px;font-weight:700;color:#edf7f3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .row-sub{font-size:11px;color:var(--muted);margin-top:2px}
     .row-right{text-align:right;flex-shrink:0}
     .row-monto{font-size:15px;font-weight:700;font-family:monospace}
     .row-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:4px}
     .row-actions button{background:none;border:none;font-size:14px;padding:3px 5px}
-    .tag-auto{margin-left:5px;font-size:10px;color:#818cf8;background:#1e1040;padding:1px 5px;border-radius:4px}
+    .tag-auto{margin-left:5px;font-size:10px;color:#6ee7d8;background:#103c34;padding:2px 6px;border-radius:6px}
     .confirm-btns{display:flex;gap:4px;margin-top:4px}
     .btn-si{background:#dc2626;border:none;color:#fff;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600}
-    .btn-no{background:#1e293b;border:none;color:#94a3b8;border-radius:6px;padding:3px 8px;font-size:11px}
+    .btn-no{background:#214039;border:none;color:#d1e7e0;border-radius:6px;padding:3px 8px;font-size:11px}
 
     /* ── Buscador / filtros ── */
     .search-wrap{position:relative;margin-bottom:8px}
-    .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px;pointer-events:none}
-    .search-input{width:100%;background:#0a0a10;border:1px solid #1e293b;border-radius:12px;padding:10px 36px 10px 36px;color:#f1f5f9;font-size:13px}
-    .search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#475569;font-size:18px;padding:4px}
+    .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none}
+    .search-input{width:100%;background:var(--surface-3);border:1px solid var(--border);border-radius:14px;padding:10px 36px 10px 36px;color:var(--text);font-size:13px}
+    .search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);font-size:18px;padding:4px}
     .chips{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
-    .chip{padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid #1e293b;background:#12121e;color:#64748b}
-    .chip.on{background:#6366f1;color:#fff;border-color:#6366f1}
+    .chip{padding:6px 12px;border-radius:99px;font-size:12px;font-weight:700;border:1px solid var(--border);background:var(--chip);color:var(--muted)}
+    .chip.on{background:var(--accent);color:#05231e;border-color:var(--accent)}
 
     /* ── Resumen ── */
-    .card{background:#12121e;border:1px solid #1e293b;border-radius:16px;padding:16px;margin-bottom:10px}
-    .card-green{background:#052e16;border-color:#166534;text-align:center}
-    .card-yellow{background:#1a1200;border-color:#713f12}
-    .lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:8px;display:block}
-    .stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e293b;font-size:13px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:16px;margin-bottom:10px}
+    .card-green{background:#0d3022;border-color:#1d6b4c;text-align:center}
+    .card-yellow{background:#241a04;border-color:#8a6b1c}
+    .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:8px;display:block}
+    .stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
     .stat-row:last-child{border-bottom:none}
-    .stat-key{color:#64748b}
-    .stat-val{font-weight:600;color:#e2e8f0}
+    .stat-key{color:var(--muted)}
+    .stat-val{font-weight:700;color:#eef7f4}
     .cat-bar{margin-bottom:10px}
     .cat-bar-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:13px}
     .cat-bar-lbl{color:#cbd5e1}
 
     /* ── Recurrentes ── */
-    .info-box{background:#12121e;border:1px solid #1e293b;border-radius:12px;padding:10px 14px;font-size:13px;color:#64748b;margin-bottom:12px;line-height:1.6}
-    .rec-stats{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12px;color:#475569}
-    .rec-total{font-size:13px;font-weight:700;font-family:monospace;color:#818cf8}
-    .btn-add-rec{width:100%;padding:13px;border-radius:14px;border:1px dashed #334155;background:transparent;color:#818cf8;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
+    .info-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:10px 14px;font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.6}
+    .rec-stats{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12px;color:var(--muted)}
+    .rec-total{font-size:13px;font-weight:700;font-family:monospace;color:#7ef5e4}
+    .btn-add-rec{width:100%;padding:13px;border-radius:16px;border:1px dashed #2c675b;background:transparent;color:#8af7e8;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
     .toggle-btn{border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700}
-    .toggle-on{background:#052e16;color:#4ade80}
-    .toggle-off{background:#1e293b;color:#64748b}
+    .toggle-on{background:#0e3426;color:#67f0a1}
+    .toggle-off{background:#213d36;color:var(--muted)}
 
     /* ── Modals ── */
-    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:100;display:flex;align-items:flex-end;backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .2s}
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:flex;align-items:flex-end;backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .2s}
     .overlay.open{opacity:1;pointer-events:all}
-    .modal{background:#12121e;border-radius:24px 24px 0 0;padding:24px 20px 52px;width:100%;border:1px solid #1e293b;border-bottom:none;max-height:92vh;overflow-y:auto;transform:translateY(100%);transition:transform .28s cubic-bezier(.34,1.2,.64,1)}
+    .modal{background:var(--surface);border-radius:24px 24px 0 0;padding:24px 20px 52px;width:100%;border:1px solid var(--border);border-bottom:none;max-height:92vh;overflow-y:auto;transform:translateY(100%);transition:transform .28s cubic-bezier(.34,1.2,.64,1)}
     .overlay.open .modal{transform:translateY(0)}
     .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
     .modal-title{font-size:17px;font-weight:700}
-    .modal-close{background:none;border:none;color:#475569;font-size:24px;line-height:1;padding:0 2px}
-    .modal-sub{font-size:13px;color:#64748b;margin-bottom:18px;margin-top:-10px}
+    .modal-close{background:none;border:none;color:#6f9389;font-size:24px;line-height:1;padding:0 2px}
+    .modal-sub{font-size:13px;color:var(--muted);margin-bottom:18px;margin-top:-10px}
     .field{margin-bottom:14px}
-    .field-lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:8px;display:block}
-    .input{width:100%;background:#0a0a10;border:1px solid #1e293b;border-radius:12px;padding:12px 14px;color:#f1f5f9;font-size:14px;transition:border-color .2s}
-    .input:focus{border-color:#6366f1}
+    .field-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:8px;display:block}
+    .input{width:100%;background:var(--surface-3);border:1px solid var(--border);border-radius:14px;padding:12px 14px;color:var(--text);font-size:14px;transition:border-color .2s, box-shadow .2s}
+    .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(20,184,166,.12)}
     .input-big{font-size:24px;font-family:monospace;font-weight:700}
     .quien-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
-    .quien-btn{padding:12px;border-radius:12px;border:2px solid #1e293b;background:#0a0a10;color:#64748b;font-weight:600;font-size:14px;transition:all .15s}
+    .quien-btn{padding:12px;border-radius:14px;border:2px solid var(--border);background:var(--surface-3);color:var(--muted);font-weight:700;font-size:14px;transition:all .15s}
     .cat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px}
-    .cat-btn{padding:8px 2px;border-radius:10px;border:2px solid #1e293b;background:#0a0a10;display:flex;flex-direction:column;align-items:center;gap:2px}
+    .cat-btn{padding:8px 2px;border-radius:12px;border:2px solid var(--border);background:var(--surface-3);display:flex;flex-direction:column;align-items:center;gap:2px}
     .cat-btn-ico{font-size:16px}
-    .cat-btn-lbl{font-size:9px;color:#475569;font-weight:600}
-    .btn-primary{width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:15px;font-weight:700;margin-top:4px}
-    .btn-ghost{width:100%;padding:13px;border-radius:14px;border:1px solid #1e293b;background:transparent;color:#64748b;font-size:14px;font-weight:600;margin-top:8px}
+    .cat-btn-lbl{font-size:9px;color:#6f9389;font-weight:700}
+    .btn-primary{width:100%;padding:15px;border-radius:16px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#fff;font-size:15px;font-weight:700;margin-top:4px}
+    .btn-ghost{width:100%;padding:13px;border-radius:16px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:14px;font-weight:700;margin-top:8px}
     .btn-danger{border-color:#dc2626;color:#f43f5e}
 
     /* ── Empty ── */
-    .empty{text-align:center;color:#334155;padding:40px 0;font-size:14px}
+    .empty{text-align:center;color:#6d8f86;padding:40px 0;font-size:14px}
 
     /* ── Toast ── */
-    .toast{position:fixed;bottom:108px;left:50%;transform:translateX(-50%);background:#1e293b;color:#e2e8f0;padding:9px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:200;pointer-events:none;border:1px solid #334155;white-space:nowrap;opacity:0;transition:opacity .2s}
+    .toast{position:fixed;bottom:108px;left:50%;transform:translateX(-50%);background:#16352e;color:#eef7f4;padding:9px 18px;border-radius:99px;font-size:13px;font-weight:700;z-index:200;pointer-events:none;border:1px solid #2b5e51;white-space:nowrap;opacity:0;transition:opacity .2s}
     .toast.show{opacity:1}
 
+
+    .hero-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .hero-pill{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);font-size:11px;color:#d8f4ee;font-weight:700}
+    .insights-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 20px 0}
+    .insight-card{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-3) 100%);border:1px solid var(--border);border-radius:16px;padding:12px 10px;min-height:88px}
+    .insight-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px;font-weight:700;margin-bottom:6px}
+    .insight-value{font-size:16px;font-weight:800;line-height:1.15}
+    .insight-sub{font-size:11px;color:#c3ddd6;margin-top:6px}
+    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+    .toolbar .search-wrap{flex:1;margin-bottom:0}
+    .sort-select{min-width:122px;background:var(--surface-3);border:1px solid var(--border);border-radius:14px;padding:10px 12px;color:var(--text);font-size:12px;font-weight:700}
+    .section-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin:4px 0 10px}
+    .row-right-meta{font-size:10px;color:var(--muted);margin-top:4px}
+    .error-card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:18px;max-width:360px}
+    @media (max-width:420px){
+      .insights-grid{grid-template-columns:1fr}
+      .toolbar{flex-direction:column;align-items:stretch}
+      .sort-select{min-width:100%}
+    }
+
     /* ── Error anon ── */
-    #s-error{display:none;flex-direction:column;justify-content:center;padding:28px 24px;min-height:100vh}
+    #s-error{display:none;flex-direction:column;justify-content:center;padding:28px 24px;min-height:100vh;align-items:center}
   </style>
 </head>
 <body>
@@ -152,9 +191,21 @@
   <!-- Loading -->
   <div id="s-loading" class="screen active">
     <div class="spinner"></div>
-    <div style="color:#64748b;font-size:14px">Cargando...</div>
+    <div style="color:var(--muted);font-size:14px">Cargando...</div>
   </div>
 
+  <!-- Error -->
+  <div id="s-error" class="screen">
+    <div class="error-card card">
+      <div style="font-size:34px;margin-bottom:10px">⚠️</div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">No se pudo abrir la app</div>
+      <div style="color:var(--muted);font-size:13px;line-height:1.5;margin-bottom:16px">Revisa tu conexión o la configuración de Firebase.</div>
+      <div class="card" style="padding:12px;margin-bottom:12px">
+        <div id="error-msg" style="font-size:12px;color:#d7ece6"></div>
+      </div>
+      <button class="btn-primary" onclick="location.reload()">Reintentar</button>
+    </div>
+  </div>
 
   <!-- Nombre -->
   <div id="s-nombre" class="screen">
@@ -187,28 +238,50 @@
       <div class="hero-sub">Total gastado</div>
       <div class="hero-total" id="hero-total">$0</div>
       <div class="hero-balance" id="hero-balance"></div>
+      <div class="hero-meta">
+        <div class="hero-pill" id="hero-count">0 movimientos</div>
+        <div class="hero-pill" id="hero-fixed">0 fijos activos</div>
+      </div>
     </div>
 
     <div class="cards-grid">
-      <div class="p-card" id="pc1" style="border:1px solid #818cf822">
+      <div class="p-card" id="pc1" style="border:1px solid #14b8a633">
         <div class="p-card-top">
-          <div class="p-dot" style="background:#818cf8"></div>
+          <div class="p-dot" style="background:#14b8a6"></div>
           <span class="p-name" id="pc1-name">P1</span>
-          <span class="p-you" id="pc1-you" style="color:#818cf8"></span>
+          <span class="p-you" id="pc1-you" style="color:#14b8a6"></span>
         </div>
         <div class="p-monto" id="pc1-monto">$0</div>
-        <div class="progress-bar"><div class="progress-fill" id="pc1-bar" style="background:#818cf8;width:0%"></div></div>
+        <div class="progress-bar"><div class="progress-fill" id="pc1-bar" style="background:#14b8a6;width:0%"></div></div>
         <div class="p-hint" id="pc1-hint"></div>
       </div>
-      <div class="p-card" id="pc2" style="border:1px solid #f472b622">
+      <div class="p-card" id="pc2" style="border:1px solid #fb718533">
         <div class="p-card-top">
-          <div class="p-dot" style="background:#f472b6"></div>
+          <div class="p-dot" style="background:#fb7185"></div>
           <span class="p-name" id="pc2-name">P2</span>
-          <span class="p-you" id="pc2-you" style="color:#f472b6"></span>
+          <span class="p-you" id="pc2-you" style="color:#fb7185"></span>
         </div>
         <div class="p-monto" id="pc2-monto">$0</div>
-        <div class="progress-bar"><div class="progress-fill" id="pc2-bar" style="background:#f472b6;width:0%"></div></div>
+        <div class="progress-bar"><div class="progress-fill" id="pc2-bar" style="background:#fb7185;width:0%"></div></div>
         <div class="p-hint" id="pc2-hint"></div>
+      </div>
+    </div>
+
+    <div class="insights-grid">
+      <div class="insight-card">
+        <div class="insight-label">Promedio</div>
+        <div class="insight-value" id="insight-promedio">$0</div>
+        <div class="insight-sub" id="insight-promedio-sub">por gasto</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">Top categoría</div>
+        <div class="insight-value" id="insight-cat">—</div>
+        <div class="insight-sub" id="insight-cat-sub">Sin datos</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">Presupuesto</div>
+        <div class="insight-value" id="insight-budget">$0</div>
+        <div class="insight-sub" id="insight-budget-sub">restante</div>
       </div>
     </div>
 
@@ -226,10 +299,19 @@
 
     <div class="tab-body">
       <div id="tab-gastos">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input id="inp-buscar" class="search-input" placeholder="Buscar gasto..." oninput="renderGastos()">
-          <button class="search-clear" onclick="limpiarBuscar()" id="btn-clear-buscar" style="display:none">×</button>
+        <div class="section-title">Movimientos del mes</div>
+        <div class="toolbar">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input id="inp-buscar" class="search-input" placeholder="Buscar gasto o categoría..." oninput="renderGastos()">
+            <button class="search-clear" onclick="limpiarBuscar()" id="btn-clear-buscar" style="display:none">×</button>
+          </div>
+          <select id="sort-gastos" class="sort-select" onchange="setSort(this.value)">
+            <option value="recentes">Recientes</option>
+            <option value="mayores">Mayor valor</option>
+            <option value="menores">Menor valor</option>
+            <option value="az">A-Z</option>
+          </select>
         </div>
         <div class="chips" id="chips-filtro">
           <button class="chip on" data-filtro="todos" onclick="setFiltro('todos')">Todos</button>
@@ -346,7 +428,7 @@ const ref = p => db.ref(p);
 
 // ─── Categorías ───────────────────────────────────────────────
 const CATS = [
-  {id:'arriendo',emoji:'🏠',label:'Arriendo',color:'#60a5fa'},
+  {id:'arriendo',emoji:'🏠',label:'Arriendo',color:'#7ef5e4'},
   {id:'mercado',emoji:'🛒',label:'Mercado',color:'#4ade80'},
   {id:'servicios',emoji:'💡',label:'Servicios',color:'#fbbf24'},
   {id:'restaurante',emoji:'🍽️',label:'Restaurante',color:'#f97316'},
@@ -364,6 +446,8 @@ const MN = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','S
 const fmt = n => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(n||0);
 const monthKey = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 const monthLabel = k => { const [y,m]=k.split('-'); return MN[+m-1]+' '+y; };
+const displayName = key => key==='person1' ? (state.config.person1Name||'Persona 1') : (state.config.person2Name||'Persona 2');
+const moneyClass = n => n >= 0 ? 'color:#4ade80' : 'color:#f43f5e';
 
 // ─── Estado global ────────────────────────────────────────────
 let state = {
@@ -375,6 +459,7 @@ let state = {
   mes: monthKey(new Date()),
   tabActual: 'gastos',
   filtro: 'todos',
+  sortGastos: 'recentes',
   // edición
   editGastoId: null,
   editRecId: null,
@@ -454,8 +539,8 @@ function iniciarFirebase() {
           '<div style="padding:32px;text-align:center">' +
           '<div style="font-size:40px;margin-bottom:12px">📶</div>' +
           '<div style="color:#f43f5e;font-weight:700;font-size:16px;margin-bottom:8px">Sin conexión</div>' +
-          '<div style="color:#64748b;font-size:13px;margin-bottom:20px">Necesitas internet la primera vez que abres la app.</div>' +
-          '<button onclick="location.reload()" style="background:#6366f1;border:none;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700">Reintentar</button>' +
+          '<div style="color:var(--muted);font-size:13px;margin-bottom:20px">Necesitas internet la primera vez que abres la app.</div>' +
+          '<button onclick="location.reload()" style="background:linear-gradient(135deg,var(--accent),var(--accent-dark));border:none;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700">Reintentar</button>' +
           '</div>';
       }
     }, 300);
@@ -536,11 +621,8 @@ async function iniciarMain() {
 
   } catch(e) {
     console.error('Error iniciarMain:', e);
-    // Mostrar error con opción de reintentar
-    document.getElementById('s-error').querySelector('.card').innerHTML =
-      '<b style="color:#f43f5e">Error de conexión</b><br><br>' +
-      'Verifica que tienes internet y que el acceso anónimo está activado en Firebase.<br><br>' +
-      '<span style="font-size:12px;color:#475569">'+e.message+'</span>';
+    const msg = document.getElementById('error-msg');
+    if(msg) msg.innerHTML = '<b style="color:var(--danger)">Detalle:</b><br>' + esc(e.message || 'Error desconocido');
     showScreen('error');
   }
 }
@@ -582,7 +664,7 @@ function navMes(d) {
 
 // ─── Render principal ─────────────────────────────────────────
 function renderMain() {
-  const {config, mes, mySlot, gastos} = state;
+  const {config, mes, mySlot, gastos, recurrentes} = state;
   const {person1Name:p1n, person2Name:p2n, quota} = config;
 
   document.getElementById('hdr-names').textContent = p1n + ' & ' + p2n;
@@ -595,40 +677,58 @@ function renderMain() {
   const p2T = mG.filter(g=>g.quien==='person2').reduce((s,g)=>s+g.monto,0);
   const total = p1T + p2T;
   const diff = Math.abs(p1T-p2T);
+  const activos = recurrentes.filter(r=>r.activo);
+  const topCat = CATS.map(c => ({...c, total:mG.filter(g=>g.categoria===c.id).reduce((s,g)=>s+g.monto,0)}))
+    .sort((a,b)=>b.total-a.total)[0];
+  const promedio = mG.length ? Math.round(total / mG.length) : 0;
+  const budgetRest = quota*2 - total;
 
   document.getElementById('hero-total').textContent = fmt(total);
+  document.getElementById('hero-count').textContent = `${mG.length} movimiento${mG.length===1?'':'s'}`;
+  document.getElementById('hero-fixed').textContent = `${activos.length} fijo${activos.length===1?'':'s'} activo${activos.length===1?'':'s'}`;
+
   const balEl = document.getElementById('hero-balance');
   if(diff > 0) {
     const deb = p1T<p2T ? p1n : p2n;
     const acr = p1T>p2T ? p1n : p2n;
-    balEl.innerHTML = `<span style="color:#fbbf24;font-weight:600">${deb}</span> le debe <span style="color:#4ade80;font-weight:600">${fmt(diff)}</span> a ${acr}`;
+    balEl.innerHTML = `<span style="color:#fbbf24;font-weight:700">${deb}</span> le debe <span style="color:#4ade80;font-weight:700">${fmt(diff)}</span> a ${acr}`;
   } else {
-    balEl.innerHTML = `<span style="color:#4ade80;font-weight:600">✓ Están al día</span>`;
+    balEl.innerHTML = `<span style="color:#4ade80;font-weight:700">✓ Están al día</span>`;
   }
 
+  document.getElementById('insight-promedio').textContent = fmt(promedio);
+  document.getElementById('insight-promedio-sub').textContent = mG.length ? `${mG.length} gasto${mG.length===1?'':'s'} registrados` : 'Sin movimientos';
+  document.getElementById('insight-cat').textContent = topCat && topCat.total ? `${topCat.emoji} ${topCat.label}` : '—';
+  document.getElementById('insight-cat-sub').textContent = topCat && topCat.total ? fmt(topCat.total) : 'Sin datos';
+  document.getElementById('insight-budget').textContent = fmt(Math.abs(budgetRest));
+  document.getElementById('insight-budget').style.color = budgetRest >= 0 ? '#8ff4e6' : '#fb7185';
+  document.getElementById('insight-budget-sub').textContent = budgetRest >= 0 ? 'restante del mes' : 'por encima del presupuesto';
+
   // Cards persona
-  [[p1n,p1T,'pc1','#818cf8','person1'],[p2n,p2T,'pc2','#f472b6','person2']].forEach(([name,tot,id,color,key]) => {
+  [[p1n,p1T,'pc1','#14b8a6','person1'],[p2n,p2T,'pc2','#fb7185','person2']].forEach(([name,tot,id,color,key]) => {
     document.getElementById(id+'-name').textContent = name;
     document.getElementById(id+'-you').textContent = key===mySlot ? 'TÚ' : '';
     document.getElementById(id+'-monto').textContent = fmt(tot);
     const pct = Math.min((tot/quota)*100, 100);
+    const share = total ? Math.round((tot/total)*100) : 0;
     const over = tot>quota;
     document.getElementById(id+'-bar').style.width = pct+'%';
     document.getElementById(id+'-bar').style.background = over ? '#f43f5e' : color;
-    document.getElementById(id+'-hint').textContent = over ? `⚠️ +${fmt(tot-quota)} sobre cuota` : `Cuota: ${fmt(quota)}`;
-    document.getElementById(id+'-hint').style.color = over ? '#f43f5e' : '#64748b';
+    document.getElementById(id+'-hint').textContent = over ? `⚠️ +${fmt(tot-quota)} sobre cuota · ${share}% del total` : `Cuota: ${fmt(quota)} · ${share}% del total`;
+    document.getElementById(id+'-hint').style.color = over ? '#fda4af' : '#7ba79b';
   });
 
-  // Chips filtro
+  // Chips filtro + selector
   document.getElementById('chip-p1').textContent = p1n;
   document.getElementById('chip-p2').textContent = p2n;
+  const sortEl = document.getElementById('sort-gastos');
+  if(sortEl) sortEl.value = state.sortGastos;
 
   // Config modal
   document.getElementById('cfg-p1').value = p1n;
   document.getElementById('cfg-p2').value = p2n;
   document.getElementById('cfg-quota').value = quota;
 
-  // Quien pickers
   buildQuienGrids();
 }
 
@@ -655,6 +755,11 @@ function setFiltro(f) {
   renderGastos();
 }
 
+function setSort(val) {
+  state.sortGastos = val;
+  renderGastos();
+}
+
 function limpiarBuscar() {
   document.getElementById('inp-buscar').value = '';
   document.getElementById('btn-clear-buscar').style.display = 'none';
@@ -662,16 +767,23 @@ function limpiarBuscar() {
 }
 
 function renderGastos() {
-  const buscar = document.getElementById('inp-buscar')?.value?.toLowerCase()||'';
+  const buscar = document.getElementById('inp-buscar')?.value?.toLowerCase().trim()||'';
   document.getElementById('btn-clear-buscar').style.display = buscar ? '' : 'none';
 
-  const {gastos, mes, filtro, config:{person1Name:p1n,person2Name:p2n}} = state;
-  const mG = gastos.filter(g => {
+  const {gastos, mes, filtro, sortGastos} = state;
+  let mG = gastos.filter(g => {
     if(g.mes!==mes) return false;
     if(filtro!=='todos' && g.quien!==filtro) return false;
-    if(buscar && !((g.descripcion||'').toLowerCase().includes(buscar))) return false;
+    const catLabel = (CMAP[g.categoria]?.label || '').toLowerCase();
+    const desc = (g.descripcion||'').toLowerCase();
+    if(buscar && !(desc.includes(buscar) || catLabel.includes(buscar))) return false;
     return true;
   });
+
+  if(sortGastos==='mayores') mG.sort((a,b)=>(b.monto||0)-(a.monto||0));
+  if(sortGastos==='menores') mG.sort((a,b)=>(a.monto||0)-(b.monto||0));
+  if(sortGastos==='az') mG.sort((a,b)=>(a.descripcion||'').localeCompare(b.descripcion||'', 'es'));
+  if(sortGastos==='recentes') mG.sort((a,b)=>(b.fecha||0)-(a.fecha||0));
 
   const el = document.getElementById('lista-gastos');
   if(!mG.length) { el.innerHTML = `<div class="empty">Sin gastos${buscar?' con esa búsqueda':' este mes'}</div>`; return; }
@@ -679,8 +791,8 @@ function renderGastos() {
   el.innerHTML = mG.map(g => {
     const cat = CMAP[g.categoria]||CMAP['otro'];
     const isP1 = g.quien==='person1';
-    const color = isP1 ? '#818cf8' : '#f472b6';
-    const nombre = isP1 ? p1n : p2n;
+    const color = isP1 ? '#14b8a6' : '#fb7185';
+    const nombre = displayName(g.quien);
     const fecha = g.fecha ? new Date(g.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'short'}) : '';
     const autoTag = g.esRecurrente ? `<span class="tag-auto">auto</span>` : '';
     return `
@@ -688,13 +800,14 @@ function renderGastos() {
         <div class="row-emoji">${cat.emoji}</div>
         <div class="row-body">
           <div class="row-title">${esc(g.descripcion)}${autoTag}</div>
-          <div class="row-sub"><span style="color:${color};font-weight:600">${nombre}</span> · ${cat.label}${fecha?' · '+fecha:''}</div>
+          <div class="row-sub"><span style="color:${color};font-weight:700">${esc(nombre)}</span> · ${cat.label}${fecha?' · '+fecha:''}</div>
         </div>
         <div class="row-right">
           <div class="row-monto">${fmt(g.monto)}</div>
+          <div class="row-right-meta">${g.esRecurrente ? 'Fijo' : 'Manual'}</div>
           <div class="row-actions" id="acc-${g.id}">
-            <button style="color:#60a5fa" onclick="abrirEditGasto('${g.id}')">✏️</button>
-            <button style="color:#334155" onclick="confirmarBorrar('${g.id}','gasto')">🗑️</button>
+            <button style="color:#7ef5e4" onclick="abrirEditGasto('${g.id}')">✏️</button>
+            <button style="color:#66877f" onclick="confirmarBorrar('${g.id}','gasto')">🗑️</button>
           </div>
         </div>
       </div>`;
@@ -801,7 +914,7 @@ function renderFijos() {
         </div>
         <div class="row-right" style="display:flex;gap:4px;align-items:center">
           <button class="toggle-btn ${r.activo?'toggle-on':'toggle-off'}" onclick="toggleRec('${r.id}',${!r.activo})">${r.activo?'✓':'⏸'}</button>
-          <button style="background:none;border:none;color:#60a5fa;font-size:14px;padding:4px 5px" onclick="abrirEditRec('${r.id}')">✏️</button>
+          <button style="background:none;border:none;color:#7ef5e4;font-size:14px;padding:4px 5px" onclick="abrirEditRec('${r.id}')">✏️</button>
           <div id="accr-${r.id}" style="display:flex;gap:4px">
             <button style="background:none;border:none;color:#f43f5e;font-size:14px;padding:4px 5px" onclick="confirmarBorrar('${r.id}','rec')">🗑️</button>
           </div>
@@ -833,9 +946,9 @@ function buildQuienGrid(containerId, field) {
   const {config:{person1Name:p1n,person2Name:p2n}} = state;
   const selected = field==='gastoQuien' ? state.gastoQuien : state.recQuien;
   document.getElementById(containerId).innerHTML =
-    [['person1',p1n,'#818cf8'],['person2',p2n,'#f472b6']].map(([k,n,c])=>`
+    [['person1',p1n,'#14b8a6'],['person2',p2n,'#fb7185']].map(([k,n,c])=>`
       <button class="quien-btn" onclick="setQuien('${field}','${k}','${containerId}')"
-        style="border-color:${selected===k?c:'#1e293b'};background:${selected===k?c+'18':'#0a0a10'};color:${selected===k?c:'#64748b'}">${n}</button>
+        style="border-color:${selected===k?c:'var(--border)'};background:${selected===k?c+'1f':'var(--surface-3)'};color:${selected===k?c:'var(--muted)'}">${n}</button>
     `).join('');
 }
 
@@ -843,9 +956,9 @@ function buildCatGrid(containerId, field) {
   const selected = field==='gastoCat' ? state.gastoCat : state.recCat;
   document.getElementById(containerId).innerHTML = CATS.map(c=>`
     <button class="cat-btn" onclick="setCat('${field}','${c.id}','${containerId}')"
-      style="border-color:${selected===c.id?c.color:'#1e293b'};background:${selected===c.id?c.color+'18':'#0a0a10'}">
+      style="border-color:${selected===c.id?c.color:'var(--border)'};background:${selected===c.id?c.color+'20':'var(--surface-3)'}">
       <span class="cat-btn-ico">${c.emoji}</span>
-      <span class="cat-btn-lbl" style="color:${selected===c.id?c.color:'#475569'}">${c.label.slice(0,6)}</span>
+      <span class="cat-btn-lbl" style="color:${selected===c.id?c.color:'#6f9389'}">${c.label.slice(0,6)}</span>
     </button>`).join('');
 }
 
@@ -980,6 +1093,8 @@ function guardarConfig() {
   const p2 = document.getElementById('cfg-p2').value.trim();
   const q  = Number(document.getElementById('cfg-quota').value);
   if(!p1||!p2||!q) { toast('⚠️ Completa todos los campos'); return; }
+  if(p1.toLowerCase() === p2.toLowerCase()) { toast('⚠️ Los nombres deben ser distintos'); return; }
+  if(q <= 0) { toast('⚠️ La cuota debe ser mayor a 0'); return; }
   ref(`hogares/${HOGAR}`).update({ person1Name:p1, person2Name:p2, quota:q });
   toast('⚙️ Configuración guardada');
   cerrarModal('m-config');
