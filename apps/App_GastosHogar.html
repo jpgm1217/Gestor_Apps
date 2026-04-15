@@ -204,6 +204,7 @@
         <div id="error-msg" style="font-size:12px;color:#d7ece6"></div>
       </div>
       <button class="btn-primary" onclick="location.reload()">Reintentar</button>
+      <button class="btn-ghost" id="error-secondary" style="display:none" onclick="salir()">Cambiar nombre</button>
     </div>
   </div>
 
@@ -354,6 +355,10 @@
     <div class="field">
       <label class="field-lbl">Descripción</label>
       <input id="g-desc" type="text" placeholder="¿En qué se gastó?" class="input">
+      <div style="margin-top:8px">
+        <label class="field-lbl" style="margin-bottom:6px">Sugerencias rápidas</label>
+        <div class="chips" id="g-sugerencias" style="margin-bottom:0"></div>
+      </div>
     </div>
     <div class="field-lbl">Categoría</div>
     <div class="cat-grid" id="cat-grid-gasto"></div>
@@ -447,7 +452,95 @@ const fmt = n => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',
 const monthKey = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 const monthLabel = k => { const [y,m]=k.split('-'); return MN[+m-1]+' '+y; };
 const displayName = key => key==='person1' ? (state.config.person1Name||'Persona 1') : (state.config.person2Name||'Persona 2');
-const moneyClass = n => n >= 0 ? 'color:#4ade80' : 'color:#f43f5e';
+const AUTO_GASTO_PREFIX = 'auto__';
+const normalizeName = v => (v||'').trim().toLowerCase();
+const currentMonthKey = () => monthKey(new Date());
+function isDefaultSlotName(name) {
+  const norm = normalizeName(name);
+  return !norm || norm === 'persona 1' || norm === 'persona 2';
+}
+function isCurrentMonth(mes) {
+  return mes === currentMonthKey();
+}
+function makeAutoGastoId(recurId, mes) {
+  return `${AUTO_GASTO_PREFIX}${mes}__${recurId}`;
+}
+function inferCategoryFromText(text) {
+  const v = normalizeName(text);
+  if(!v) return null;
+  const rules = [
+    ['arriendo', ['arriendo','alquiler','canon','administracion']],
+    ['mercado', ['mercado','supermercado','d1','ara','exito','jumbo','olimpica','carulla']],
+    ['servicios', ['luz','agua','gas','internet','energia','servicio','servicios','telefono','celular','wifi']],
+    ['restaurante', ['restaurante','almuerzo','desayuno','cena','comida','domicilio','rappi','uber eats','pizza','hamburguesa']],
+    ['transporte', ['uber','taxi','bus','metro','gasolina','peaje','parqueadero','transporte']],
+    ['salud', ['eps','medico','doctor','consulta','medicina','farmacia','salud','odontologo']],
+    ['ocio', ['cine','netflix','spotify','salida','ocio','fiesta','juego','streaming']],
+    ['mascotas', ['mascota','perro','gato','veterinaria','concentrado','arena']],
+    ['ropa', ['ropa','camisa','pantalon','zapatos','tenis','chaqueta','blusa']]
+  ];
+  for (const [cat, keys] of rules) {
+    if (keys.some(k => v.includes(k))) return cat;
+  }
+  return null;
+}
+function getRecentTemplates(limit = 5) {
+  const seen = new Set();
+  return [...state.gastos]
+    .filter(g => !g.esRecurrente && g.descripcion && g.monto > 0)
+    .sort((a,b)=>(b.fecha||0)-(a.fecha||0))
+    .filter(g => {
+      const key = `${normalizeName(g.descripcion)}|${g.categoria||''}|${g.monto||0}`;
+      if(seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+function renderQuickSuggestions() {
+  const el = document.getElementById('g-sugerencias');
+  if(!el) return;
+  state.quickSuggestions = getRecentTemplates();
+  if(!state.quickSuggestions.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:12px">Aún no hay gastos recientes para reutilizar.</span>';
+    return;
+  }
+  el.innerHTML = state.quickSuggestions.map((g, idx) =>
+    `<button type="button" class="chip" onclick="applyQuickSuggestion(${idx})">${esc(g.descripcion)} · ${fmt(g.monto)}</button>`
+  ).join('');
+}
+function applyQuickSuggestion(idx) {
+  const g = state.quickSuggestions[idx];
+  if(!g) return;
+  document.getElementById('g-desc').value = g.descripcion || '';
+  document.getElementById('g-monto').value = g.monto || '';
+  state.gastoQuien = g.quien || state.mySlot;
+  state.gastoCat = g.categoria || 'otro';
+  buildQuienGrid('quien-grid-gasto','gastoQuien');
+  buildCatGrid('cat-grid-gasto','gastoCat');
+  toast('Sugerencia aplicada');
+}
+function autoDetectGastoCategory() {
+  const cat = inferCategoryFromText(document.getElementById('g-desc')?.value || '');
+  if(cat && cat !== state.gastoCat) {
+    state.gastoCat = cat;
+    buildCatGrid('cat-grid-gasto','gastoCat');
+  }
+}
+function autoDetectRecCategory() {
+  const cat = inferCategoryFromText(document.getElementById('r-nombre')?.value || '');
+  if(cat && cat !== state.recCat) {
+    state.recCat = cat;
+    buildCatGrid('cat-grid-rec','recCat');
+  }
+}
+function setErrorScreen(message, allowChangeName = false) {
+  const msg = document.getElementById('error-msg');
+  const extra = document.getElementById('error-secondary');
+  if(msg) msg.innerHTML = message;
+  if(extra) extra.style.display = allowChangeName ? '' : 'none';
+  showScreen('error');
+}
 
 // ─── Estado global ────────────────────────────────────────────
 let state = {
@@ -468,6 +561,7 @@ let state = {
   gastoCat: 'mercado',
   recQuien: 'person1',
   recCat: 'arriendo',
+  quickSuggestions: [],
 };
 
 // ─── Utilidades UI ────────────────────────────────────────────
@@ -572,28 +666,51 @@ function _arrancar() {
 
 async function iniciarMain() {
   try {
-    // Registrar usuario en el hogar
     const data = await ref(`hogares/${HOGAR}`).once('value').then(s=>s.val());
-    let slot;
+    let slot = null;
     const n = state.userName;
+    const nNorm = normalizeName(n);
+    const savedSlot = localStorage.getItem('slot');
+
     if(!data) {
       await ref(`hogares/${HOGAR}`).set({ quota:1300000, person1Name:n, person2Name:'Persona 2', creadoEn: Date.now() });
       slot = 'person1';
-    } else if(!data.person1Name || data.person1Name===n) {
-      await ref(`hogares/${HOGAR}`).update({person1Name:n});
-      slot = 'person1';
-    } else if(!data.person2Name || data.person2Name==='Persona 2' || data.person2Name===n) {
-      await ref(`hogares/${HOGAR}`).update({person2Name:n});
-      slot = 'person2';
     } else {
-      slot = data.person1Name===n ? 'person1' : 'person2';
+      const p1Norm = normalizeName(data.person1Name);
+      const p2Norm = normalizeName(data.person2Name);
+
+      if(savedSlot === 'person1' && (isDefaultSlotName(data.person1Name) || p1Norm === nNorm)) {
+        if(data.person1Name !== n) await ref(`hogares/${HOGAR}`).update({person1Name:n});
+        slot = 'person1';
+      } else if(savedSlot === 'person2' && (isDefaultSlotName(data.person2Name) || p2Norm === nNorm)) {
+        if(data.person2Name !== n) await ref(`hogares/${HOGAR}`).update({person2Name:n});
+        slot = 'person2';
+      } else if(p1Norm && p1Norm === nNorm) {
+        slot = 'person1';
+      } else if(p2Norm && p2Norm === nNorm) {
+        slot = 'person2';
+      } else if(isDefaultSlotName(data.person1Name)) {
+        await ref(`hogares/${HOGAR}`).update({person1Name:n});
+        slot = 'person1';
+      } else if(isDefaultSlotName(data.person2Name)) {
+        await ref(`hogares/${HOGAR}`).update({person2Name:n});
+        slot = 'person2';
+      } else {
+        setErrorScreen(
+          `Esta app está configurada solo para dos personas.<br><br>` +
+          `Actualmente están registradas <b>${esc(data.person1Name || 'Persona 1')}</b> y <b>${esc(data.person2Name || 'Persona 2')}</b>.<br><br>` +
+          `Usa uno de esos nombres en este dispositivo o reinicia la sesión.`,
+          true
+        );
+        return;
+      }
     }
+
     localStorage.setItem('slot', slot);
     state.mySlot = slot;
     state.gastoQuien = slot;
     state.recQuien = slot;
 
-    // Listeners realtime
     ref(`hogares/${HOGAR}`).on('value', s => {
       const v = s.val();
       if(v) {
@@ -605,6 +722,7 @@ async function iniciarMain() {
     ref(`hogares/${HOGAR}/gastos`).on('value', s => {
       const v = s.val();
       state.gastos = v ? Object.entries(v).map(([k,val])=>({id:k,...val})).sort((a,b)=>(b.fecha||0)-(a.fecha||0)) : [];
+      renderQuickSuggestions();
       renderTab();
     });
 
@@ -616,35 +734,43 @@ async function iniciarMain() {
     });
 
     buildCatGrids();
+    renderQuickSuggestions();
     showScreen('main');
     document.getElementById('fab').style.display = 'flex';
 
   } catch(e) {
     console.error('Error iniciarMain:', e);
-    const msg = document.getElementById('error-msg');
-    if(msg) msg.innerHTML = '<b style="color:var(--danger)">Detalle:</b><br>' + esc(e.message || 'Error desconocido');
-    showScreen('error');
+    setErrorScreen('<b style="color:var(--danger)">Detalle:</b><br>' + esc(e.message || 'Error desconocido'));
   }
 }
 
 // ─── Auto recurrentes ─────────────────────────────────────────
 function autoRegistrarRecurrentes() {
   const mes = state.mes;
+  if(!isCurrentMonth(mes)) return;
   state.recurrentes.forEach(r => {
-    if(r.activo && r.ultimoMes !== mes) {
-      // verificar que no exista ya ese auto en este mes
-      const yaExiste = state.gastos.some(g => g.recurId===r.id && g.mes===mes);
-      if(!yaExiste) {
-        ref(`hogares/${HOGAR}/gastos`).push({
-          quien: r.quien, monto: r.monto,
-          descripcion: r.nombre+' (auto)',
-          categoria: r.categoria, mes,
-          fecha: Date.now(),
-          esRecurrente: true, recurId: r.id
-        });
-        ref(`hogares/${HOGAR}/recurrentes/${r.id}`).update({ultimoMes: mes});
-      }
+    if(!r.activo) return;
+    const gastoId = makeAutoGastoId(r.id, mes);
+    const yaExiste = state.gastos.some(g => g.id===gastoId || (g.recurId===r.id && g.mes===mes));
+    if(yaExiste) {
+      if(r.ultimoMes !== mes) ref(`hogares/${HOGAR}/recurrentes/${r.id}`).update({ultimoMes: mes});
+      return;
     }
+    const payload = {
+      quien: r.quien,
+      monto: r.monto,
+      descripcion: r.nombre + ' (auto)',
+      categoria: r.categoria,
+      mes,
+      fecha: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      esRecurrente: true,
+      source: 'auto',
+      recurId: r.id
+    };
+    ref(`hogares/${HOGAR}/gastos/${gastoId}`).set(payload);
+    ref(`hogares/${HOGAR}/recurrentes/${r.id}`).update({ultimoMes: mes});
   });
 }
 
@@ -730,6 +856,7 @@ function renderMain() {
   document.getElementById('cfg-quota').value = quota;
 
   buildQuienGrids();
+  renderQuickSuggestions();
 }
 
 // ─── Tabs ─────────────────────────────────────────────────────
@@ -804,9 +931,10 @@ function renderGastos() {
         </div>
         <div class="row-right">
           <div class="row-monto">${fmt(g.monto)}</div>
-          <div class="row-right-meta">${g.esRecurrente ? 'Fijo' : 'Manual'}</div>
+          <div class="row-right-meta">${g.esRecurrente ? 'Fijo automático' : 'Manual'}</div>
           <div class="row-actions" id="acc-${g.id}">
             <button style="color:#7ef5e4" onclick="abrirEditGasto('${g.id}')">✏️</button>
+            <button style="color:#fbbf24" onclick="duplicarGasto('${g.id}')">⧉</button>
             <button style="color:#66877f" onclick="confirmarBorrar('${g.id}','gasto')">🗑️</button>
           </div>
         </div>
@@ -824,6 +952,25 @@ function confirmarBorrar(id, tipo) {
 function cancelarBorrar(id, tipo) {
   if(tipo==='gasto') renderGastos();
   else renderFijos();
+}
+
+function duplicarGasto(id) {
+  const g = state.gastos.find(x => x.id === id);
+  if(!g) return;
+  const now = Date.now();
+  ref(`hogares/${HOGAR}/gastos`).push({
+    quien: g.quien,
+    monto: g.monto,
+    descripcion: g.descripcion,
+    categoria: g.categoria,
+    mes: state.mes,
+    fecha: now,
+    createdAt: now,
+    updatedAt: now,
+    esRecurrente: false,
+    source: 'manual'
+  });
+  toast('⧉ Gasto duplicado');
 }
 
 function borrarGasto(id) {
@@ -1002,8 +1149,10 @@ function guardarGasto() {
   const monto = Number(document.getElementById('g-monto').value);
   const desc  = document.getElementById('g-desc').value.trim() || 'Sin descripción';
   if(!monto || monto<=0) { toast('⚠️ Ingresa un valor'); return; }
+  if(desc.length > 80) { toast('⚠️ La descripción debe ser más corta'); return; }
 
-  const data = { quien:state.gastoQuien, monto, descripcion:desc, categoria:state.gastoCat };
+  const now = Date.now();
+  const data = { quien:state.gastoQuien, monto, descripcion:desc, categoria:state.gastoCat, updatedAt: now };
 
   if(state.editGastoId) {
     ref(`hogares/${HOGAR}/gastos/${state.editGastoId}`).update(data);
@@ -1011,8 +1160,10 @@ function guardarGasto() {
     state.editGastoId = null;
   } else {
     data.mes = state.mes;
-    data.fecha = Date.now();
+    data.fecha = now;
+    data.createdAt = now;
     data.esRecurrente = false;
+    data.source = 'manual';
     ref(`hogares/${HOGAR}/gastos`).push(data);
     toast('✅ Gasto guardado');
   }
@@ -1030,6 +1181,7 @@ function resetGastoModal() {
   document.getElementById('btn-guardar-gasto').textContent = 'Guardar gasto';
   buildQuienGrid('quien-grid-gasto','gastoQuien');
   buildCatGrid('cat-grid-gasto','gastoCat');
+  renderQuickSuggestions();
 }
 
 // Limpiar modal al abrir nuevo gasto desde FAB
@@ -1057,9 +1209,11 @@ function guardarRec() {
   const nombre = document.getElementById('r-nombre').value.trim();
   const monto  = Number(document.getElementById('r-monto').value);
   if(!nombre) { toast('⚠️ Escribe el nombre'); return; }
+  if(nombre.length > 60) { toast('⚠️ El nombre del gasto fijo es muy largo'); return; }
   if(!monto || monto<=0) { toast('⚠️ Ingresa un valor'); return; }
 
-  const data = { quien:state.recQuien, monto, nombre, categoria:state.recCat };
+  const now = Date.now();
+  const data = { quien:state.recQuien, monto, nombre, categoria:state.recCat, updatedAt: now };
 
   if(state.editRecId) {
     ref(`hogares/${HOGAR}/recurrentes/${state.editRecId}`).update(data);
@@ -1068,6 +1222,7 @@ function guardarRec() {
   } else {
     data.activo = true;
     data.ultimoMes = null;
+    data.createdAt = now;
     ref(`hogares/${HOGAR}/recurrentes`).push(data);
     toast('🔄 Gasto fijo guardado');
   }
@@ -1093,9 +1248,10 @@ function guardarConfig() {
   const p2 = document.getElementById('cfg-p2').value.trim();
   const q  = Number(document.getElementById('cfg-quota').value);
   if(!p1||!p2||!q) { toast('⚠️ Completa todos los campos'); return; }
-  if(p1.toLowerCase() === p2.toLowerCase()) { toast('⚠️ Los nombres deben ser distintos'); return; }
+  if(normalizeName(p1) === normalizeName(p2)) { toast('⚠️ Los nombres deben ser distintos'); return; }
+  if(p1.length > 20 || p2.length > 20) { toast('⚠️ Usa nombres más cortos'); return; }
   if(q <= 0) { toast('⚠️ La cuota debe ser mayor a 0'); return; }
-  ref(`hogares/${HOGAR}`).update({ person1Name:p1, person2Name:p2, quota:q });
+  ref(`hogares/${HOGAR}`).update({ person1Name:p1, person2Name:p2, quota:q, updatedAt: Date.now() });
   toast('⚙️ Configuración guardada');
   cerrarModal('m-config');
 }
@@ -1104,6 +1260,9 @@ function guardarConfig() {
 function esc(str) {
   return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+document.getElementById('g-desc').addEventListener('input', autoDetectGastoCategory);
+document.getElementById('r-nombre').addEventListener('input', autoDetectRecCategory);
 </script>
 </body>
 </html>
