@@ -1564,6 +1564,7 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
+    ${(c.numCuotas-c.pagadas)>=2?`<div style="margin-bottom:8px"><button class="btn btn-ghost btn-full btn-sm" onclick="pagarMultiples('${c.id}')">⏩ Pagar varias cuotas adelantadas</button></div>`:''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <button class="btn btn-blue btn-sm" onclick="abrirRefin('${c.id}')">🔄 Refinanciar</button>
       <button class="btn btn-ghost btn-sm" onclick="abrirEditarCliente('${c.id}')">✏️ Editar</button>
@@ -1905,11 +1906,83 @@ function confirmarAjuste(){
 }
 
 // PAGOS
+function pagarMultiples(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  if(c._procesandoPago)return;
+  const restantes=c.numCuotas-c.pagadas;
+  const nStr=prompt(`¿Cuántas cuotas adelanta ${c.nombre}? (le quedan ${restantes})`,'2');
+  if(nStr===null)return;
+  const n=parseInt(nStr)||0;
+  if(n<=0||n>restantes){notify('Número de cuotas inválido','err');return;}
+  const m=mora(c);
+  // Sumar cuotas reales (puede haber cuotaUltima distinta)
+  let totalCuotas=0;
+  for(let i=0;i<n;i++){
+    const q=c.cuotasData[c.pagadas+i];
+    totalCuotas+=q?.cuota||c.cuota;
+  }
+  const total=totalCuotas+m;
+  if(!confirm(`${c.nombre}: pagar ${n} cuota${n>1?'s':''} = ${fmt(totalCuotas)}${m>0?` + mora ${fmt(m)} = ${fmt(total)}`:''}\n\n¿Confirmar?`))return;
+  c._procesandoPago=true;
+  // Cobra mora si hay
+  if(m>0){
+    registrarEventoMora(c,'cobrada',m,`Cobrada en pago múltiple`,'Admin');
+    c.moraPerdonada=(c.moraPerdonada||0)+m;
+    c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
+    registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · pago múltiple`, `pagom:${c.id}:${c.pagadas+1}:mora`, {clienteId:c.id, cliente:c.nombre});
+  }
+  // Registra cada cuota
+  for(let i=0;i<n;i++){
+    const cuotaNo=c.pagadas+1;
+    const partes=partesCuotaIndex(c,c.pagadas);
+    c.pagadas++;
+    registrarComisionEventoCliente(c,{interes:partes.interes,mora:i===0?m:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas} (pago múltiple)`});
+    registrarCajaAuto('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `pagom:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
+    registrarCajaAuto('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `pagom:${c.id}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
+  }
+  c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
+  alimentarPool(totalCuotas+m,c.nombre);
+  log({tipo:'pago',cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:`${n} cuotas adelantadas${m>0?` + mora ${fmt(m)}`:''}`});
+  save();
+  c._procesandoPago=false;
+  if(c.pagadas>=c.numCuotas){
+    cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+    if(confirm(`✅ ${c.nombre} terminó de pagar.\n¿Crear un nuevo ciclo?`)){abrirNuevoCiclo(c.id);}
+    return;
+  }
+  notify(`${n} cuotas registradas · total ${fmt(total)} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+}
+
 function pagoNormal(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  // GUARD: evitar doble click / doble ejecución
+  if(c._procesandoPago)return;
+  const m=mora(c);
+  // BUGFIX: avisar al admin si hay mora — evita borrar mora accidentalmente
+  if(m>0){
+    const opcion=confirm(`⚠ ${c.nombre} tiene ${fmt(m)} de mora acumulada.\n\nAceptar = Cobrar solo cuota de ${fmt(c.cuota)} y PERDONAR la mora\nCancelar = Volver para usar "Cobrar todo" o "Perdonar mora"`);
+    if(!opcion)return;
+    // Si acepta, la mora se perdona automáticamente para no quedar en cero silencioso
+    registrarEventoMora(c,'perdonada',m,'Perdón automático al cobrar cuota normal','Admin');
+    c.moraPerdonada=(c.moraPerdonada||0)+m;
+  }
+  // SNAPSHOT para rollback
+  const snapshot={pagadas:c.pagadas,moraBaseDate:c.moraBaseDate,abonoPendiente:c.abonoPendiente,ultimoPago:c.ultimoPago,moraPerdonada:c.moraPerdonada,historialMora:JSON.parse(JSON.stringify(c.historialMora||[])),comisionEventos:JSON.parse(JSON.stringify(c.comisionEventos||[]))};
+  c._procesandoPago=true;
   const cuotaNo=c.pagadas+1;
   const partes=partesCuotaIndex(c,c.pagadas);
+  // VALIDACIÓN defensiva: si las partes son 0 y la cuota no lo es, algo está mal
+  if(c.cuota>0&&partes.capital<=0&&partes.interes<=0){
+    c._procesandoPago=false;
+    notify('Error: no se pudo calcular capital/interés de la cuota. Revisa los datos del cliente.','err');
+    return;
+  }
+  // Sumar abonoPendiente al pago efectivo (no se puede perder)
+  const abonoPrevio=c.abonoPendiente||0;
+  const montoEfectivo=c.cuota+m; // lo que se cobra hoy (cuota; si había mora se perdonó arriba)
   c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
   save();
@@ -1917,8 +1990,9 @@ function pagoNormal(id){
   alimentarPool(c.cuota,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
-  log({tipo:'pago',cliente:c.nombre,monto:c.cuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin'});
+  log({tipo:'pago',cliente:c.nombre,monto:c.cuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:abonoPrevio>0?`aplicó abono previo ${fmt(abonoPrevio)}`:''});
   resolverSolicitudActiva('pago_registrado',`Pago ${c.pagadas}/${c.numCuotas} registrado por admin`);
+  c._procesandoPago=false;
   // Última cuota — ofrecer nuevo ciclo
   if(c.pagadas>=c.numCuotas){
     cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
@@ -1934,29 +2008,46 @@ function pagoNormal(id){
 }
 function cobrarConMora(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
-  const m=mora(c);
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  if(c._procesandoPago)return; // GUARD doble click
+  const m=mora(c);
+  // BUGFIX: si no hay mora, equivale a pagoNormal
+  if(m<=0){
+    notify(`${c.nombre} no tiene mora — registrando cuota normal`,'ok');
+    return pagoNormal(id);
+  }
+  c._procesandoPago=true;
+  // CONFIRMACIÓN de monto
+  const totalAPagar=c.cuota+m;
+  if(!confirm(`¿Cobrar ${fmt(totalAPagar)} a ${c.nombre}?\n\nCuota: ${fmt(c.cuota)}\nMora: ${fmt(m)} (${diasMora(c)} días)`)){
+    c._procesandoPago=false;
+    return;
+  }
   const cuotaNo=c.pagadas+1;
   const partes=partesCuotaIndex(c,c.pagadas);
+  if(c.cuota>0&&partes.capital<=0&&partes.interes<=0){
+    c._procesandoPago=false;
+    notify('Error: no se pudo calcular capital/interés. Revisa los datos.','err');
+    return;
+  }
   registrarEventoMora(c,'cobrada',m,`Cobrada junto con cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
   c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.moraPerdonada=(c.moraPerdonada||0)+m;
   c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
   c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas} con mora`});
   save();
-  // Alimentar pool con cuota + mora
   alimentarPool(c.cuota+m,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
   registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
   log({tipo:'pago',cliente:c.nombre,monto:c.cuota+m,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:`mora ${fmt(m)}`});
   resolverSolicitudActiva('pago_con_mora',`Cobro aplicado por admin: ${fmt(c.cuota+m)}`);
+  c._procesandoPago=false;
   if(c.telefono){
     const msg=encodeURIComponent(buildWAMsg(c,c.pagadas,c.cuota+m,m));
     const waUrl=`https://wa.me/57${c.telefono.replace(/\D/g,'')}?text=${msg}`;
     if(confirm(`¿Enviar recibo por WhatsApp a ${c.nombre}?`))window.open(waUrl,'_blank');
   }
-  // Última cuota — ofrecer nuevo ciclo
   if(c.pagadas>=c.numCuotas){
     cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
     if(confirm(`✅ ${c.nombre} terminó de pagar.\n¿Crear un nuevo ciclo de préstamo?`)){
@@ -2049,9 +2140,17 @@ function confirmarAbono(){
   const c=clientes.find(x=>x.id===pendingAbono);if(!c)return;
   const monto=parseFloat(document.getElementById('abono-monto').value)||0;
   if(monto<=0){notify('Ingresa un monto válido','err');return;}
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  if(c._procesandoPago)return;
   const m=mora(c);
   const cuotaBase=c.cuotasData[c.pagadas]?.cuota||c.cuota;
   const totalDeber=cuotaBase+m-(c.abonoPendiente||0);
+  // Confirmación explícita del monto
+  const resumen=monto>=totalDeber
+    ? `✓ ${c.nombre}: recibo ${fmt(monto)} — cubre cuota${m>0?' + mora':''} completa${monto>totalDeber?` (sobran ${fmt(monto-totalDeber)})`:''}`
+    : `${c.nombre}: recibo ${fmt(monto)} como abono parcial. Falta: ${fmt(totalDeber-monto)}`;
+  if(!confirm(`${resumen}\n\n¿Confirmar?`))return;
+  c._procesandoPago=true;
 
   if(monto>=totalDeber){
     // Cubre todo → cuota pagada
@@ -2105,6 +2204,7 @@ function confirmarAbono(){
   }
   save();
   resolverSolicitudActiva('abono_registrado',`Abono aplicado por admin: ${fmt(monto)}`);
+  c._procesandoPago=false;
   cerrar('modal-abono');renderClientes();renderInicio();renderCaja();
 }
 
