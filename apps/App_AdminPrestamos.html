@@ -2639,9 +2639,12 @@ function comisionEventosCliente(c){
 function resumenComisionCliente(c){
   return comisionEventosCliente(c).reduce((acc,e)=>{
     const com=Math.max(0,Math.round(e.comision||0));
-    const admin=Math.max(0,Math.round(e.admin||0));
     const interes=Math.max(0,Math.round(e.interes||0));
     const mora=Math.max(0,Math.round(e.mora||0));
+    // BUGFIX: eventos viejos creados por el cobrador no guardaron el campo 'admin'.
+    // Si falta, se calcula al vuelo: admin = (interés + mora) - comisión.
+    const adminRaw=(e.admin===undefined||e.admin===null)?((interes+mora)-com):e.admin;
+    const admin=Math.max(0,Math.round(adminRaw||0));
     acc.generada+=com;
     acc.liquidada+=e.liquidado?com:0;
     acc.pendiente+=e.liquidado?0:com;

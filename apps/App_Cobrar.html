@@ -1009,8 +1009,12 @@ function registrarComisionEventoCliente(c,{interes=0,mora=0,autor='Cobrador',not
   if(interesVal<=0&&moraVal<=0)return null;
   if(!Array.isArray(c.comisionEventos))c.comisionEventos=[];
   const pct=legacyPctComision(c);
-  const total=Math.round(interesVal*pct/100)+Math.round(moraVal*pct/100);
-  const ev={id:`ce_${c.id}_${Date.now()}_${Math.floor(Math.random()*1000)}`,ts:ts||Date.now(),origen:'cobro',interes:interesVal,mora:moraVal,pct,comision:total,liquidado:false,liquidacionId:null,autor,nota};
+  const comInteres=Math.round(interesVal*pct/100);
+  const comMora=Math.round(moraVal*pct/100);
+  const total=comInteres+comMora;
+  // BUGFIX: incluir campo 'admin' para que el admin vea su parte. Antes estaba faltando.
+  const admin=Math.max(0,Math.round((interesVal+moraVal)-total));
+  const ev={id:`ce_${c.id}_${Date.now()}_${Math.floor(Math.random()*1000)}`,ts:ts||Date.now(),origen:'cobro',interes:interesVal,mora:moraVal,pct,comision:total,admin,liquidado:false,liquidacionId:null,autor,nota};
   c.comisionEventos.push(ev);
   return ev;
 }
