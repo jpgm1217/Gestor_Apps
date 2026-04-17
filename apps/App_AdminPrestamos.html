@@ -2782,19 +2782,22 @@ function migrarComisionesClientes(){
 }
 function rangoPeriodoLiquidacion(periodo){
   if(periodo==='todo')return {start:0,end:Date.now()+86400000};
-  const now=new Date();
-  const start=new Date(now);
-  start.setHours(0,0,0,0);
+  // BUGFIX: usar TZ Colombia para los cortes semana/quincena/mes
+  const hoyKey=hoy();
+  const base=coUTCDateFromKey(hoyKey);
+  let iniKey=hoyKey;
   if(periodo==='semana'){
-    const day=(start.getDay()+6)%7; // lunes=0
-    start.setDate(start.getDate()-day);
+    const day=(base.getUTCDay()+6)%7; // lunes=0
+    iniKey=addDaysToKey(hoyKey,-day);
   } else if(periodo==='quincena'){
-    start.setDate(start.getDate()<=15?1:16);
+    const d=base.getUTCDate();
+    iniKey=keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),d<=15?1:16)));
   } else if(periodo==='mes'){
-    start.setDate(1);
+    iniKey=keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),1)));
   }
+  const start=new Date(iniKey+'T00:00:00'+CO_OFFSET).getTime();
   const end=Date.now()+86400000;
-  return {start:start.getTime(),end};
+  return {start,end};
 }
 function eventosPendientesLiquidacion(periodo='todo'){
   const rango=rangoPeriodoLiquidacion(periodo);
@@ -3351,27 +3354,31 @@ function guardarPctGlobal(){
 function etiquetaPeriodo(periodo){
   return {semana:'Esta semana',quincena:'Esta quincena',mes:'Este mes',todo:'Histórico'}[periodo]||periodo;
 }
-function rangoPeriodo(periodo,baseTs=Date.now()){
-  const base=new Date(baseTs);
-  base.setHours(0,0,0,0);
+function rangoPeriodo(periodo,baseTs){
   if(periodo==='todo')return{ini:0,fin:Number.MAX_SAFE_INTEGER};
+  // BUGFIX: usar TZ Colombia para los cortes semana/quincena/mes
+  const baseKey=baseTs?coDateKey(baseTs):hoy();
+  const base=coUTCDateFromKey(baseKey);
+  let iniKey=baseKey,finKey=baseKey;
   if(periodo==='semana'){
-    const day=(base.getDay()+6)%7;
-    const ini=new Date(base);ini.setDate(base.getDate()-day);
-    const fin=new Date(ini);fin.setDate(ini.getDate()+7);
-    return{ini:ini.getTime(),fin:fin.getTime()};
+    const day=(base.getUTCDay()+6)%7;
+    iniKey=addDaysToKey(baseKey,-day);
+    finKey=addDaysToKey(iniKey,7);
+  } else if(periodo==='quincena'){
+    const d=base.getUTCDate();
+    iniKey=keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),d<=15?1:16)));
+    finKey=d<=15
+      ?keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),16)))
+      :keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+1,1)));
+  } else if(periodo==='mes'){
+    iniKey=keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),1)));
+    finKey=keyFromUTCDate(new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+1,1)));
+  } else {
+    return{ini:0,fin:Number.MAX_SAFE_INTEGER};
   }
-  if(periodo==='quincena'){
-    const ini=new Date(base.getFullYear(),base.getMonth(),base.getDate()<=15?1:16);
-    const fin=base.getDate()<=15?new Date(base.getFullYear(),base.getMonth(),16):new Date(base.getFullYear(),base.getMonth()+1,1);
-    return{ini:ini.getTime(),fin:fin.getTime()};
-  }
-  if(periodo==='mes'){
-    const ini=new Date(base.getFullYear(),base.getMonth(),1);
-    const fin=new Date(base.getFullYear(),base.getMonth()+1,1);
-    return{ini:ini.getTime(),fin:fin.getTime()};
-  }
-  return{ini:0,fin:Number.MAX_SAFE_INTEGER};
+  const ini=new Date(iniKey+'T00:00:00'+CO_OFFSET).getTime();
+  const fin=new Date(finKey+'T00:00:00'+CO_OFFSET).getTime();
+  return{ini,fin};
 }
 function eventoEnPeriodoTs(ev,periodo,baseTs=Date.now()){
   if(periodo==='todo')return true;
@@ -3395,14 +3402,18 @@ function eventosComisionTodos(periodo='todo',opts={}){
 }
 function resumenPeriodoComisiones(periodo='todo'){
   const items=eventosComisionTodos(periodo);
-  const acc={generada:0,liquidada:0,pendiente:0,interes:0,mora:0,eventos:items.length,clientes:new Set(items.map(i=>i.cliente.id)).size};
+  const acc={generada:0,liquidada:0,pendiente:0,admin:0,interes:0,mora:0,eventos:items.length,clientes:new Set(items.map(i=>i.cliente.id)).size};
   items.forEach(({evento})=>{
     const com=Math.max(0,Math.round(evento.comision||0));
     const interes=Math.max(0,Math.round(evento.interes||0));
     const mora=Math.max(0,Math.round(evento.mora||0));
+    // BUGFIX: fallback para eventos viejos sin campo admin
+    const adminRaw=(evento.admin===undefined||evento.admin===null)?((interes+mora)-com):evento.admin;
+    const admin=Math.max(0,Math.round(adminRaw||0));
     acc.generada+=com;
     acc.liquidada+=evento.liquidado?com:0;
     acc.pendiente+=evento.liquidado?0:com;
+    acc.admin+=admin;
     acc.interes+=interes;
     acc.mora+=mora;
   });
@@ -3435,6 +3446,18 @@ function auditoriaComisiones(){
   });
   if(eventosInvalidos.length){
     issues.push({tipo:'red',msg:`${eventosInvalidos.length} evento(s) de comisión con fórmula inconsistente`,sub:'Conviene revisar historial anterior o ajustes manuales.'});
+  }
+  // BUGFIX: validar que admin + comision === interes + mora (el bug de Carolina)
+  const adminInconsistente=items.filter(({evento})=>{
+    if(evento.admin===undefined||evento.admin===null)return false; // viejos sin admin son OK, se calculan al vuelo
+    const interes=Math.max(0,Math.round(evento.interes||0));
+    const mora=Math.max(0,Math.round(evento.mora||0));
+    const com=Math.max(0,Math.round(evento.comision||0));
+    const admin=Math.max(0,Math.round(evento.admin||0));
+    return Math.abs((admin+com)-(interes+mora))>1;
+  });
+  if(adminInconsistente.length){
+    issues.push({tipo:'red',msg:`${adminInconsistente.length} evento(s) con descuadre entre 'tu parte' y comisión del cobrador`,sub:'La suma admin+comisión no coincide con interés+mora. Puede afectar tus ganancias reportadas.'});
   }
   const sinLiqId=items.filter(({evento})=>evento.liquidado&&!evento.liquidacionId);
   if(sinLiqId.length){
@@ -3534,13 +3557,14 @@ function renderComisiones(){
     hEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin liquidaciones aún</div>';
   } else {
     hEl.innerHTML=liquidaciones.slice().reverse().map(l=>{
-      const ts=new Date(l.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
-      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
-        <div>
+      const ts=new Date(l.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:TZ_CO});
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);gap:8px">
+        <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:500">${l.nota||'Liquidación'}</div>
           <div style="font-size:11px;color:var(--text3)">${ts} · ${l.periodo} · ${l.eventos||0} evento(s)</div>
         </div>
         <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--green)">${fmt(l.monto)}</div>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px" onclick="revertirLiquidacion('${l.id}')" title="Revertir">↶</button>
       </div>`;
     }).join('');
   }
@@ -3585,30 +3609,98 @@ function calcLiqPreview(){
       : `No hay comisión pendiente para <strong>${labels[periodo]}</strong>`;
 }
 
+let _liquidando=false;
 function confirmarLiquidar(){
+  if(_liquidando)return; // GUARD doble click
   const periodo=document.getElementById('liq-periodo').value;
   const items=eventosPendientesLiquidacion(periodo);
   const pend=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
   if(pend<=0){notify('No hay comisión pendiente en ese período','err');return;}
   const nota=document.getElementById('liq-nota').value.trim();
   const labels={semana:'Semana',quincena:'Quincena',mes:'Mes',todo:'Total pendiente'};
+  const clientesUnicos=new Set(items.map(item=>item.cliente.id)).size;
+  // BUGFIX: confirmación explícita antes de marcar liquidado
+  if(!confirm(`¿Liquidar ${fmt(pend)} al cobrador?\n\nPeriodo: ${labels[periodo]}\nEventos: ${items.length}\nClientes: ${clientesUnicos}\n\nEsto registra el egreso en Caja y marca los eventos como pagados.`))return;
+  _liquidando=true;
   const liq={id:'l'+Date.now(),monto:pend,periodo:labels[periodo],nota:nota||labels[periodo],ts:Date.now(),eventos:items.length};
-  items.forEach(({evento})=>{
-    evento.liquidado=true;
-    evento.liquidacionId=liq.id;
-    evento.liquidadoTs=liq.ts;
+  // SNAPSHOT para poder revertir si algo falla
+  const snapshots=items.map(({cliente,evento})=>({
+    clienteId:cliente.id, eventoId:evento.id,
+    liquidado:evento.liquidado, liquidacionId:evento.liquidacionId||null, liquidadoTs:evento.liquidadoTs||null
+  }));
+  try{
+    items.forEach(({evento})=>{
+      evento.liquidado=true;
+      evento.liquidacionId=liq.id;
+      evento.liquidadoTs=liq.ts;
+    });
+    save();
+    liquidaciones.push(liq);
+    localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
+    registrarCajaAuto('liquidacion_comision', pend, `Liquidación cobrador · ${liq.periodo}`, `liquidacion:${liq.id}`, {liquidacionId:liq.id, cliente:'Cobrador'});
+    if(fbOk&&db)db.ref('liquidaciones/'+liq.id).set(liq);
+    log({tipo:'liquidacion',cliente:'Cobrador',monto:pend,ts:Date.now(),autor:'Admin',nota:liq.nota});
+    notify(`Liquidación de ${fmt(pend)} registrada ✓`,'ok');
+    cerrar('modal-liquidar');
+    renderComisiones();
+    renderCaja();
+    renderInicio();
+  }catch(e){
+    console.error('Error en liquidación:',e);
+    // ROLLBACK: revertir eventos
+    snapshots.forEach(snap=>{
+      const c=clientes.find(x=>x.id===snap.clienteId);
+      if(!c)return;
+      const ev=(c.comisionEventos||[]).find(e=>e.id===snap.eventoId);
+      if(!ev)return;
+      ev.liquidado=snap.liquidado;
+      ev.liquidacionId=snap.liquidacionId;
+      ev.liquidadoTs=snap.liquidadoTs;
+    });
+    // Sacar la liquidación agregada
+    const idx=liquidaciones.findIndex(l=>l.id===liq.id);
+    if(idx>=0)liquidaciones.splice(idx,1);
+    localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
+    save();
+    notify('Error al liquidar — se revirtió el cambio','err');
+  }finally{
+    _liquidando=false;
+  }
+}
+
+// BUGFIX: revertir una liquidación (para errores o duplicados)
+function revertirLiquidacion(liqId){
+  const liq=liquidaciones.find(l=>l.id===liqId);
+  if(!liq){notify('Liquidación no encontrada','err');return;}
+  if(!confirm(`¿Revertir liquidación de ${fmt(liq.monto)} (${liq.periodo})?\n\nEsto marcará los eventos como pendientes de nuevo y anulará el egreso en Caja.`))return;
+  // Desmarcar eventos
+  clientes.forEach(c=>{
+    (c.comisionEventos||[]).forEach(ev=>{
+      if(ev.liquidacionId===liqId){
+        ev.liquidado=false;
+        ev.liquidacionId=null;
+        ev.liquidadoTs=null;
+      }
+    });
   });
-  save();
-  liquidaciones.push(liq);
+  // Sacar movimiento de caja
+  const refKey='liquidacion:'+liqId;
+  const cajaIdx=caja.findIndex(m=>m.refKey===refKey);
+  if(cajaIdx>=0){
+    const mov=caja[cajaIdx];
+    caja.splice(cajaIdx,1);
+    if(fbOk&&db)db.ref('caja/'+mov.id).remove();
+    localStorage.setItem('cr_caja',JSON.stringify(caja));
+  }
+  // Sacar liquidación
+  const liqIdx=liquidaciones.findIndex(l=>l.id===liqId);
+  if(liqIdx>=0)liquidaciones.splice(liqIdx,1);
   localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
-  registrarCajaAuto('liquidacion_comision', pend, `Liquidación cobrador · ${liq.periodo}`, `liquidacion:${liq.id}`, {liquidacionId:liq.id, cliente:'Cobrador'});
-  if(fbOk&&db)db.ref('liquidaciones/'+liq.id).set(liq);
-  log({tipo:'liquidacion',cliente:'Cobrador',monto:pend,ts:Date.now(),autor:'Admin',nota:liq.nota});
-  notify(`Liquidación de ${fmt(pend)} registrada ✓`,'ok');
-  cerrar('modal-liquidar');
-  renderComisiones();
-  renderCaja();
-  renderInicio();
+  if(fbOk&&db)db.ref('liquidaciones/'+liqId).remove();
+  save();
+  log({tipo:'liquidacion_revertida',cliente:'Cobrador',monto:-liq.monto,ts:Date.now(),autor:'Admin',nota:`Revertida: ${liq.nota||''}`});
+  notify('Liquidación revertida ✓','ok');
+  renderComisiones();renderCaja();renderInicio();
 }
 
 // UTILS
