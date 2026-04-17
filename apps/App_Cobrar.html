@@ -416,10 +416,74 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
+// ============================================================
+// MÓDULO TZ COLOMBIA + GRACIA (inicio del script para evitar TDZ)
+// ============================================================
+const TZ_CO='America/Bogota';
+const CO_OFFSET='-05:00';
+const DAY_MS=86400000;
+function pad2(n){return String(n).padStart(2,'0');}
+function coParts(value){
+  if(value===undefined)value=Date.now();
+  const d=value instanceof Date?value:new Date(value);
+  const out={};
+  new Intl.DateTimeFormat('en-US',{
+    timeZone:TZ_CO,year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
+  }).formatToParts(d).forEach(p=>{if(p.type!=='literal')out[p.type]=p.value;});
+  if(out.hour==='24')out.hour='00';
+  return out;
+}
+function coDateKey(value){const p=coParts(value);return p.year+'-'+p.month+'-'+p.day;}
+function coDateLabel(value){const p=coParts(value);return p.day+'/'+p.month+'/'+p.year;}
+function coDateLabelShort(value){const p=coParts(value);return p.day+'/'+p.month+'/'+String(p.year).slice(-2);}
+function coTimeLabel(value){const p=coParts(value);return p.hour+':'+p.minute;}
+function coHour(value){return Number(coParts(value).hour||0);}
+function coDateTimeISO(value){
+  const p=coParts(value);
+  return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':'+p.second+CO_OFFSET;
+}
+function coUTCDateFromKey(key){
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key||''));
+  if(!m){const p=coParts();return new Date(Date.UTC(+p.year,+p.month-1,+p.day));}
+  return new Date(Date.UTC(+m[1],+m[2]-1,+m[3]));
+}
+function keyFromUTCDate(d){return d.getUTCFullYear()+'-'+pad2(d.getUTCMonth()+1)+'-'+pad2(d.getUTCDate());}
+function labelFromUTCDate(d){return pad2(d.getUTCDate())+'/'+pad2(d.getUTCMonth()+1)+'/'+d.getUTCFullYear();}
+function addDaysToKey(key,days){const d=coUTCDateFromKey(key);d.setUTCDate(d.getUTCDate()+days);return keyFromUTCDate(d);}
+function coNowDate(){return coUTCDateFromKey(coDateKey());}
+function startOfCoDaySerial(value){const p=coParts(value);return Date.UTC(+p.year,+p.month-1,+p.day);}
+function sameCoDate(value,refKey){
+  refKey=refKey||coDateKey();
+  if(value===null||value===undefined||value==='')return false;
+  if(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value))return value===refKey;
+  const d=value instanceof Date?value:new Date(value);
+  if(Number.isNaN(d.getTime()))return String(value).slice(0,10)===refKey;
+  return coDateKey(d)===refKey;
+}
+function hoy(){return coDateKey();}
+function graciaLabel(c){return c&&c.graciaHasta?labelFromUTCDate(coUTCDateFromKey(c.graciaHasta)):'';}
+function graciaActiva(c,refKey){refKey=refKey||hoy();return !!(c&&c.graciaHasta)&&refKey<=c.graciaHasta;}
+
 const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
-let db=null,fbOk=false,clientes=[],cobrosHoy=[],pendingPago=null,liquidaciones=[];
+let db=null,fbOk=false,clientes=[],cobrosHoy=[],pendingPago=null,liquidaciones=[],caja=[];
 const PIN_KEY='cr_pin_cobrador';
 let pinBuf='',pinMode='check';
+
+// BUGFIX: registrar movimientos en caja cuando cobrador recibe dinero
+// para que admin vea "cobrado hoy" y comisiones correctamente.
+async function registrarCajaCobrador(subtipo,monto,desc,refKey,extra={}){
+  monto=Math.round(parseFloat(monto)||0);
+  if(monto<=0)return null;
+  // Evitar duplicados: checar antes en caja local y en Firebase
+  if(refKey&&caja.some(m=>m.auto&&m.refKey===refKey))return null;
+  const mov={id:'m'+Date.now()+Math.floor(Math.random()*1000),tipo:'ingreso',monto,desc,subtipo,auto:true,refKey:refKey||null,ts:Date.now(),...extra};
+  caja.push(mov);
+  if(fbOk&&db){
+    try{await db.ref('caja/'+mov.id).set(mov);}catch(e){console.error('Error registrando caja:',e);}
+  }
+  return mov;
+}
 
 // PIN
 function initPIN(){
@@ -501,8 +565,8 @@ function simularCredito(){
   const cuota=Math.ceil(cuotaExacta/1000)*1000;
   const cuotaUltima=Math.max(1000,total-(cuota*(plazo-1)));
   const diasEntre=SIM_DIAS[frecuencia]||1;
-  const inicio=new Date();
-  inicio.setDate(inicio.getDate()+diasEntre);
+  const inicio=coNowDate();
+  inicio.setUTCDate(inicio.getUTCDate()+diasEntre);
 
   let html=`
     <div class="preview-box">
@@ -522,11 +586,11 @@ function simularCredito(){
 
   for(let i=1;i<=plazo;i++){
     const f=new Date(inicio);
-    f.setDate(inicio.getDate()+(i-1)*diasEntre);
+    f.setUTCDate(inicio.getUTCDate()+(i-1)*diasEntre);
     const esFinal=i===plazo;
     const cq=esFinal?Math.round(cuotaUltima):cuota;
     const saldoRest=Math.max(0,total-cuota*(i-1)-cq);
-    const fechaStr=f.toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const fechaStr=labelFromUTCDate(f);
     html+=`<tr><td>${i}</td><td>${fechaStr}</td><td>${fmt(cq)}</td><td>${fmt(saldoRest)}</td></tr>`;
   }
   html+=`</tbody></table>`;
@@ -552,7 +616,7 @@ function getWATemplate(){
   return window._waTemplateFB||localStorage.getItem(WA_TEMPLATE_KEY)||WA_TEMPLATE_DEFAULT;
 }
 function buildWAMsg(c,cuotaNum,montoTotal,moraAmt){
-  const fecha=new Date().toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fecha=coDateLabel();
   const saldoRest=Math.max(0,(c.numCuotas-cuotaNum)*c.cuota);
   return getWATemplate()
     .replace(/{nombre}/g,c.nombre)
@@ -569,6 +633,10 @@ function escuchar(){
   db.ref('clientes').on('value',s=>{
     const d=s.val();clientes=d?Object.values(d):[];
     renderRuta();renderTodos();renderDia();renderGanancias();
+  });
+  db.ref('caja').on('value',s=>{
+    const d=s.val();
+    caja=d?Object.values(d):[];
   });
   db.ref('liquidaciones').on('value',s=>{
     const d=s.val();
@@ -807,28 +875,37 @@ function renderGanancias(){
   }
 }
 
-// MORA / SALDO
-function mora(c){
-  if(!c.moraDia||c.pagadas>=c.numCuotas)return 0;
-  const h=hoy();
-  let fechaBase;
-  if(c.moraBaseDate){
-    fechaBase=c.moraBaseDate;
-  } else {
-    const v=c.cuotasData?.filter(q=>q.fechaISO<h&&q.num>c.pagadas)||[];
-    if(!v.length)return 0;
+// MORA / SALDO (con soporte de gracia y TZ Colombia)
+function inicioMoraKey(c, refKey){
+  refKey=refKey||hoy();
+  if(!c.moraDia||c.pagadas>=c.numCuotas)return null;
+  let fechaBase=c.moraBaseDate||null;
+  if(!fechaBase){
+    const v=c.cuotasData?.filter(q=>q.fechaISO<refKey&&q.num>c.pagadas)||[];
+    if(!v.length)return null;
     fechaBase=v[0].fechaISO;
   }
-  const diasVencidos=Math.floor((new Date(h)-new Date(fechaBase))/86400000);
+  if(c.graciaHasta){
+    if(c.graciaHasta>fechaBase)fechaBase=c.graciaHasta;
+  }
+  return fechaBase;
+}
+function mora(c, refKey){
+  refKey=refKey||hoy();
+  if(!c.moraDia||c.pagadas>=c.numCuotas)return 0;
+  if(graciaActiva(c,refKey))return 0;
+  const fechaBase=inicioMoraKey(c,refKey);
+  if(!fechaBase)return 0;
+  const diasVencidos=Math.floor((coUTCDateFromKey(refKey)-coUTCDateFromKey(fechaBase))/DAY_MS);
   if(diasVencidos<=0)return 0;
   return Math.max(0, diasVencidos*c.moraDia-(c.moraPerdonada||0));
 }
-function diasMora(c){
-  const h=hoy();
-  if(c.moraBaseDate)return Math.max(0,Math.floor((new Date(h)-new Date(c.moraBaseDate))/86400000));
-  const v=c.cuotasData?.filter(q=>q.fechaISO<h&&q.num>c.pagadas)||[];
-  if(!v.length)return 0;
-  return Math.max(0,Math.floor((new Date(h)-new Date(v[0].fechaISO))/86400000));
+function diasMora(c, refKey){
+  refKey=refKey||hoy();
+  if(graciaActiva(c,refKey))return 0;
+  const fechaBase=inicioMoraKey(c,refKey);
+  if(!fechaBase)return 0;
+  return Math.max(0,Math.floor((coUTCDateFromKey(refKey)-coUTCDateFromKey(fechaBase))/DAY_MS));
 }
 function saldo(c){
   if(c.pagadas>=c.numCuotas)return 0;
@@ -840,18 +917,24 @@ function saldo(c){
 function capitalRecuperadoPagado(c,count){
   const cuotasPagadas=Math.max(0,Math.min(count===undefined?c.pagadas:count,c.numCuotas||0));
   if(c.cuotasData?.length){
-    let total=0;
-    for(let i=0;i<Math.min(cuotasPagadas,c.cuotasData.length);i++)total+=parseFloat(c.cuotasData[i].capital)||0;
-    return Math.max(0,Math.min(Math.round(total),Math.round(c.capital||0)));
+    let total=0,conDato=0;
+    for(let i=0;i<Math.min(cuotasPagadas,c.cuotasData.length);i++){
+      const v=parseFloat(c.cuotasData[i].capital);
+      if(Number.isFinite(v)&&v>0){total+=v;conDato++;}
+    }
+    if(conDato>0)return Math.max(0,Math.min(Math.round(total),Math.round(c.capital||0)));
   }
   return Math.round((c.capital||0)*(cuotasPagadas/Math.max(1,c.numCuotas||1)));
 }
 function interesRealizadoPagado(c,count){
   const cuotasPagadas=Math.max(0,Math.min(count===undefined?c.pagadas:count,c.numCuotas||0));
   if(c.cuotasData?.length){
-    let total=0;
-    for(let i=0;i<Math.min(cuotasPagadas,c.cuotasData.length);i++)total+=parseFloat(c.cuotasData[i].interes)||0;
-    return Math.max(0,Math.min(Math.round(total),Math.round(c.interes||0)));
+    let total=0,conDato=0;
+    for(let i=0;i<Math.min(cuotasPagadas,c.cuotasData.length);i++){
+      const v=parseFloat(c.cuotasData[i].interes);
+      if(Number.isFinite(v)&&v>0){total+=v;conDato++;}
+    }
+    if(conDato>0)return Math.max(0,Math.min(Math.round(total),Math.round(c.interes||0)));
   }
   return Math.round((c.interes||0)*(cuotasPagadas/Math.max(1,c.numCuotas||1)));
 }
@@ -904,7 +987,7 @@ function comisionEventosCliente(c){
   if(Array.isArray(c.comisionEventos)&&c.comisionEventos.length)return c.comisionEventos.filter(Boolean);
   const legacy=legacyResumenComision(c);
   if(legacy.total<=0)return [];
-  const tsBase=Date.parse(c.ultimoPago||c.creado||new Date().toISOString())||Date.now();
+  const tsBase=Date.parse(c.ultimoPago||c.creado||coDateTimeISO())||Date.now();
   return [{id:`legacy_${c.id||'cli'}`,ts:tsBase,origen:'legacy',interes:legacy.interesCobrado,mora:legacy.moraCobrada,pct:legacy.pct,comision:legacy.total,liquidado:false,nota:'Migración inicial'}];
 }
 function resumenComisionCliente(c){
@@ -965,7 +1048,7 @@ function crearSolicitudClienteExistente(clienteId,tipo,montoReportado=0,notas=''
     notas:(notas||'').trim(),
     estado:'pendiente',
     autor:'Cobrador',
-    fecha:new Date().toISOString(),
+    fecha:coDateTimeISO(),
     ts:Date.now()
   };
   db.ref('solicitudes/'+soli.id).set(soli).then(()=>{
@@ -1041,7 +1124,7 @@ function renderRuta(){
   const ruta=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
   let pendiente=0,cobrado=0,countPend=0,countCob=0,countMora=0;
   ruta.forEach(c=>{
-    const p=c.ultimoPago?.startsWith(h);
+    const p=sameCoDate(c.ultimoPago,h);
     const m=mora(c);
     if(p){cobrado+=c.cuota;countCob++;}
     else{pendiente+=c.cuota+m;countPend++;}
@@ -1066,11 +1149,13 @@ function renderRuta(){
   renderRutaProximosDias();
   const el=document.getElementById('lista-ruta');
   if(!ruta.length){el.innerHTML='<div class="empty"><div class="empty-i">🎉</div><div class="empty-t">Sin cobros para hoy</div></div>';return;}
-  const ord=[...ruta].sort((a,b)=>(a.ultimoPago?.startsWith(h)?1:0)-(b.ultimoPago?.startsWith(h)?1:0));
+  const ord=[...ruta].sort((a,b)=>(sameCoDate(a.ultimoPago,h)?1:0)-(sameCoDate(b.ultimoPago,h)?1:0));
   el.innerHTML=ord.map(c=>{
-    const yp=c.ultimoPago?.startsWith(h);
-    const noPagoHoy=!yp&&c.historialNoPago?.slice(-1)[0]?.fecha?.startsWith(h);
+    const yp=sameCoDate(c.ultimoPago,h);
+    const noPagoHoy=!yp&&sameCoDate(c.historialNoPago?.slice(-1)[0]?.fecha,h);
     const m=mora(c),d=diasMora(c),total=c.cuota+m;
+    const graciaOn=graciaActiva(c,h),graciaTxt=graciaLabel(c);
+    const mananaKey=addDaysToKey(h,1),mManana=mora(c,mananaKey),graciaManana=graciaActiva(c,mananaKey);
     return`<div class="cobro-card ${yp?'pagado':noPagoHoy?'urgente':m>0?'urgente':''}">
       <div class="cc-top">
         <div>
@@ -1078,21 +1163,22 @@ function renderRuta(){
           <div class="cc-det">${c.negocio||'—'}${c.zona?' · '+c.zona:''}</div>
         </div>
         <div>
-          <div class="cc-amt-lbl">${m>0?'Cuota + mora':'A cobrar'}</div>
+          <div class="cc-amt-lbl">${m>0?'Cuota + mora':graciaOn?'Solo cuota':'A cobrar'}</div>
           <div class="cc-amt" style="${m>0?'color:var(--red)':''}">${fmt(total)}</div>
         </div>
       </div>
       <div class="cc-meta">
         <span class="badge ${m>0?'br':'bgray'}">Cuota ${c.pagadas+1}/${c.numCuotas}</span>
         ${m>0?`<span class="badge br">⚠ ${d} día${d!==1?'s':''} · ${fmt(m)}</span>`:''}
+        ${graciaOn?`<span class="badge bgold">🛡️ Sin mora hasta ${graciaTxt}</span>`:''}
         ${c.notas?`<span class="badge bgold" style="font-size:10px">📝 ${c.notas.substring(0,20)}${c.notas.length>20?'...':''}</span>`:''}
       </div>
       ${m>0?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
         <div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div>
         <div class="cs"><div class="csl">Mora ${d}d</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>
-      </div>`:''}
+      </div>`:graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta el <strong>${graciaTxt}</strong>.</div>`:''}
       ${c.telefono?`<div style="margin-bottom:10px"><a href="tel:${c.telefono}" style="font-size:12px;color:var(--text3);text-decoration:none">📞 ${c.telefono}</a></div>`:''}
-      ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div style="color:var(--text2)">Mañana cobrar: <strong style="color:var(--red)">${fmt(c.cuota+mora(c))}</strong> (cuota + mora)</div></div>`:''}
+      ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div style="color:var(--text2)">${mManana>0?`Mañana cobrar: <strong style="color:var(--red)">${fmt(c.cuota+mManana)}</strong> (cuota + mora)`:(graciaManana?`Mañana sigue sin mora hasta <strong style="color:#6EB3FF">${graciaTxt}</strong>`:`Mañana cobrar: <strong>${fmt(c.cuota)}</strong> (solo cuota)`)}</div></div>`:''}
       <button class="pay-btn ${yp?'done':noPagoHoy?'done':'pending'}" ${yp||noPagoHoy?'':'onclick="abrirConfirm(\''+c.id+'\')"'}>
         ${yp?'✓ Pago registrado':noPagoHoy?'✓ Visita registrada':m>0?'💰 Cobrar cuota + mora':'💰 Marcar como pagado'}
       </button>
@@ -1116,7 +1202,7 @@ function renderTodos(){
   if(!lista.length){el.innerHTML='<div class="empty"><div class="empty-i">📋</div><div class="empty-t">Sin clientes</div></div>';return;}
   el.innerHTML=lista.map(c=>{
     const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),pag=c.pagadas>=c.numCuotas;
-    const yp=c.ultimoPago?.startsWith(h),tieneH=c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas);
+    const yp=sameCoDate(c.ultimoPago,h),tieneH=c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas);
     const pendientes=solicitudesPendientesCliente(c.id).length;
     const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
     const badgeSoli=pendientes?`<span class="badge ba">⏳ ${pendientes} solicitud${pendientes!==1?'es':''}</span>`:'';
@@ -1217,14 +1303,14 @@ async function confirmarAbonoCobrador(){
     const sobrante=v-totalDeber;
     if(m>0){
       if(!c.historialMora)c.historialMora=[];
-      c.historialMora.push({fecha:new Date().toISOString(),tipo:'cobrada',monto:m,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Cuota ${c.pagadas+1}/${c.numCuotas} vía abono`,autor:'Cobrador'});
+      c.historialMora.push({fecha:coDateTimeISO(),tipo:'cobrada',monto:m,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Cuota ${c.pagadas+1}/${c.numCuotas} vía abono`,autor:'Cobrador'});
       c.moraPerdonada=(c.moraPerdonada||0)+m;
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
     }
     c.pagadas++;
     c.abonoPendiente=sobrante>0?sobrante:0;
     c.moraBaseDate=null;
-    c.ultimoPago=new Date().toISOString();
+    c.ultimoPago=coDateTimeISO();
     const partes=partesCuotaIndex(c,c.pagadas-1);
     registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Cobrador',nota:`Abono completo cuota ${c.pagadas}/${c.numCuotas}`});
     try{
@@ -1237,8 +1323,14 @@ async function confirmarAbonoCobrador(){
         comisionEventos:c.comisionEventos||[],
         moraBaseDate:null
       });
+      // BUGFIX: registrar en caja
+      const cuotaNo=c.pagadas;
+      await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
+      await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
+      if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
+      if(sobrante>0)await registrarCajaCobrador('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono_cob:${c.id}:${cuotaNo}:sobr`, {clienteId:c.id, cliente:c.nombre});
       await db.ref('actividad').push({tipo:'pago',cliente:c.nombre,monto:v,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',nota:m>0?`abono completo + mora ${fmt(m)}`:'abono completo'});
-      const cobro={id:c.id,nombre:c.nombre,monto:v,cuota:c.pagadas,fecha:h,hora:new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),telefono:c.telefono||''};
+      const cobro={id:c.id,nombre:c.nombre,monto:v,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||''};
       cobrosHoy.push(cobro);
       localStorage.setItem('cobros_hoy',JSON.stringify(cobrosHoy));
       // WhatsApp recibo
@@ -1264,7 +1356,7 @@ async function confirmarAbonoCobrador(){
     const abonoEnCuota=v-abonoEnMora;
     if(abonoEnMora>0){
       if(!c.historialMora)c.historialMora=[];
-      c.historialMora.push({fecha:new Date().toISOString(),tipo:'cobrada',monto:abonoEnMora,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Mora parcial cuota ${c.pagadas+1}/${c.numCuotas}`,autor:'Cobrador'});
+      c.historialMora.push({fecha:coDateTimeISO(),tipo:'cobrada',monto:abonoEnMora,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Mora parcial cuota ${c.pagadas+1}/${c.numCuotas}`,autor:'Cobrador'});
       c.moraPerdonada=(c.moraPerdonada||0)+abonoEnMora;
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+abonoEnMora;
     }
@@ -1276,6 +1368,11 @@ async function confirmarAbonoCobrador(){
     const falta=totalDeber-v;
     try{
       await db.ref('clientes/'+c.id).update({abonoPendiente:c.abonoPendiente,moraBaseDate:h,moraPerdonada:c.moraPerdonada||0,moraCobradaTotal:c.moraCobradaTotal||0,historialMora:c.historialMora||[],comisionEventos:c.comisionEventos||[]});
+      // BUGFIX: registrar abono parcial en caja (mora parcial + capital/interés del abono)
+      const stamp=Date.now();
+      if(abonoEnMora>0)await registrarCajaCobrador('mora_cobrada', abonoEnMora, `Mora parcial ${c.nombre}`, `abono_cob_parcial:${c.id}:${c.pagadas+1}:mora:${stamp}`, {clienteId:c.id, cliente:c.nombre});
+      if(deltaPartes.capitalDelta>0)await registrarCajaCobrador('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre}`, `abono_cob_parcial:${c.id}:${c.pagadas+1}:cap:${stamp}`, {clienteId:c.id, cliente:c.nombre});
+      if(deltaPartes.interesDelta>0)await registrarCajaCobrador('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre}`, `abono_cob_parcial:${c.id}:${c.pagadas+1}:int:${stamp}`, {clienteId:c.id, cliente:c.nombre});
       await db.ref('actividad').push({tipo:'abono',cliente:c.nombre,monto:v,ts:Date.now(),autor:'Cobrador',nota:`Abono parcial — faltan ${fmt(falta)} (cuota${m>0?'+mora':''})`});
       notify(`Abono ${fmt(v)} registrado · faltan ${fmt(falta)} ✓`,'ok');
       renderRuta();renderTodos();renderDia();
@@ -1291,7 +1388,7 @@ async function registrarNoPagoCobrador(id){
   if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
   const m=mora(c);
   if(!c.historialNoPago)c.historialNoPago=[];
-  const entrada={fecha:new Date().toISOString(),mora:m,motivo:'Visita sin pago',autor:'Cobrador'};
+  const entrada={fecha:coDateTimeISO(),mora:m,motivo:'Visita sin pago',autor:'Cobrador'};
   c.historialNoPago.push(entrada);
   try{
     await db.ref('clientes/'+c.id+'/historialNoPago').set(c.historialNoPago);
@@ -1314,17 +1411,22 @@ async function confirmarPago(){
   c.pagadas++;
   if(m>0){
     if(!c.historialMora)c.historialMora=[];
-    c.historialMora.push({fecha:new Date().toISOString(),tipo:'cobrada',monto:m,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Cuota ${c.pagadas}/${c.numCuotas}`,autor:'Cobrador'});
+    c.historialMora.push({fecha:coDateTimeISO(),tipo:'cobrada',monto:m,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Cuota ${c.pagadas}/${c.numCuotas}`,autor:'Cobrador'});
     c.moraPerdonada=(c.moraPerdonada||0)+m;c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
   }
-  c.ultimoPago=new Date().toISOString();
+  c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Cobrador',nota:`Cuota ${c.pagadas}/${c.numCuotas}`});
   try{
     await db.ref('clientes/'+c.id).update({pagadas:c.pagadas,ultimoPago:c.ultimoPago,moraPerdonada:c.moraPerdonada||0,moraCobradaTotal:c.moraCobradaTotal||0,historialMora:c.historialMora||[],moraBaseDate:null,abonoPendiente:0,comisionEventos:c.comisionEventos||[]});
+    // BUGFIX: registrar en caja para que admin vea el cobro en "cobrado hoy" y métricas de caja
+    const cuotaNo=c.pagadas;
+    await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
+    await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
+    if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
     await db.ref('actividad').push({tipo:'pago',cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',nota:m>0?`mora ${fmt(m)}`:''});
     // Guardar cobro local
     const h=hoy();
-    const cobro={id:c.id,nombre:c.nombre,monto:total,cuota:c.pagadas,fecha:h,hora:new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),telefono:c.telefono||''};
+    const cobro={id:c.id,nombre:c.nombre,monto:total,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||''};
     cobrosHoy.push(cobro);
     localStorage.setItem('cobros_hoy',JSON.stringify(cobrosHoy));
     // WhatsApp recibo con plantilla personalizable
@@ -1348,12 +1450,12 @@ async function confirmarPago(){
 }
 
 // RENDER DÍA
-let agendaMes=new Date().getMonth(), agendaAno=new Date().getFullYear(), agendaDiaSeleccionado=hoy();
+let agendaMes=coNowDate().getUTCMonth(), agendaAno=coNowDate().getUTCFullYear(), agendaDiaSeleccionado=hoy();
 
 function fechaISODate(d){
-  const y=d.getFullYear();
-  const m=String(d.getMonth()+1).padStart(2,'0');
-  const day=String(d.getDate()).padStart(2,'0');
+  const y=d.getUTCFullYear();
+  const m=String(d.getUTCMonth()+1).padStart(2,'0');
+  const day=String(d.getUTCDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
 
@@ -1406,14 +1508,16 @@ function seleccionarAgendaDia(fecha){
 function renderAgendaResumenRapido(mapa){
   const el=document.getElementById('agenda-resumen-rapido');
   if(!el)return;
-  const base=new Date();
-  base.setHours(0,0,0,0);
-  const hoyIso=fechaISODate(base);
-  const man=new Date(base); man.setDate(base.getDate()+1);
-  const mananaIso=fechaISODate(man);
+  const hoyIso=hoy();
+  const base=coUTCDateFromKey(hoyIso);
+  const mananaIso=addDaysToKey(hoyIso,1);
+  const man=coUTCDateFromKey(mananaIso);
   const rh=resumenAgendaDia(hoyIso,mapa);
   const rm=resumenAgendaDia(mananaIso,mapa);
-  const fmtFecha=d=>d.toLocaleDateString('es-CO',{weekday:'short',day:'2-digit',month:'2-digit'});
+  const fmtFecha=d=>{
+    const dias=['dom','lun','mar','mié','jue','vie','sáb'];
+    return dias[d.getUTCDay()]+' '+pad2(d.getUTCDate())+'/'+pad2(d.getUTCMonth()+1);
+  };
   el.innerHTML=''+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
       '<div class="cs"><div class="csl">Hoy · '+fmtFecha(base)+'</div><div class="csv" style="color:'+(rh.cantidad?'var(--green)':'var(--text2)')+'">'+rh.cantidad+' cobro'+(rh.cantidad===1?'':'s')+'</div><div style="font-size:11px;color:var(--text3);margin-top:4px">'+(rh.cantidad?fmt(rh.total):'Sin ruta')+(rh.mora?' · '+rh.mora+' con mora':'')+'</div></div>'+
@@ -1481,16 +1585,16 @@ function renderRutaProximosDias(){
   const el=document.getElementById('ruta-proximos');
   if(!el)return;
   const mapa=mapaAgendaCobros();
-  const base=new Date();
-  base.setHours(0,0,0,0);
+  const hoyIso=hoy();
   const rows=[];
+  const diasSem=['dom','lun','mar','mié','jue','vie','sáb'];
   for(let i=1;i<=3;i++){
-    const d=new Date(base); d.setDate(base.getDate()+i);
-    const iso=fechaISODate(d);
+    const iso=addDaysToKey(hoyIso,i);
+    const d=coUTCDateFromKey(iso);
     const items=mapa[iso]||[];
     const total=items.reduce((s,x)=>s+(x.cuota||0)+(x.mora>0?x.mora:0),0);
     rows.push({
-      fecha:d.toLocaleDateString('es-CO',{weekday:'short',day:'2-digit',month:'2-digit'}),
+      fecha:diasSem[d.getUTCDay()]+' '+pad2(d.getUTCDate())+'/'+pad2(d.getUTCMonth()+1),
       cantidad:items.length,
       total
     });
@@ -1524,7 +1628,7 @@ function enviarSolicitud(){
     notas:document.getElementById('soli-notas').value.trim(),
     estado:'pendiente',
     autor:'Cobrador',
-    fecha:new Date().toISOString(),
+    fecha:coDateTimeISO(),
     ts:Date.now()
   };
   db.ref('solicitudes/'+soli.id).set(soli).then(()=>{
@@ -1575,7 +1679,7 @@ function renderDia(){
   const countH=cobrosHoy.filter(c=>c.fecha===h).length;
   const totalH=cobrosHoy.filter(c=>c.fecha===h).reduce((s,c)=>s+c.monto,0);
   const rutaH=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
-  const pend=rutaH.filter(c=>!c.ultimoPago?.startsWith(h)).length;
+  const pend=rutaH.filter(c=>!sameCoDate(c.ultimoPago,h)).length;
   const pct=rutaH.length?Math.round(countH/rutaH.length*100):0;
   document.getElementById('resumen-dia').innerHTML=
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'+
@@ -1608,7 +1712,7 @@ function renderDia(){
 
 // UTILS
 function fmt(n){return'$'+Math.round(n||0).toLocaleString('es-CO');}
-function hoy(){return new Date().toISOString().split('T')[0];}
+function hoy_legacy_removed(){return coDateKey();} // reemplazado por el hoy() del inicio
 const NOMBRE_KEY='cr_cobrador_nombre';
 function guardarNombre(){
   const v=document.getElementById('cfg-nombre').value.trim();
@@ -1677,7 +1781,7 @@ function solicitarRenovacion(){
     notas:`Ciclo ${((c.ciclos||[]).length)+1} completado. Solicitud de nuevo ciclo.`,
     estado:'pendiente',
     autor:'Cobrador',
-    fecha:new Date().toISOString(),
+    fecha:coDateTimeISO(),
     ts:Date.now()
   };
   db.ref('solicitudes/'+soli.id).set(soli)
