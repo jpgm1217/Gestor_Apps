@@ -2716,7 +2716,20 @@ function capitalPendiente(c){
   return Math.max(0,Math.round((c.capital||0)-rec));
 }
 function interesRealizadoCaja(c){
-  return Math.max(0,Math.round(interesRealizadoPagado(c)+(desgloseAbonoPendienteActual(c).interesParcial||0)));
+  const actual=interesRealizadoPagado(c)+(desgloseAbonoPendienteActual(c).interesParcial||0);
+  // BUGFIX: sumar interés cobrado en ciclos cerrados (nuevoCiclo) y refinanciaciones
+  let historico=0;
+  // Préstamos anteriores por refinanciación: c.historialPrestamos[i] tiene pagadas y ratio sobre interés viejo
+  (c.historialPrestamos||[]).forEach(p=>{
+    const pag=Math.min(p.pagadas||0, p.plazo||0);
+    if(p.plazo>0&&p.interes>0)historico+=Math.round((p.interes||0)*pag/p.plazo);
+  });
+  // Ciclos anteriores: c.ciclos[i] tiene pagadas y interes del préstamo del ciclo
+  (c.ciclos||[]).forEach(cx=>{
+    const pag=Math.min(cx.pagadas||0, cx.plazo||0);
+    if(cx.plazo>0&&cx.interes>0)historico+=Math.round((cx.interes||0)*pag/cx.plazo);
+  });
+  return Math.max(0,Math.round(actual+historico));
 }
 
 function resumenLegacyComision(c){
@@ -2866,33 +2879,68 @@ function renderCaja(){
   if(!caja.length){el.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin movimientos</div>';return;}
   const labelSubtipo={desembolso_prestamo:'Desembolso',recuperacion_capital:'Capital recuperado',interes_cobrado:'Interés',mora_cobrada:'Mora',refinanciacion_extra:'Extra refinanciación',abono_adelantado:'Abono adelantado',liquidacion_comision:'Pago comisión cobrador'};
   el.innerHTML=caja.slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).map(mv=>{
-    const ts=new Date(mv.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit'});
+    // BUGFIX: formato fecha con TZ Colombia
+    const ts=new Date(mv.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:TZ_CO});
+    const hora=new Date(mv.ts).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:TZ_CO});
     const positivo=mv.tipo==='ingreso';
+    const esGasto=mv.tipo==='gasto';
     const col=positivo?'var(--green)':'var(--red)';
     const sg=positivo?'+':'-';
-    const subt=mv.auto?(labelSubtipo[mv.subtipo]||'Auto'):'Manual';
-    return `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)">
-      <div>
+    const subt=mv.auto?(labelSubtipo[mv.subtipo]||'Auto'):(esGasto?'Gasto':'Manual');
+    return `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border);gap:8px">
+      <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600">${mv.desc||mv.tipo}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">${ts} · ${subt}${mv.cliente?` · ${mv.cliente}`:''}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${ts} ${hora} · ${subt}${mv.cliente?` · ${mv.cliente}`:''}</div>
       </div>
       <div style="text-align:right">
         <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${col}">${sg}${fmt(mv.monto)}</div>
-        <div style="font-size:10px;color:var(--text3)">${mv.auto?'automático':'manual'}</div>
+        <div style="font-size:10px;color:var(--text3)">${mv.auto?'automático':esGasto?'gasto':'manual'}</div>
       </div>
+      ${!mv.auto?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 7px;align-self:center" onclick="eliminarMovimientoCaja('${mv.id}')" title="Eliminar">🗑</button>`:''}
     </div>`;
   }).join('');
 }
+let _regCaja=false;
 function registrarMovimiento(){
+  if(_regCaja)return;
   const tipo=document.getElementById('cj-tipo').value;
   const monto=parseFloat(document.getElementById('cj-monto').value)||0;
   const desc=document.getElementById('cj-desc').value.trim();
   if(monto<=0){notify('Monto inválido','err');return;}
-  const mov={id:'m'+Date.now(),tipo,monto:Math.round(monto),desc,ts:Date.now(),auto:false};
-  caja.push(mov);
-  persistCaja();
-  document.getElementById('cj-monto').value='';document.getElementById('cj-desc').value='';
-  renderCaja();notify('Registrado ✓','ok');
+  if(!['ingreso','egreso','gasto'].includes(tipo)){notify('Tipo de movimiento inválido','err');return;}
+  const tipoLabel={ingreso:'Ingreso de capital',egreso:'Retiro de capital',gasto:'Gasto operativo'}[tipo];
+  if(!confirm(`¿Registrar ${tipoLabel} de ${fmt(monto)}?\n${desc?'Descripción: '+desc:''}`))return;
+  _regCaja=true;
+  try{
+    const mov={id:'m'+Date.now()+Math.floor(Math.random()*1000),tipo,monto:Math.round(monto),desc,ts:Date.now(),auto:false};
+    caja.push(mov);
+    // BUGFIX: escribir solo el movimiento nuevo para no sobreescribir otros concurrentes
+    localStorage.setItem('cr_caja',JSON.stringify(caja));
+    if(fbOk&&db)db.ref('caja/'+mov.id).set(mov);
+    document.getElementById('cj-monto').value='';document.getElementById('cj-desc').value='';
+    renderCaja();notify('Registrado ✓','ok');
+  }catch(e){
+    console.error(e);notify('Error al registrar','err');
+  }finally{
+    _regCaja=false;
+  }
+}
+
+// BUGFIX: eliminar movimiento manual (los automáticos solo se pueden eliminar revirtiendo la operación origen)
+function eliminarMovimientoCaja(movId){
+  const idx=caja.findIndex(m=>m.id===movId);
+  if(idx<0){notify('Movimiento no encontrado','err');return;}
+  const mov=caja[idx];
+  if(mov.auto){
+    notify('Los movimientos automáticos no se pueden eliminar manualmente. Revierte la operación origen (pago, liquidación, etc.)','err');
+    return;
+  }
+  if(!confirm(`¿Eliminar ${mov.tipo==='ingreso'?'+':'-'}${fmt(mov.monto)} de caja?\n${mov.desc||''}`))return;
+  caja.splice(idx,1);
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  if(fbOk&&db)db.ref('caja/'+movId).remove();
+  log({tipo:'caja_eliminada',cliente:'',monto:-mov.monto,ts:Date.now(),autor:'Admin',nota:`Eliminado: ${mov.desc||mov.tipo}`});
+  renderCaja();renderInicio();notify('Movimiento eliminado ✓','ok');
 }
 
 // EXPORTAR
