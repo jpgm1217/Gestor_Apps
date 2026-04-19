@@ -234,7 +234,6 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="metric" style="grid-column:1/-1;border-color:var(--greenb)">
       <div class="ml">Pendiente por cobrar</div>
       <div class="mv" style="color:var(--green)" id="g-pendiente">$0</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:3px" id="g-pct-info">—</div>
     </div>
   </div>
   <div class="card">
@@ -812,7 +811,7 @@ function alertasGananciasCobrador(){
   }
   const ultima=[...liquidaciones].sort((a,b)=>b.ts-a.ts)[0];
   if(ultima){
-    const ts=new Date(ultima.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const ts=new Date(ultima.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:TZ_CO});
     issues.push({tipo:'blue',msg:`Última liquidación registrada: ${fmt(ultima.monto)}`,sub:`${ts} · ${ultima.nota||ultima.periodo||'Liquidación'}`});
   }
   return issues;
@@ -838,7 +837,6 @@ function renderGanancias(){
   document.getElementById('g-total').textContent=fmt(resumen.total);
   document.getElementById('g-liquidado').textContent=fmt(resumen.liquidado);
   document.getElementById('g-pendiente').textContent=fmt(resumen.pendiente);
-  document.getElementById('g-pct-info').textContent=`${pctGlob}% actual para próximos cobros`;
 
   const periodos=['semana','quincena','mes'];
   const periodEl=document.getElementById('g-periodos');
@@ -866,7 +864,7 @@ function renderGanancias(){
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-size:13px;font-weight:500">${c.nombre}</div>
-            <div style="font-size:11px;color:var(--text3)">${pCli}% actual · ${c.pagadas}/${c.numCuotas} cuotas · aplica a próximos cobros</div>
+            <div style="font-size:11px;color:var(--text3)">${c.pagadas}/${c.numCuotas} cuotas</div>
           </div>
           <div style="text-align:right">
             <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--green)">${fmt(r.pendiente)}</div>
@@ -891,7 +889,7 @@ function renderGanancias(){
     lEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin liquidaciones recibidas aún</div>';
   } else {
     lEl.innerHTML=liquidaciones.slice().reverse().map(l=>{
-      const ts=new Date(l.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
+      const ts=new Date(l.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:TZ_CO});
       return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
         <div>
           <div style="font-size:13px;font-weight:500">${l.nota||'Liquidación'}</div>
@@ -1060,12 +1058,37 @@ function tipoSolicitudDe(s){return s.tipoSolicitud||'nuevo_cliente';}
 function solicitudesPendientesCliente(clienteId,tipo=null){
   return (window._misSolicitudes||[]).filter(s=>s.estado==='pendiente'&&s.clienteId===clienteId&&(!tipo||tipoSolicitudDe(s)===tipo));
 }
+// BUGFIX: parseo robusto de montos tipeados por usuario (acepta coma, punto, separadores de miles)
+function parseMontoCO(txt){
+  if(txt===null||txt===undefined)return 0;
+  let s=String(txt).trim().replace(/\$/g,'').replace(/\s/g,'');
+  if(!s)return 0;
+  // Detectar si usa coma como decimal (único y última ocurrencia, menos de 3 dígitos después)
+  const ultComa=s.lastIndexOf(',');
+  const ultPunto=s.lastIndexOf('.');
+  if(ultComa>ultPunto&&(s.length-ultComa-1)<=2){
+    // Coma es decimal → quitar puntos (miles) y reemplazar coma por punto
+    s=s.replace(/\./g,'').replace(',','.');
+  } else if(ultPunto>ultComa&&(s.length-ultPunto-1)<=2){
+    // Punto es decimal → quitar comas (miles)
+    s=s.replace(/,/g,'');
+  } else {
+    // Sin decimal → quitar todos los separadores
+    s=s.replace(/[.,]/g,'');
+  }
+  const n=parseFloat(s);
+  return Number.isFinite(n)?n:0;
+}
+
+let _solicitandoCobrador=false;
 function crearSolicitudClienteExistente(clienteId,tipo,montoReportado=0,notas=''){
+  if(_solicitandoCobrador)return;
   const c=clientes.find(x=>x.id===clienteId);if(!c){notify('Cliente no encontrado','err');return;}
   if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
   if(solicitudesPendientesCliente(clienteId,tipo).length){notify('Ya existe una solicitud pendiente de este tipo','err');return;}
+  _solicitandoCobrador=true;
   const soli={
-    id:'soli_'+Date.now(),
+    id:'soli_'+Date.now()+'_'+Math.floor(Math.random()*1000),
     tipoSolicitud:tipo,
     origen:'cliente_activo',
     clienteId:c.id,
@@ -1086,7 +1109,8 @@ function crearSolicitudClienteExistente(clienteId,tipo,montoReportado=0,notas=''
   db.ref('solicitudes/'+soli.id).set(soli).then(()=>{
     notify(`${tipoSolicitudInfo(tipo).label} enviada ✓`,'ok');
     cerrarClienteDetalle();
-  }).catch(()=>notify('Error al enviar la solicitud','err'));
+  }).catch(()=>notify('Error al enviar la solicitud','err'))
+    .finally(()=>{_solicitandoCobrador=false;});
 }
 function solicitarCobroAnticipado(clienteId){
   const c=clientes.find(x=>x.id===clienteId);if(!c)return;
@@ -1096,10 +1120,14 @@ function solicitarCobroAnticipado(clienteId){
 }
 function solicitarAbonoCliente(clienteId){
   const c=clientes.find(x=>x.id===clienteId);if(!c)return;
-  const montoTxt=prompt(`¿Cuánto recibió de abono ${c.nombre}?`,'');
+  const montoTxt=prompt(`¿Cuánto recibió de abono ${c.nombre}?\n(Ej: 50000 o 50.000 o 50,000)`,'');
   if(montoTxt===null)return;
-  const monto=parseFloat(String(montoTxt).replace(/[^\d.]/g,''))||0;
-  if(monto<=0){notify('Monto inválido','err');return;}
+  // BUGFIX: parseo seguro respeta formato colombiano (coma decimal) y separadores de miles
+  const monto=parseMontoCO(montoTxt);
+  if(monto<=0){notify('Monto inválido. Revisa que hayas escrito un número correcto.','err');return;}
+  if(monto>(c.cuota||0)*(c.numCuotas||1)){
+    if(!confirm(`El monto ${fmt(monto)} parece muy alto (mayor al total del préstamo ${fmt((c.cuota||0)*(c.numCuotas||1))}). ¿Es correcto?`))return;
+  }
   const nota=prompt('Nota opcional para el admin:','')||'';
   crearSolicitudClienteExistente(clienteId,'abono',monto,nota);
 }
@@ -1603,12 +1631,12 @@ function fechaISODate(d){
 
 function mapaAgendaCobros(){
   const mapa={};
-  const hoyStr=hoy();
   clientes.filter(c=>c.pagadas<c.numCuotas).forEach(c=>{
     (c.cuotasData||[]).forEach(q=>{
       if(q.num>c.pagadas){
         if(!mapa[q.fechaISO])mapa[q.fechaISO]=[];
-        const moraAplicable=q.fechaISO<=hoyStr?mora(c):0;
+        // BUGFIX: mora proyectada a la fecha de la cuota (no la mora de hoy)
+        const moraAplicable=mora(c,q.fechaISO);
         mapa[q.fechaISO].push({
           id:c.id,
           nombre:c.nombre,
@@ -1672,8 +1700,10 @@ function renderAgendaCalendario(){
   const ttl=document.getElementById('agenda-cal-titulo');
   if(ttl)ttl.textContent=meses[agendaMes]+' '+agendaAno;
   const mapa=mapaAgendaCobros();
-  const primerDia=new Date(agendaAno,agendaMes,1).getDay();
-  const diasMes=new Date(agendaAno,agendaMes+1,0).getDate();
+  // BUGFIX: primer día y días del mes en TZ Colombia (no TZ navegador)
+  const primerDiaKey=`${agendaAno}-${String(agendaMes+1).padStart(2,'0')}-01`;
+  const primerDia=coUTCDateFromKey(primerDiaKey).getUTCDay();
+  const diasMes=new Date(Date.UTC(agendaAno,agendaMes+1,0)).getUTCDate();
   const hoyStr=hoy();
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:6px">';
   ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].forEach(d=>{ html+='<div style="text-align:center;font-size:10px;color:var(--text3);padding:4px 0;font-weight:600">'+d+'</div>'; });
@@ -1707,7 +1737,8 @@ function renderAgendaDetalle(fecha,mapa){
   const el=document.getElementById('agenda-detalle');
   if(!el)return;
   const items=(mapa&&mapa[fecha])||[];
-  const fechaFmt=new Date(fecha+'T00:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'2-digit',month:'long'});
+  // BUGFIX: TZ Colombia para que el día de la semana sea correcto
+  const fechaFmt=coUTCDateFromKey(fecha).toLocaleDateString('es-CO',{weekday:'long',day:'2-digit',month:'long',timeZone:'UTC'});
   if(!items.length){
     el.innerHTML='<div style="font-size:12px;color:var(--text3);text-align:center;padding:8px 0">Sin cobros programados para '+fechaFmt+'</div>';
     return;
@@ -1748,14 +1779,33 @@ function renderRutaProximosDias(){
 }
 
 // ===== SOLICITUDES DE NUEVOS CLIENTES =====
+let _enviandoSolicitudNueva=false;
 function enviarSolicitud(){
+  if(_enviandoSolicitudNueva)return;
   if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
   const nombre=document.getElementById('soli-nombre').value.trim();
   const telefono=document.getElementById('soli-telefono').value.trim();
   if(!nombre){notify('El nombre es obligatorio','err');return;}
   if(!telefono){notify('El teléfono es obligatorio','err');return;}
+  // BUGFIX: validar teléfono colombiano básico (7-10 dígitos)
+  const telLimpio=telefono.replace(/\D/g,'');
+  if(telLimpio.length<7||telLimpio.length>10){
+    notify('Teléfono inválido (debe tener entre 7 y 10 dígitos)','err');return;
+  }
+  // BUGFIX: alertar si ya hay solicitud pendiente para este nombre
+  const nombreLower=nombre.toLowerCase();
+  const existeDuplicado=(window._misSolicitudes||[]).some(s=>
+    s.estado==='pendiente'&&s.tipoSolicitud==='nuevo_cliente'&&
+    (s.nombre||'').toLowerCase()===nombreLower
+  );
+  if(existeDuplicado){
+    if(!confirm(`Ya enviaste una solicitud pendiente para ${nombre}. ¿Enviar otra de todas formas?`))return;
+  }
+  // BUGFIX: parseo seguro del capital (acepta formato colombiano)
+  const capital=parseMontoCO(document.getElementById('soli-capital').value);
+  _enviandoSolicitudNueva=true;
   const soli={
-    id:'soli_'+Date.now(),
+    id:'soli_'+Date.now()+'_'+Math.floor(Math.random()*1000),
     tipoSolicitud:'nuevo_cliente',
     origen:'nuevo_cliente',
     clienteId:'',
@@ -1765,7 +1815,7 @@ function enviarSolicitud(){
     telefono,
     negocio:document.getElementById('soli-negocio').value.trim(),
     zona:document.getElementById('soli-zona').value.trim(),
-    capitalSolicitado:parseFloat(document.getElementById('soli-capital').value)||0,
+    capitalSolicitado:capital,
     montoReportado:0,
     notas:document.getElementById('soli-notas').value.trim(),
     estado:'pendiente',
@@ -1779,7 +1829,8 @@ function enviarSolicitud(){
       const el=document.getElementById(id);if(el)el.value='';
     });
     document.getElementById('soli-capital').value='';
-  }).catch(()=>notify('Error al enviar','err'));
+  }).catch(()=>notify('Error al enviar','err'))
+    .finally(()=>{_enviandoSolicitudNueva=false;});
 }
 
 function renderSolicitudes(){
@@ -1808,7 +1859,7 @@ function renderSolicitudes(){
         </div>
         <div style="text-align:right">
           <div style="font-size:11px;font-weight:600;color:${colores[s.estado]||'var(--text3)'}">${labels[s.estado]||s.estado}</div>
-          <div style="font-size:10px;color:var(--text3)">${new Date(s.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</div>
+          <div style="font-size:10px;color:var(--text3)">${new Date(s.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',timeZone:TZ_CO})}</div>
         </div>
       </div>
       ${s.notaAdmin?('<div style="font-size:11px;color:var(--green);margin-top:4px;padding:4px 8px;background:var(--greend);border-radius:6px">Admin: '+s.notaAdmin+'</div>'):''}
@@ -1898,6 +1949,7 @@ function cerrarUltimaCuota(){
 
 function solicitarRenovacion(){
   if(!_clienteUltimaCuota){cerrarUltimaCuota();return;}
+  if(_solicitandoCobrador)return;
   const c=clientes.find(x=>x.id===_clienteUltimaCuota);
   if(!c){cerrarUltimaCuota();return;}
   if(!fbOk||!db){notify('Sin conexión','err');return;}
@@ -1910,8 +1962,9 @@ function solicitarRenovacion(){
     _clienteUltimaCuota=null;
     return;
   }
+  _solicitandoCobrador=true;
   const soli={
-    id:'soli_'+Date.now(),
+    id:'soli_'+Date.now()+'_'+Math.floor(Math.random()*1000),
     tipoSolicitud:'renovacion',
     clienteId:c.id,
     clienteNombre:c.nombre,
@@ -1928,7 +1981,8 @@ function solicitarRenovacion(){
   };
   db.ref('solicitudes/'+soli.id).set(soli)
     .then(()=>notify('Solicitud de renovación enviada al admin ✓','ok'))
-    .catch(()=>notify('Error al enviar solicitud','err'));
+    .catch(()=>notify('Error al enviar solicitud','err'))
+    .finally(()=>{_solicitandoCobrador=false;});
   document.getElementById('ultima-cuota-overlay').classList.remove('open');
   _clienteUltimaCuota=null;
 }

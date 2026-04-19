@@ -1000,9 +1000,17 @@ function escuchar(){
 function save(){
   localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
   if(fbOk&&db){
-    const o=clientes.reduce((a,c)=>{a[c.id]=c;return a;},{});
-    db.ref('clientes').set(o);
+    // BUGFIX: escribir cliente por cliente para no sobrescribir cambios concurrentes del cobrador.
+    // Antes: db.ref('clientes').set(o) sobreescribía TODO el nodo → se perdían cambios del cobrador
+    // si el admin guardaba justo después de un pago.
+    const updates={};
+    clientes.forEach(c=>{updates[c.id]=c;});
+    db.ref('clientes').update(updates);
   }
+}
+// BUGFIX: helper para eliminar cliente de Firebase correctamente
+function eliminarClienteFirebase(clienteId){
+  if(fbOk&&db)db.ref('clientes/'+clienteId).remove();
 }
 function log(item){actividad.unshift(item);if(fbOk&&db)db.ref('actividad').push(item);}
 
@@ -1420,7 +1428,8 @@ function renderProximos7(h){
     const d=coUTCDateFromKey(dStr);
     const cobros=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===dStr&&q.num>c.pagadas));
     const total=cobros.reduce((s,c)=>{
-      const m=mora(c);
+      // BUGFIX: mora proyectada a la fecha dStr, no la mora de hoy
+      const m=mora(c,dStr);
       return s+c.cuota+(m>0?m:0);
     },0);
     dias.push({fecha:dStr,dia:nombres[d.getUTCDay()],num:d.getUTCDate(),total,count:cobros.length});
@@ -1630,13 +1639,18 @@ function resolverSolicitudActiva(accionAdmin='',notaAdmin='',estado='aprobado'){
   resolverSolicitudAdmin(window._soliContextoActiva,estado,accionAdmin,notaAdmin);
   window._soliContextoActiva=null;
 }
+let _resolviendoSoli=false;
 function marcarSolicitudComoAtendida(soliId){
+  if(_resolviendoSoli)return;
   const s=(window._solicitudes||[]).find(x=>x.id===soliId);
   if(!s)return;
+  if(s.estado!=='pendiente'){notify('Esta solicitud ya fue resuelta','err');return;}
+  _resolviendoSoli=true;
   resolverSolicitudAdmin(soliId,'aprobado','novedad_revisada','Solicitud revisada por admin');
   window._soliContextoActiva=null;
   cerrar('modal-cli');
   notify(`Solicitud de ${s.clienteNombre||s.nombre} marcada como revisada ✓`,'ok');
+  setTimeout(()=>{_resolviendoSoli=false;},500);
 }
 function abrirFichaDesdeSolicitud(soliId){
   const s=(window._solicitudes||[]).find(x=>x.id===soliId);
@@ -1691,7 +1705,7 @@ function renderSolicitudesAdmin(){
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:8px">
           <div style="font-size:11px;font-weight:600;color:${colores[s.estado]||'var(--text3)'}">${labels[s.estado]||s.estado}</div>
-          <div style="font-size:10px;color:var(--text3)">${new Date(s.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
+          <div style="font-size:10px;color:var(--text3)">${new Date(s.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:TZ_CO})}</div>
         </div>
       </div>
       ${s.estado==='pendiente'?accionesPend:''}
@@ -1722,14 +1736,18 @@ function abrirAprobacion(soliId){
 }
 
 function rechazarSolicitud(soliId){
+  if(_resolviendoSoli)return;
   const s=(window._solicitudes||[]).find(x=>x.id===soliId);
   if(!s)return;
+  if(s.estado!=='pendiente'){notify('Esta solicitud ya fue resuelta','err');return;}
   const nombre=s.clienteNombre||s.nombre||'la solicitud';
   const motivo=prompt(`¿Por qué rechazas la solicitud de ${nombre}? (opcional)`,'');
   if(motivo===null)return;
+  _resolviendoSoli=true;
   resolverSolicitudAdmin(soliId,'rechazado','rechazada',motivo||'Sin motivo');
   if(window._soliContextoActiva===soliId)window._soliContextoActiva=null;
   notify(`Solicitud de ${nombre} rechazada`,'ok');
+  setTimeout(()=>{_resolviendoSoli=false;},500);
 }
 
 
@@ -1769,7 +1787,7 @@ function generarSeccionMora(c){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border)">
         <div>
           <div style="font-size:12px;color:var(--text2)">${labels[e.tipo]||e.tipo}${e.nota?' — <span style="color:var(--text3)">'+e.nota+'</span>':''}</div>
-          <div style="font-size:10px;color:var(--text3)">${new Date(e.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'})} · ${e.diasVencidos}d vencidos · ${e.autor}</div>
+          <div style="font-size:10px;color:var(--text3)">${new Date(e.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:TZ_CO})} · ${e.diasVencidos}d vencidos · ${e.autor}</div>
         </div>
         <div style="font-size:12px;font-weight:600;color:${colores[e.tipo]||'var(--text3)'};flex-shrink:0;margin-left:8px">${fmt(e.monto)}</div>
       </div>`).join('');
@@ -1781,7 +1799,7 @@ function generarSeccionMora(c){
     html+=`<div style="font-size:12px;font-weight:500;color:var(--text2);margin:10px 0 6px">Visitas sin pago (${noPagos.length})</div>`;
     html+=noPagos.slice().reverse().slice(0,5).map(n=>`
       <div style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;border-bottom:1px solid var(--border)">
-        <span style="color:var(--text3)">${new Date(n.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span>
+        <span style="color:var(--text3)">${new Date(n.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',timeZone:TZ_CO})}</span>
         <span style="color:var(--text2)">${n.motivo||'Sin motivo'}</span>
         <span style="color:var(--red)">${n.mora>0?fmt(n.mora):''}</span>
       </div>`).join('');
@@ -2201,9 +2219,17 @@ function eliminar(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   if(c.pagadas<c.numCuotas){notify('No puedes eliminar un cliente con préstamo activo','err');return;}
   if(resumenComisionCliente(c).generada>0){notify('No puedes eliminar un cliente con historial de comisión. Consérvalo para auditoría.','err');return;}
-  if(!confirm('¿Eliminar este cliente?'))return;
-  clientes=clientes.filter(x=>x.id!==id);save();
-  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();notify('Eliminado','ok');
+  // BUGFIX: no eliminar si tiene cargos pendientes o abono pendiente sin resolver
+  if((c.cargosPendientes||0)>0){notify(`El cliente tiene ${fmt(c.cargosPendientes)} de cargos pendientes. Resuélvelos antes de eliminar.`,'err');return;}
+  if((c.abonoPendiente||0)>0){notify(`El cliente tiene ${fmt(c.abonoPendiente)} de abono pendiente. Resuélvelo antes de eliminar.`,'err');return;}
+  if(!confirm(`¿Eliminar a ${c.nombre} de la lista?\n\nEsto NO se puede deshacer. Los movimientos de caja y actividad asociados se conservarán para auditoría.`))return;
+  const clienteIdEliminado=c.id;
+  clientes=clientes.filter(x=>x.id!==id);
+  save();
+  // BUGFIX: eliminar también del nodo Firebase (antes el save() fallaba en eliminar)
+  eliminarClienteFirebase(clienteIdEliminado);
+  log({tipo:'cliente_eliminado',cliente:c.nombre,ts:Date.now(),autor:'Admin'});
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();notify(`${c.nombre} eliminado ✓`,'ok');
 }
 
 // ABONO PARCIAL — lógica correcta
@@ -2425,6 +2451,8 @@ function confirmarRefin(){
     if(!c.historialPrestamos)c.historialPrestamos=[];
     c.historialPrestamos.push({
       capital:c.capital,tasa:c.tasa,tipo:c.tipo,plazo:c.numCuotas,
+      // BUGFIX: persistir interes y total para que interesRealizadoCaja pueda calcular el histórico
+      interes:c.interes,total:c.total,cuota:c.cuota,cuotaUltima:c.cuotaUltima,
       pagadas:c.pagadas,fechaInicio:c.fechaInicio,
       moraCobradaTotal:c.moraCobradaTotal||0,
       moraPerdonada:c.moraPerdonada||0,
@@ -2469,20 +2497,23 @@ function renderCalendario(){
   const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   document.getElementById('cal-titulo').textContent=meses[calMes]+' '+calAno;
 
-  // Construir mapa: fechaISO -> lista de cobros
+  // BUGFIX: construir el mapa con mora PROYECTADA por fecha, no la mora de hoy
   const mapaCobros={};
   clientes.filter(c=>c.pagadas<c.numCuotas).forEach(c=>{
     c.cuotasData.forEach(q=>{
       if(q.num>c.pagadas){
         if(!mapaCobros[q.fechaISO])mapaCobros[q.fechaISO]=[];
-        mapaCobros[q.fechaISO].push({nombre:c.nombre,cuota:q.cuota,id:c.id,mora:mora(c)});
+        // Mora proyectada a la fecha de la cuota (no a hoy)
+        const moraProyectada=mora(c,q.fechaISO);
+        mapaCobros[q.fechaISO].push({nombre:c.nombre,cuota:q.cuota,id:c.id,mora:moraProyectada});
       }
     });
   });
 
-  // Grid del mes
-  const primerDia=new Date(calAno,calMes,1).getDay(); // 0=dom
-  const diasMes=new Date(calAno,calMes+1,0).getDate();
+  // BUGFIX: primer día del mes en TZ Colombia, no TZ del navegador
+  const primerDiaKey=`${calAno}-${String(calMes+1).padStart(2,'0')}-01`;
+  const primerDia=coUTCDateFromKey(primerDiaKey).getUTCDay();
+  const diasMes=new Date(Date.UTC(calAno,calMes+1,0)).getUTCDate();
   const hoyStr=hoy();
 
   let html=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">`;
@@ -2570,12 +2601,23 @@ Gracias por su pago 🙏`;
 function getWATemplate(){
   return localStorage.getItem(WA_TEMPLATE_KEY)||WA_TEMPLATE_DEFAULT;
 }
+let _guardandoWA=false;
 function guardarWATemplate(){
+  if(_guardandoWA)return;
   const t=document.getElementById('wa-template').value.trim();
   if(!t){notify('La plantilla no puede estar vacía','err');return;}
+  if(t.length>1500){notify('La plantilla es demasiado larga (máx 1500 caracteres)','err');return;}
+  _guardandoWA=true;
   localStorage.setItem(WA_TEMPLATE_KEY,t);
-  if(fbOk&&db)db.ref('config/waTemplate').set(t);
-  notify('Plantilla guardada ✓','ok');
+  if(fbOk&&db){
+    db.ref('config/waTemplate').set(t)
+      .then(()=>notify('Plantilla guardada ✓','ok'))
+      .catch(()=>notify('Guardada localmente, error al sincronizar','err'))
+      .finally(()=>{_guardandoWA=false;});
+  } else {
+    notify('Plantilla guardada localmente ✓','ok');
+    _guardandoWA=false;
+  }
 }
 function resetWATemplate(){
   if(!confirm('¿Restaurar la plantilla original?'))return;
@@ -2607,7 +2649,9 @@ function renderFinanzas(){
   const capitalActivo=act.reduce((s,c)=>s+saldo(c),0);
   const capitalTotal=clientes.reduce((s,c)=>s+c.capital,0);
   const interesEsperado=clientes.reduce((s,c)=>s+c.interes,0);
-  const interesCobrado=clientes.reduce((s,c)=>s+c.pagadas*(c.interes/c.numCuotas),0);
+  // BUGFIX: usar interesRealizadoCaja que incluye histórico de refinanciaciones y ciclos
+  // (antes: fórmula lineal c.pagadas*(c.interes/c.numCuotas) no incluía histórico)
+  const interesCobrado=clientes.reduce((s,c)=>s+interesRealizadoCaja(c),0);
   const moraCobrada=clientes.reduce((s,c)=>s+(c.moraCobradaTotal||0)+(c.moraHistoricaAcumulada||0),0);
   const gananciaTotal=interesCobrado+moraCobrada;
   const moraActual=act.reduce((s,c)=>s+mora(c),0);
@@ -2631,7 +2675,12 @@ function renderFinanzas(){
   for(let i=1;i<=30;i++){
     const dStr=addDaysToKey(h,i);
     const cobros=act.filter(c=>c.cuotasData?.some(q=>q.fechaISO===dStr&&q.num>c.pagadas));
-    const tot=cobros.reduce((s,c)=>{const q=c.cuotasData.find(x=>x.fechaISO===dStr&&x.num>c.pagadas);return s+(q?.cuota||0);},0);
+    // BUGFIX: incluir mora proyectada a esa fecha (antes solo sumaba la cuota, ocultando que clientes con mora deberán pagar más)
+    const tot=cobros.reduce((s,c)=>{
+      const q=c.cuotasData.find(x=>x.fechaISO===dStr&&x.num>c.pagadas);
+      const m=mora(c,dStr);
+      return s+(q?.cuota||0)+(m>0?m:0);
+    },0);
     proyeccion.push({dia:i,fecha:dStr,total:tot,count:cobros.length});
     totalProy+=tot;
   }
@@ -2702,12 +2751,34 @@ function renderFinanzas(){
 function renderActividad(){
   const el=document.getElementById('feed-act');
   if(!actividad.length){el.innerHTML='<div class="empty"><div class="empty-i">📡</div><div class="empty-t">Sin actividad aún</div></div>';return;}
-  const im={pago:'💰',nuevo:'📋',abono:'💵',refinanciacion:'🔄',mora_perdonada:'🤝',no_pago:'❌'};
-  const bg={pago:'var(--greend)',nuevo:'var(--goldd)',abono:'var(--blued)',refinanciacion:'var(--amberd)',mora_perdonada:'var(--greend)',no_pago:'var(--redd)'};
+  // BUGFIX: incluir TODOS los tipos emitidos por log() (antes: 6 de 14 se mostraban como 'Actividad' genérica)
+  const im={
+    pago:'💰',nuevo:'📋',abono:'💵',refinanciacion:'🔄',mora_perdonada:'🤝',no_pago:'❌',
+    nuevo_ciclo:'🆕',liquidacion:'📤',liquidacion_revertida:'↶',
+    ajuste_saldo:'⚖️',ajuste_revertido:'↶',edicion:'✏️',
+    cliente_eliminado:'🗑️',caja_eliminada:'🗑️'
+  };
+  const bg={
+    pago:'var(--greend)',nuevo:'var(--goldd)',abono:'var(--blued)',refinanciacion:'var(--amberd)',
+    mora_perdonada:'var(--greend)',no_pago:'var(--redd)',nuevo_ciclo:'var(--goldd)',
+    liquidacion:'var(--amberd)',liquidacion_revertida:'var(--bg3)',
+    ajuste_saldo:'var(--amberd)',ajuste_revertido:'var(--bg3)',
+    edicion:'var(--bg3)',cliente_eliminado:'var(--redd)',caja_eliminada:'var(--redd)'
+  };
+  const titulos={
+    pago:'Pago',nuevo:'Nuevo cliente',abono:'Abono',refinanciacion:'Refinanciación',
+    mora_perdonada:'Mora perdonada',no_pago:'Sin pago',nuevo_ciclo:'Nuevo ciclo',
+    liquidacion:'Liquidación',liquidacion_revertida:'Liquidación revertida',
+    ajuste_saldo:'Ajuste de saldo',ajuste_revertido:'Ajuste revertido',
+    edicion:'Cliente editado',cliente_eliminado:'Cliente eliminado',caja_eliminada:'Mov. caja eliminado'
+  };
   el.innerHTML=actividad.slice(0,40).map(a=>{
-    const ts=new Date(a.ts).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    const titulo=a.tipo==='pago'?`Pago — ${a.cliente} (${a.cuota||''}/${a.total||''})`:a.tipo==='nuevo'?`Nuevo — ${a.cliente}`:a.tipo==='abono'?`Abono — ${a.cliente}`:a.tipo==='refinanciacion'?`Refinanciación — ${a.cliente}`:a.tipo==='mora_perdonada'?`Mora perdonada — ${a.cliente}`:'Actividad';
-    return`<div class="ai"><div class="ai-icon" style="background:${bg[a.tipo]||'var(--bg3)'}">${im[a.tipo]||'📝'}</div><div class="ai-body"><div class="ai-title">${titulo}</div><div class="ai-sub">${a.autor||'Sistema'} · ${ts}${a.nota?' · '+a.nota:''}</div></div><div class="ai-amt">${fmt(a.monto)}</div></div>`;
+    // BUGFIX: TZ Colombia (antes usaba TZ navegador)
+    const ts=new Date(a.ts).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:TZ_CO});
+    const base=titulos[a.tipo]||'Actividad';
+    const detalle=a.cuota&&a.total?` (${a.cuota}/${a.total})`:'';
+    const titulo=a.cliente?`${base} — ${a.cliente}${detalle}`:base;
+    return`<div class="ai"><div class="ai-icon" style="background:${bg[a.tipo]||'var(--bg3)'}">${im[a.tipo]||'📝'}</div><div class="ai-body"><div class="ai-title">${titulo}</div><div class="ai-sub">${a.autor||'Sistema'} · ${ts}${a.nota?' · '+a.nota:''}</div></div><div class="ai-amt">${a.monto?fmt(a.monto):''}</div></div>`;
   }).join('');
 }
 
@@ -3439,26 +3510,62 @@ function abrirEditarCliente(id){
   document.getElementById('modal-edit').classList.add('open');
 }
 
+let _editandoCliente=false;
 function guardarEdicionCliente(){
+  if(_editandoCliente)return;
   const c=clientes.find(x=>x.id===editandoClienteId);if(!c)return;
   const nombreNuevo=document.getElementById('edit-nombre').value.trim();
   if(!nombreNuevo){notify('El nombre no puede estar vacío','err');return;}
-  c.nombre=nombreNuevo;
-  c.cedula=document.getElementById('edit-cedula').value.trim();
-  c.telefono=document.getElementById('edit-telefono').value.trim();
-  c.zona=document.getElementById('edit-zona').value.trim();
-  c.negocio=document.getElementById('edit-negocio').value.trim();
-  c.notas=document.getElementById('edit-notas').value.trim();
-  c.moraDia=parseFloat(document.getElementById('edit-mora').value)||0;
+  const telNuevo=document.getElementById('edit-telefono').value.trim();
+  // BUGFIX: validar teléfono si no está vacío
+  if(telNuevo){
+    const dig=telNuevo.replace(/\D/g,'');
+    if(dig.length<7||dig.length>10){
+      notify('Teléfono inválido (entre 7 y 10 dígitos)','err');return;
+    }
+  }
+  // BUGFIX: validar % comisión en rango
   const comVal=document.getElementById('edit-comision').value.trim();
-  c.comisionPct=comVal!==''?parseFloat(comVal):null;
+  let comisionPctNuevo=null;
+  if(comVal!==''){
+    const p=parseFloat(comVal);
+    if(!Number.isFinite(p)||p<0||p>100){notify('El % de comisión debe estar entre 0 y 100','err');return;}
+    comisionPctNuevo=p;
+  }
+  // BUGFIX: validar graciaHasta en futuro (si está presente)
   const graciaVal=(document.getElementById('edit-gracia')?.value||'').trim();
-  c.graciaHasta=graciaVal||null;
-  save();
-  log({tipo:'edicion',cliente:c.nombre,ts:Date.now(),autor:'Admin'});
-  notify(`${c.nombre} actualizado ✓`,'ok');
-  cerrar('modal-edit');
-  renderClientes();renderInicio();
+  if(graciaVal&&graciaVal<hoy()){
+    if(!confirm(`La fecha de gracia (${graciaVal}) ya pasó. ¿Guardar de todas formas? (no tendrá efecto)`))return;
+  }
+  // BUGFIX: cambio de moraDia con mora pendiente → avisar al admin, dejar que decida
+  const moraDiaNuevo=parseFloat(document.getElementById('edit-mora').value)||0;
+  const moraActualAntes=mora(c);
+  if(moraDiaNuevo!==c.moraDia&&moraActualAntes>0){
+    if(!confirm(`${c.nombre} tiene ${fmt(moraActualAntes)} de mora acumulada con tarifa ${fmt(c.moraDia)}/día.\n\nCambiar a ${fmt(moraDiaNuevo)}/día hará que la mora se recalcule con la NUEVA tarifa (afecta la deuda actual).\n\n¿Continuar? (Recomendado: primero cobra o perdona la mora actual, luego cambia la tarifa)`)){
+      return;
+    }
+  }
+  _editandoCliente=true;
+  try{
+    c.nombre=nombreNuevo;
+    c.cedula=document.getElementById('edit-cedula').value.trim();
+    c.telefono=telNuevo;
+    c.zona=document.getElementById('edit-zona').value.trim();
+    c.negocio=document.getElementById('edit-negocio').value.trim();
+    c.notas=document.getElementById('edit-notas').value.trim();
+    c.moraDia=moraDiaNuevo;
+    c.comisionPct=comisionPctNuevo;
+    c.graciaHasta=graciaVal||null;
+    save();
+    log({tipo:'edicion',cliente:c.nombre,ts:Date.now(),autor:'Admin'});
+    notify(`${c.nombre} actualizado ✓`,'ok');
+    cerrar('modal-edit');
+    renderClientes();renderInicio();
+  }catch(e){
+    console.error(e);notify('Error al guardar','err');
+  }finally{
+    _editandoCliente=false;
+  }
 }
 
 function abrirFotos(id){
@@ -3489,35 +3596,57 @@ function renderFotos(c){
     <div style="font-size:11px;color:var(--text3);margin-top:12px;text-align:center">Toca una foto para verla en grande. Para cambiarla, vuelve a tocar el botón correspondiente.</div>`;
 }
 
+let _subiendoFoto=false;
 function subirFoto(input, tipo){
+  if(_subiendoFoto){notify('Espera a que termine la foto anterior','err');input.value='';return;}
   const file=input.files[0];if(!file)return;
+  if(file.size>10*1024*1024){notify('Foto demasiado grande (máx 10MB)','err');input.value='';return;}
   const c=clientes.find(x=>x.id===fotoClienteId);if(!c)return;
+  _subiendoFoto=true;
   notify('Procesando foto...','ok');
-  // Comprimir imagen antes de guardar
   const reader=new FileReader();
   reader.onload=function(e){
     const img=new Image();
     img.onload=function(){
       const canvas=document.createElement('canvas');
-      const MAX=800;
+      // BUGFIX: compresión más agresiva para no saturar Firebase RTDB
+      const MAX=600;
       let w=img.width,h=img.height;
       if(w>h){if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}}
       else{if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}}
       canvas.width=w;canvas.height=h;
       canvas.getContext('2d').drawImage(img,0,0,w,h);
-      const base64=canvas.toDataURL('image/jpeg',0.75);
+      const base64=canvas.toDataURL('image/jpeg',0.65);
+      // BUGFIX: si la foto aún es grande, avisar (pero guardar igual)
+      const pesoKb=Math.round(base64.length*3/4/1024);
+      if(pesoKb>200){
+        if(!confirm(`La foto pesa ${pesoKb}KB. Esto ralentizará la sincronización. ¿Guardar de todas formas?`)){
+          _subiendoFoto=false;
+          notify('Foto cancelada','ok');
+          input.value='';
+          return;
+        }
+      }
       if(!c.fotos)c.fotos={};
       c.fotos[tipo]=base64;
       save();
       renderFotos(c);
-      notify(`Foto de ${tipo} guardada ✓`,'ok');
+      notify(`Foto de ${tipo} guardada (${pesoKb}KB) ✓`,'ok');
+      _subiendoFoto=false;
+    };
+    img.onerror=function(){
+      _subiendoFoto=false;
+      notify('Error al procesar la foto','err');
     };
     img.src=e.target.result;
   };
+  reader.onerror=function(){
+    _subiendoFoto=false;
+    notify('Error al leer la foto','err');
+  };
   reader.readAsDataURL(file);
-  input.value=''; // reset para poder volver a tomar foto
+  input.value='';
 }
-
 function eliminarFoto(tipo){
   const c=clientes.find(x=>x.id===fotoClienteId);if(!c)return;
   if(!confirm(`¿Eliminar foto de ${tipo}?`))return;
@@ -3563,15 +3692,22 @@ function actualizarPctGlobal(val){
   document.getElementById('com-split-admin').textContent=(100-val)+'%';
   document.getElementById('com-pct-lbl').textContent=val+'% sobre interés y mora cobrados';
 }
+let _guardandoPctGlobal=false;
 function guardarPctGlobal(){
-  const val=document.getElementById('com-pct-slider').value;
-  localStorage.setItem(COM_KEY,val);
-  window._comPctFB=parseFloat(val);
+  if(_guardandoPctGlobal)return;
+  const raw=document.getElementById('com-pct-slider').value;
+  const num=parseFloat(raw);
+  if(!Number.isFinite(num)||num<0||num>100){notify('El % debe estar entre 0 y 100','err');return;}
+  _guardandoPctGlobal=true;
+  const val=num;
+  localStorage.setItem(COM_KEY,String(val));
+  window._comPctFB=val;
   if(fbOk&&db){
-    db.ref('config/comisionPct').set(parseFloat(val));
+    db.ref('config/comisionPct').set(val).catch(()=>notify('Error al sincronizar con Firebase','err'));
   }
   notify(`Porcentaje global actualizado a ${val}% ✓`,'ok');
   renderComisiones();
+  setTimeout(()=>{_guardandoPctGlobal=false;},300);
 }
 
 function etiquetaPeriodo(periodo){
@@ -3810,7 +3946,10 @@ function cambiarPctCliente(id, val){
     renderComisiones();
     return;
   }
-  const pct=Math.max(0,Math.min(100,parseFloat(raw)||0));
+  // BUGFIX: validar rango 0-100
+  const num=parseFloat(raw);
+  if(!Number.isFinite(num)){notify('% inválido','err');renderComisiones();return;}
+  const pct=Math.max(0,Math.min(100,num));
   c.comisionPct=pct;
   save();
   notify(`% de ${c.nombre} actualizado a ${pct}% para próximos cobros ✓`,'ok');
@@ -4114,6 +4253,8 @@ function confirmarNuevoCiclo(){
     save();
     log({tipo:'nuevo_ciclo',cliente:c.nombre,monto:capital,ts:Date.now(),autor:'Admin',nota:`Ciclo ${c.ciclos.length+1}`});
     registrarCajaAuto('desembolso_prestamo',capital,`Nuevo ciclo: ${c.nombre}`,`prestamo:${c.id}:ciclo${c.ciclos.length}`,{clienteId:c.id,cliente:c.nombre});
+    // BUGFIX: marcar solicitud de renovación como aprobada si venía de una
+    if(typeof marcarSoliRenovacionAprobada==='function')marcarSoliRenovacionAprobada();
     cerrar('modal-nuevo-ciclo');
     notify(`Ciclo ${c.ciclos.length+1} creado para ${c.nombre} ✓`,'ok');
     renderInicio();renderClientes();
