@@ -276,6 +276,10 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <input type="date" id="n-gracia">
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Si lo llenas, al cliente no se le cobra mora hasta esa fecha inclusive. Útil para pactar pagos 2-3 días después de lo normal.</div>
     </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">⚡ Días pronto pago</label><input type="number" id="n-dias-pronto" value="15" min="0" max="365" step="1"><div style="font-size:11px;color:var(--text3);margin-top:4px">Si cancela TODO antes de N días, se le cobra solo 10% en vez de la tasa normal. Pon 0 para desactivar.</div></div>
+      <div class="fg"><label class="fl">⚡ Tasa pronto pago (%)</label><input type="number" id="n-tasa-pronto" value="10" min="0" max="100" step="1"><div style="font-size:11px;color:var(--text3);margin-top:4px">Tasa con descuento. Default: 10%.</div></div>
+    </div>
     <div class="fg">
       <label class="fl">% comisión cobrador <span style="color:var(--text3);font-weight:400;text-transform:none">(deja vacío para usar el global)</span></label>
       <input type="number" id="n-comision" placeholder="Ej: 40  — o vacío para usar global" min="0" max="100" step="5">
@@ -559,6 +563,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="mhandle"></div>
     <div class="mtitle">⚖️ Ajuste manual de saldo</div>
     <div id="ajuste-info" class="ibox blue" style="margin-bottom:12px"></div>
+    <div id="ajuste-ultimo" style="margin-bottom:12px"></div>
     <div class="fr">
       <div class="fg">
         <label class="fl">Tipo de ajuste</label>
@@ -1193,9 +1198,11 @@ function crearPrestamo(){
   const diasCustom=tipo==='personalizado'?parseInt(document.getElementById('n-dias-custom')?.value)||3:null;
   const graciaHastaRaw=(document.getElementById('n-gracia')?.value||'').trim();
   const graciaHasta=graciaHastaRaw||null;
+  const diasProntoPago=Math.max(0,parseInt(document.getElementById('n-dias-pronto')?.value)||0);
+  const tasaProntoPago=Math.max(0,parseFloat(document.getElementById('n-tasa-pronto')?.value)||10);
   const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
-  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],creado:coDateTimeISO()};
+  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,diasProntoPago,tasaProntoPago,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],creado:coDateTimeISO()};
   clientes.push(c);save();
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
   log({tipo:'nuevo',cliente:nombre,monto:capital,ts:Date.now(),autor:'Admin'});
@@ -1595,6 +1602,22 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
+    ${aplicaProntoPago(c)?(()=>{
+      const mp=montoProntoPago(c);
+      const dr=diasRestantesProntoPago(c);
+      return `<div style="background:linear-gradient(135deg,var(--goldd),rgba(232,197,71,.04));border:1.5px solid var(--goldb);border-radius:var(--r);padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--gold)">⚡ PRONTO PAGO DISPONIBLE</div>
+          <span class="badge bgold" style="font-size:10px">${dr} día${dr===1?'':'s'} restante${dr===1?'':'s'}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Si cancela TODO hoy se le cobra ${c.tasaProntoPago}% en vez de ${c.tasa}%. Ahorra ${fmt((c.interes||0)-mp.interes)}.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+          <div class="cs"><div class="csl">Total a recibir</div><div class="csv" style="color:var(--gold);font-weight:700">${fmt(mp.totalConMora)}</div></div>
+          <div class="cs"><div class="csl">Vs. cuotas</div><div class="csv">${fmt(c.total||0)}</div></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="width:100%" onclick="cancelarConDescuento('${c.id}')">⚡ Cancelar con descuento</button>
+      </div>`;
+    })():''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <button class="btn btn-blue btn-sm" onclick="abrirRefin('${c.id}')">🔄 Refinanciar</button>
       <button class="btn btn-ghost btn-sm" onclick="abrirEditarCliente('${c.id}')">✏️ Editar</button>
@@ -1621,7 +1644,8 @@ function infoSolicitudAdmin(s){
     cobro_anticipado:{label:'Cobro anticipado',icon:'⏩',color:'var(--gold)'},
     abono:{label:'Abono',icon:'💵',color:'var(--amber)'},
     novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'},
-    renovacion:{label:'Renovación de ciclo',icon:'🔄',color:'var(--green)'}
+    renovacion:{label:'Renovación de ciclo',icon:'🔄',color:'var(--green)'},
+    pronto_pago_intencion:{label:'⚡ Cliente quiere cancelar (pronto pago)',icon:'⚡',color:'var(--gold)'}
   }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
 }
 function resolverSolicitudAdmin(soliId,estado='aprobado',accionAdmin='',notaAdmin=''){
@@ -1681,6 +1705,11 @@ function renderSolicitudesAdmin(){
       :tipo==='renovacion'
       ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
           <button class="btn btn-green btn-sm" onclick="procesarSolicitudRenovacion('${s.id}')">🔄 Crear ciclo</button>
+          <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
+        </div>`
+      :tipo==='pronto_pago_intencion'
+      ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
+          <button class="btn btn-sm" style="background:var(--gold);color:#0a0a0f;font-weight:700" onclick="ejecutarProntoPagoDesdeSolicitud('${s.id}')">⚡ Liquidar con descuento</button>
           <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
         </div>`
       :`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
@@ -1879,7 +1908,24 @@ function abrirAjusteSaldo(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   pendingAjuste=id;
   const sd=saldo(c);
-  document.getElementById('ajuste-info').innerHTML=`<strong>${c.nombre}</strong> · Saldo actual: <strong>${fmt(sd)}</strong>`;
+  document.getElementById('ajuste-info').innerHTML=`<strong>${c.nombre}</strong> · Saldo actual: <strong>${fmt(sd)}</strong> · Cuota actual: <strong>${fmt(c.cuotasData?.[c.pagadas]?.cuota||c.cuota)}</strong>`;
+  // Panel del último ajuste (si existe y es revertible)
+  const ult=(c.historialAjustes||[]).slice(-1)[0];
+  const elUlt=document.getElementById('ajuste-ultimo');
+  if(ult&&ult.cuotasDataAntes){
+    elUlt.innerHTML=`
+      <div style="background:var(--amberd);border:1px solid rgba(255,170,68,.25);border-radius:10px;padding:10px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong style="color:var(--amber)">Último ajuste: ${ult.tipoLabel} ${fmt(ult.monto)}</strong>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px" onclick="revertirUltimoAjuste('${c.id}')">↶ Revertir</button>
+        </div>
+        <div style="color:var(--text2);font-size:11px">${ult.motivo} · ${ult.fecha?.split('T')[0]||''}</div>
+      </div>`;
+  } else if(ult){
+    elUlt.innerHTML=`<div style="font-size:11px;color:var(--text3);text-align:center">Hay ajustes anteriores (versión antigua, no revertibles)</div>`;
+  } else {
+    elUlt.innerHTML='';
+  }
   document.getElementById('ajuste-monto').value='';
   document.getElementById('ajuste-motivo').value='';
   document.getElementById('ajuste-prev').innerHTML='';
@@ -1893,10 +1939,22 @@ function prevAjuste(){
   const tipo=document.getElementById('ajuste-tipo').value;
   if(!monto){document.getElementById('ajuste-prev').innerHTML='';return;}
   const sd=saldo(c);
-  const nuevoSaldo=tipo==='cargo'?sd+monto:Math.max(0,sd-monto);
+  const delta=tipo==='cargo'?monto:-monto;
+  const nuevoSaldo=Math.max(0,sd+delta);
+  const N=Math.max(0,c.numCuotas-c.pagadas);
+  const cuotaActual=c.cuotasData?.[c.pagadas]?.cuota||c.cuota||0;
+  let cuotaNueva=0;
+  if(N>0&&nuevoSaldo>0){
+    const rd=c.redondeo||1000;
+    cuotaNueva=rd>1?Math.floor((nuevoSaldo/N)/rd)*rd:Math.floor(nuevoSaldo/N);
+  }
   const diferencia=tipo==='cargo'?'+'+fmt(monto):'-'+fmt(monto);
+  const cap=nuevoSaldo===0?' <span style="color:var(--green)">→ préstamo se cerrará</span>':'';
   document.getElementById('ajuste-prev').innerHTML=`
-    Saldo actual: <strong>${fmt(sd)}</strong> ${diferencia} = Nuevo saldo: <strong style="color:var(--amber)">${fmt(nuevoSaldo)}</strong>`;
+    <div style="font-size:12px;line-height:1.7">
+      Saldo: <strong>${fmt(sd)}</strong> ${diferencia} = <strong style="color:var(--amber)">${fmt(nuevoSaldo)}</strong>${cap}<br>
+      Cuota: <strong>${fmt(cuotaActual)}</strong> → <strong style="color:var(--gold)">${fmt(cuotaNueva)}</strong> × ${N} cuotas restantes
+    </div>`;
 }
 
 function confirmarAjuste(){
@@ -1908,31 +1966,223 @@ function confirmarAjuste(){
   if(!motivo){notify('El motivo es obligatorio','err');return;}
   const tipoLabel={descuento:'Descuento',cargo:'Cargo',correccion:'Corrección',acuerdo:'Acuerdo especial'}[tipo];
 
-  // Aplicar el ajuste modificando las cuotas pendientes
-  // Si es descuento: reducir abonoPendiente (suma al ya abonado)
-  // Si es cargo: agregar al saldo pendiente como cuota extra en moraPerdonada negativa
-  if(tipo==='cargo'){
-    // Añadir como mora adicional (cargo)
-    if(!c.historialAjustes)c.historialAjustes=[];
-    c.historialAjustes.push({fecha:coDateTimeISO(),tipo,tipoLabel,monto,motivo,autor:'Admin'});
-    // Restar de moraPerdonada para que aparezca como mora adicional
-    c.moraPerdonada=(c.moraPerdonada||0)-monto;
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado, no se puede ajustar','err');return;}
+  if(!Array.isArray(c.cuotasData)||!c.cuotasData.length){notify('Cliente sin cuotas configuradas','err');return;}
+
+  // Snapshot ANTES del cambio (para historial y posible reversa)
+  const snapshot={
+    fecha:coDateTimeISO(),tipo,tipoLabel,monto,motivo,autor:'Admin',
+    totalAntes:c.total,interesAntes:c.interes,cuotaAntes:c.cuota,
+    cuotasDataAntes:JSON.parse(JSON.stringify(c.cuotasData)),
+    abonoPendienteAntes:c.abonoPendiente||0,
+    pagadasAntes:c.pagadas
+  };
+
+  // Pendientes ANTES del ajuste
+  const pendientesIdx=c.cuotasData.map((_,i)=>i).filter(i=>i>=c.pagadas);
+  const totalPendienteAntes=pendientesIdx.reduce((s,i)=>s+(c.cuotasData[i].cuota||0),0);
+
+  // Cargo: SUMA al saldo. Descuento/corrección/acuerdo: RESTAN del saldo.
+  const delta=tipo==='cargo'?monto:-monto;
+  let nuevoTotalPendiente=totalPendienteAntes+delta;
+
+  // Salvavidas: si descuento es mayor al saldo, lo capamos
+  if(nuevoTotalPendiente<0){
+    const exceso=-nuevoTotalPendiente;
+    notify(`Descuento mayor al saldo. Se aplicó solo ${fmt(monto-exceso)} (saldo era ${fmt(totalPendienteAntes)})`,'warn');
+    nuevoTotalPendiente=0;
+  }
+
+  // Recalcular cuotas pendientes: dividir nuevoTotalPendiente entre N cuotas restantes
+  // Usar FLOOR en cuota base para garantizar que la suma NUNCA supere el saldo nuevo
+  // La última cuota absorbe el residuo (puede ser mayor que las demás)
+  const N=pendientesIdx.length;
+  if(nuevoTotalPendiente===0){
+    pendientesIdx.forEach(i=>{
+      c.cuotasData[i].cuota=0;
+      c.cuotasData[i].capital=0;
+      c.cuotasData[i].interes=0;
+    });
+    c.pagadas=c.numCuotas;
+    c.abonoPendiente=0;
   } else {
-    // Descuento/corrección/acuerdo: aumentar abonoPendiente
-    if(!c.historialAjustes)c.historialAjustes=[];
-    c.historialAjustes.push({fecha:coDateTimeISO(),tipo,tipoLabel,monto,motivo,autor:'Admin'});
-    c.abonoPendiente=(c.abonoPendiente||0)+monto;
-    // Si el abono cubre la cuota completa, marcarla como pagada
-    while(c.abonoPendiente>=c.cuota&&c.pagadas<c.numCuotas){
+    const rd=c.redondeo||1000;
+    const cuotaBase=rd>1?Math.floor((nuevoTotalPendiente/N)/rd)*rd:Math.floor(nuevoTotalPendiente/N);
+    const ultimaCuota=Math.max(0,nuevoTotalPendiente-cuotaBase*(N-1));
+    // Capital ya recuperado en cuotas pagadas (suma de q.capital de las pagadas)
+    const capitalPagado=c.cuotasData.slice(0,c.pagadas).reduce((s,q)=>s+(parseFloat(q.capital)||0),0);
+    const capitalPendiente=Math.max(0,(c.capital||0)-capitalPagado);
+    // Interés pendiente = nuevoTotalPendiente - capitalPendiente (puede ser negativo si descuento muy grande)
+    const interesPendiente=Math.max(0,nuevoTotalPendiente-capitalPendiente);
+    // Para cada cuota pendiente: distribuir capital e interés proporcionalmente al monto de la cuota
+    pendientesIdx.forEach((i,k)=>{
+      const cuotaK=k===N-1?ultimaCuota:cuotaBase;
+      c.cuotasData[i].cuota=cuotaK;
+      // Proporción de esta cuota respecto al total pendiente
+      const proporcion=nuevoTotalPendiente>0?cuotaK/nuevoTotalPendiente:0;
+      c.cuotasData[i].capital=Math.round(capitalPendiente*proporcion);
+      c.cuotasData[i].interes=Math.max(0,cuotaK-c.cuotasData[i].capital);
+    });
+    while(c.abonoPendiente>=(c.cuotasData[c.pagadas]?.cuota||Infinity)&&c.pagadas<c.numCuotas){
+      c.abonoPendiente-=c.cuotasData[c.pagadas].cuota;
       c.pagadas++;
-      c.abonoPendiente-=c.cuota;
     }
   }
+
+  // Actualizar KPIs globales del préstamo
+  // total = capital + interés efectivo. Acá el ajuste cambia el total directamente.
+  c.total=(c.total||0)+delta;
+  c.interes=Math.max(0,c.total-c.capital);
+  // c.cuota se usa como referencia "monto típico" — actualizamos a la nueva cuota base
+  if(N>0&&nuevoTotalPendiente>0){
+    c.cuota=c.cuotasData[c.pagadas]?.cuota||c.cuota;
+    c.cuotaUltima=c.cuotasData[c.numCuotas-1]?.cuota||c.cuotaUltima;
+  }
+
+  // Historial con snapshot completo (permite revertir)
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push(snapshot);
+
+  // Si fue cargo, registrar en caja como ingreso pendiente; si descuento, NO mover caja
+  // (descuento no es egreso real, es una rebaja contable)
+  // Comisión: si descuento afecta interés cobrable, NO se ajusta retroactivamente
+  // (se mantiene la comisión sobre lo efectivamente cobrado al pagar las cuotas)
+
   save();
-  log({tipo:'ajuste_saldo',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`${tipoLabel}: ${motivo}`});
-  notify(`${tipoLabel} de ${fmt(monto)} aplicado a ${c.nombre} ✓`,'ok');
+  log({tipo:'ajuste_saldo',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',
+       nota:`${tipoLabel}: ${motivo} · saldo ${fmt(totalPendienteAntes)} → ${fmt(nuevoTotalPendiente)}`});
+  notify(`${tipoLabel} de ${fmt(monto)} aplicado a ${c.nombre} ✓ Cuotas recalculadas a ${fmt(c.cuota)}`,'ok');
   cerrar('modal-ajuste');
   renderClientes();renderInicio();
+}
+
+// Revertir el último ajuste manual (deshacer)
+function revertirUltimoAjuste(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const h=c.historialAjustes||[];
+  if(!h.length){notify('Sin ajustes para revertir','err');return;}
+  const ult=h[h.length-1];
+  if(!ult.cuotasDataAntes){notify('Este ajuste es de versión antigua, no se puede revertir automáticamente','err');return;}
+  if(!confirm(`¿Revertir el último ajuste?\n\n${ult.tipoLabel}: ${fmt(ult.monto)} (${ult.motivo})\nFecha: ${ult.fecha}\n\nEsto restaurará el estado anterior del préstamo.`))return;
+  c.cuotasData=JSON.parse(JSON.stringify(ult.cuotasDataAntes));
+  c.total=ult.totalAntes;
+  c.interes=ult.interesAntes;
+  c.cuota=ult.cuotaAntes;
+  c.cuotaUltima=c.cuotasData[c.numCuotas-1]?.cuota||c.cuotaUltima;
+  c.abonoPendiente=ult.abonoPendienteAntes;
+  c.pagadas=ult.pagadasAntes;
+  h.pop();
+  save();
+  log({tipo:'ajuste_revertido',cliente:c.nombre,monto:ult.monto,ts:Date.now(),autor:'Admin',
+       nota:`Revertido ${ult.tipoLabel}: ${ult.motivo}`});
+  notify(`Ajuste revertido para ${c.nombre} ✓`,'ok');
+  cerrar('modal-cli');
+  renderClientes();renderInicio();
+}
+
+// ════════════════════════════════════════════════════════════
+// PRONTO PAGO — Cancelación anticipada con tasa reducida
+// ════════════════════════════════════════════════════════════
+// Días transcurridos desde fechaInicio (UTC Colombia)
+function diasDesdeInicio(c){
+  if(!c?.fechaInicio)return 0;
+  const ini=coUTCDateFromKey(c.fechaInicio);
+  const hoyD=coUTCDateFromKey(hoy());
+  return Math.floor((hoyD.getTime()-ini.getTime())/86400000);
+}
+
+// ¿Aplica pronto pago HOY? Reglas duras:
+// - Préstamo activo, no refinanciado, sin cuotas pagadas todavía
+// - Días transcurridos <= ventana configurada
+// - Ventana > 0 y tasa pronto pago < tasa normal
+function aplicaProntoPago(c){
+  if(!c)return false;
+  if(c.pagadas>0)return false;
+  if(c.pagadas>=c.numCuotas)return false;
+  if(c.refinanciado===true)return false;
+  if((c.conteoRefinanciaciones||0)>0)return false;
+  if(c.prontoPagoUsado===true)return false;
+  const ventana=c.diasProntoPago||0;
+  if(ventana<=0)return false;
+  const tasaPP=c.tasaProntoPago||0;
+  if(tasaPP<=0||tasaPP>=(c.tasa||20))return false;
+  return diasDesdeInicio(c)<=ventana;
+}
+
+// Días que faltan para que venza la ventana (>= 0)
+function diasRestantesProntoPago(c){
+  return Math.max(0,(c.diasProntoPago||0)-diasDesdeInicio(c));
+}
+
+// Monto total a cobrar para liquidar con descuento
+// Como pagadas===0, no hay capital ni interés ya recuperado.
+// Se suma mora pendiente del día (si tiene, aunque normalmente no debería).
+function montoProntoPago(c){
+  const cap=c.capital||0;
+  const tasaPP=c.tasaProntoPago||10;
+  const interesPP=Math.round(cap*(tasaPP/100));
+  const m=mora(c)||0;
+  return {capital:cap,interes:interesPP,total:cap+interesPP,mora:m,totalConMora:cap+interesPP+m};
+}
+
+// Ejecutar la cancelación con descuento
+function cancelarConDescuento(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(!aplicaProntoPago(c)){notify('Pronto pago no aplica para este cliente','err');return;}
+  const mp=montoProntoPago(c);
+  const txtConfirm=`¿Liquidar el préstamo de ${c.nombre} con descuento?\n\n`+
+    `Capital: ${fmt(mp.capital)}\n`+
+    `Interés ${c.tasaProntoPago}% (en vez de ${c.tasa}%): ${fmt(mp.interes)}\n`+
+    (mp.mora>0?`Mora pendiente: ${fmt(mp.mora)}\n`:'')+
+    `Total a recibir: ${fmt(mp.totalConMora)}\n\n`+
+    `El préstamo se cierra y NO podrá pagarse en cuotas.`;
+  if(!confirm(txtConfirm))return;
+
+  // Registrar mora pendiente como cobrada (si hay)
+  if(mp.mora>0){
+    registrarEventoMora(c,'cobrada',mp.mora,`Cobrada al cancelar con pronto pago`,'Admin');
+    c.moraPerdonada=(c.moraPerdonada||0)+mp.mora;
+    c.moraCobradaTotal=(c.moraCobradaTotal||0)+mp.mora;
+  }
+
+  // Sobrescribir el cliente como liquidado:
+  // - Recalcular interés total al de pronto pago
+  // - Marcar todas las cuotas como pagadas
+  // - Conservar trazabilidad
+  const interesOriginal=c.interes||0;
+  const totalOriginal=c.total||0;
+  c.interes=mp.interes;
+  c.total=mp.capital+mp.interes;
+  c.descuentoAplicado=interesOriginal-mp.interes;
+  c.prontoPagoUsado=true;
+  c.prontoPagoFecha=coDateTimeISO();
+  c.prontoPagoDiasUsados=diasDesdeInicio(c);
+  c.pagadas=c.numCuotas;          // marcar liquidado
+  c.abonoPendiente=0;
+  c.moraBaseDate=null;
+  c.ultimoPago=coDateTimeISO();
+
+  // Caja: capital + interés con descuento
+  registrarCajaAuto('recuperacion_capital',mp.capital,`Recuperación capital ${c.nombre} · pronto pago`,`pronto_pago:${c.id}:capital`,{clienteId:c.id,cliente:c.nombre});
+  registrarCajaAuto('interes_cobrado',mp.interes,`Interés cobrado ${c.nombre} · pronto pago ${c.tasaProntoPago}%`,`pronto_pago:${c.id}:interes`,{clienteId:c.id,cliente:c.nombre});
+  if(mp.mora>0)registrarCajaAuto('mora_cobrada',mp.mora,`Mora cobrada ${c.nombre} · pronto pago`,`pronto_pago:${c.id}:mora`,{clienteId:c.id,cliente:c.nombre});
+
+  // Comisión: solo sobre el interés efectivamente cobrado
+  registrarComisionEventoCliente(c,{interes:mp.interes,mora:mp.mora,autor:'Admin',nota:`Pronto pago ${c.tasaProntoPago}% (descuento ${fmt(c.descuentoAplicado)})`});
+
+  save();
+  log({tipo:'pronto_pago',cliente:c.nombre,monto:mp.totalConMora,ts:Date.now(),autor:'Admin',nota:`Liquidado con ${c.tasaProntoPago}% — ahorró ${fmt(c.descuentoAplicado)} en interés`});
+  resolverSolicitudActiva('pronto_pago',`Préstamo liquidado con descuento: ${fmt(mp.totalConMora)}`);
+  notify(`${c.nombre} liquidado con descuento ✓ Ahorró ${fmt(c.descuentoAplicado)}`,'ok');
+  cerrar('modal-cli');
+  renderClientes();renderInicio();renderCaja();
+
+  // Ofrecer nuevo ciclo igual que en pago final
+  setTimeout(()=>{
+    if(confirm(`✅ ${c.nombre} terminó de pagar (pronto pago).\n¿Crear un nuevo ciclo de préstamo?`)){
+      abrirNuevoCiclo(c.id);
+    }
+  },300);
 }
 
 // PAGOS
@@ -3786,6 +4036,22 @@ function htmlCiclosCliente(c){
     <span style="color:var(--text3);font-size:16px">›</span>
   </div>`;
   return html;
+}
+
+// Procesar solicitud de pronto pago: valida y ejecuta cancelación con descuento
+function ejecutarProntoPagoDesdeSolicitud(soliId){
+  const s=(window._solicitudes||[]).find(x=>x.id===soliId);
+  if(!s||s.tipoSolicitud!=='pronto_pago_intencion'){notify('Solicitud inválida','err');return;}
+  const c=clientes.find(x=>x.id===s.clienteId);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  if(!aplicaProntoPago(c)){
+    notify(`Pronto pago ya no aplica para ${c.nombre} (venció la ventana, o ya pagó cuotas)`,'err');
+    resolverSolicitudAdmin(soliId,'rechazado','pronto_pago_no_aplica','La ventana de pronto pago expiró o el cliente ya pagó cuotas');
+    return;
+  }
+  window._soliContextoActiva=soliId;
+  cancelarConDescuento(c.id);
+  // resolverSolicitudActiva se dispara dentro de cancelarConDescuento → marca aprobada
 }
 
 // ══════════════════════════════════════════════

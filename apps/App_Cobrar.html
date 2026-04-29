@@ -615,9 +615,20 @@ Gracias por su pago 🙏`;
 function getWATemplate(){
   return window._waTemplateFB||localStorage.getItem(WA_TEMPLATE_KEY)||WA_TEMPLATE_DEFAULT;
 }
+// Devuelve la cuota correcta del índice (próxima a pagar por defecto). Soporta cuotas variables (post-ajuste manual).
+function cuotaDe(c,idx){
+  if(idx===undefined||idx===null)idx=c.pagadas;
+  return c.cuotasData?.[idx]?.cuota||c.cuota||0;
+}
+// Saldo restante calculado correctamente sumando las cuotas pendientes (NO multiplicando por c.cuota plano)
+function saldoRestanteDesde(c,desdeIdx){
+  if(desdeIdx===undefined||desdeIdx===null)desdeIdx=c.pagadas;
+  if(!Array.isArray(c.cuotasData))return Math.max(0,(c.numCuotas-desdeIdx)*c.cuota);
+  return c.cuotasData.slice(desdeIdx).reduce((s,q)=>s+(parseFloat(q.cuota)||0),0);
+}
 function buildWAMsg(c,cuotaNum,montoTotal,moraAmt){
   const fecha=coDateLabel();
-  const saldoRest=Math.max(0,(c.numCuotas-cuotaNum)*c.cuota);
+  const saldoRest=saldoRestanteDesde(c,cuotaNum);
   return getWATemplate()
     .replace(/{nombre}/g,c.nombre)
     .replace(/{negocio}/g,c.negocio||'—')
@@ -625,7 +636,7 @@ function buildWAMsg(c,cuotaNum,montoTotal,moraAmt){
     .replace(/{cuota}/g,cuotaNum)
     .replace(/{total_cuotas}/g,c.numCuotas)
     .replace(/{mora}/g,fmt(moraAmt||0))
-    .replace(/{total}/g,fmt(montoTotal||c.cuota))
+    .replace(/{total}/g,fmt(montoTotal||cuotaDe(c,cuotaNum-1)))
     .replace(/{saldo}/g,fmt(saldoRest));
 }
 
@@ -1025,7 +1036,8 @@ function tipoSolicitudInfo(tipo){
     nuevo_cliente:{label:'Nuevo cliente',icon:'🆕',color:'var(--green)'},
     cobro_anticipado:{label:'Cobro anticipado',icon:'⏩',color:'var(--gold)'},
     abono:{label:'Abono',icon:'💵',color:'var(--amber)'},
-    novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'}
+    novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'},
+    pronto_pago_intencion:{label:'Pronto pago — intención',icon:'⚡',color:'var(--gold)'}
   }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
 }
 function tipoSolicitudDe(s){return s.tipoSolicitud||'nuevo_cliente';}
@@ -1082,6 +1094,46 @@ function solicitarNovedadCliente(clienteId){
   if(!nota.trim()){notify('La novedad no puede ir vacía','err');return;}
   crearSolicitudClienteExistente(clienteId,'novedad',0,nota);
 }
+function solicitarProntoPago(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);if(!c)return;
+  if(!aplicaProntoPago(c)){notify('Pronto pago no disponible para este cliente','err');return;}
+  const monto=montoProntoPago(c);
+  if(!confirm(`¿El cliente ${c.nombre} quiere CANCELAR TODO con pronto pago?\n\nDebe entregar: ${fmt(monto)}\n(Capital ${fmt(c.capital)} + ${c.tasaProntoPago}%)\n\nSe enviará una solicitud al admin. NO recibas el dinero hasta que admin confirme.`))return;
+  const nota=prompt(`Nota opcional (ej: "ya me entregó la plata, voy a depositar"):`,'')||'';
+  crearSolicitudClienteExistente(clienteId,'pronto_pago_intencion',monto,nota);
+}
+// ════════════════════════════════════════════════════════════
+// PRONTO PAGO — Helpers (lectura, no muta nada)
+// El cobrador NO ejecuta la cancelación (solo admin), pero ve el estado.
+// ════════════════════════════════════════════════════════════
+function diasDesdeInicio(c){
+  if(!c?.fechaInicio)return 0;
+  const ini=coUTCDateFromKey(c.fechaInicio);
+  const hoyD=coUTCDateFromKey(hoy());
+  return Math.floor((hoyD.getTime()-ini.getTime())/86400000);
+}
+function aplicaProntoPago(c){
+  if(!c)return false;
+  if(c.pagadas>0)return false;
+  if(c.pagadas>=c.numCuotas)return false;
+  if(c.refinanciado===true)return false;
+  if((c.conteoRefinanciaciones||0)>0)return false;
+  if(c.prontoPagoUsado===true)return false;
+  const ventana=c.diasProntoPago||0;
+  if(ventana<=0)return false;
+  const tasaPP=c.tasaProntoPago||0;
+  if(tasaPP<=0||tasaPP>=(c.tasa||20))return false;
+  return diasDesdeInicio(c)<=ventana;
+}
+function diasRestantesProntoPago(c){
+  return Math.max(0,(c.diasProntoPago||0)-diasDesdeInicio(c));
+}
+function montoProntoPago(c){
+  const cap=c.capital||0;
+  const tasaPP=c.tasaProntoPago||10;
+  return cap+Math.round(cap*(tasaPP/100));
+}
+
 function abrirDetalleClienteCobrador(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   const h=hoy(),pag=c.pagadas>=c.numCuotas,m=mora(c),d=diasMora(c),sd=saldo(c);
@@ -1092,7 +1144,14 @@ function abrirDetalleClienteCobrador(id){
     const color=q.fechaISO===h?'var(--gold)':q.fechaISO<h?'var(--red)':'var(--text2)';
     return `<tr><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${q.fecha}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px;font-size:11px;color:${color}">${estado}</td></tr>`;
   }).join(''):'<tr><td colspan="4" style="padding:8px 4px;font-size:11px;color:var(--text3)">Sin cuotas pendientes</td></tr>';
-  const acciones=pag?'<div style="font-size:12px;color:var(--text3);padding:10px 0;text-align:center">Préstamo completado. No hay acciones disponibles.</div>':`
+  const acciones=pag?'<div style="font-size:12px;color:var(--text3);padding:10px 0;text-align:center">Préstamo completado. No hay acciones disponibles.</div>':aplicaProntoPago(c)?`
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px">
+      <button class="btn btn-primary" style="background:var(--gold);color:#0a0a0f;font-weight:700" onclick="solicitarProntoPago('${c.id}')">⚡ Cliente quiere CANCELAR — avisar a admin</button>
+      <button class="btn" style="background:var(--blued);color:var(--blue);border:1px solid rgba(110,179,255,.2)" onclick="solicitarNovedadCliente('${c.id}')">📝 Reportar novedad</button>
+      <div style="background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.25);border-radius:10px;padding:10px;font-size:11px;color:var(--text2);line-height:1.5;margin-top:4px">
+        <strong style="color:var(--red)">🔒 Acciones bloqueadas:</strong> este cliente está en <strong style="color:var(--gold)">pronto pago</strong>. No puedes registrar pagos parciales ni cuotas. Si el cliente decide pagar en cuotas, los botones se habilitarán solos al cumplir los ${c.diasProntoPago||15} días.
+      </div>
+    </div>`:`
     <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px">
       <button class="btn btn-primary" onclick="solicitarCobroAnticipado('${c.id}')">⏩ Solicitar cobro anticipado</button>
       <button class="btn" style="background:var(--amberd);color:var(--amber);border:1px solid rgba(255,170,68,.2)" onclick="solicitarAbonoCliente('${c.id}')">💵 Solicitar abono</button>
@@ -1103,11 +1162,20 @@ function abrirDetalleClienteCobrador(id){
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${c.negocio||'—'}${c.zona?' · '+c.zona:''}${c.telefono?' · 📞 '+c.telefono:''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
       <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
-      <div class="cs"><div class="csl">Cuota actual</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
+      <div class="cs"><div class="csl">Cuota actual</div><div class="csv" style="color:var(--green)">${fmt(cuotaDe(c))}</div></div>
       <div class="cs"><div class="csl">Progreso</div><div class="csv">${c.pagadas}/${c.numCuotas}</div></div>
       <div class="cs"><div class="csl">Mora</div><div class="csv" style="color:${m>0?'var(--red)':'var(--text2)'}">${m>0?fmt(m):'$0'}</div></div>
     </div>
     ${m>0?`<div style="font-size:12px;color:var(--red);margin-bottom:10px">⚠ ${d} día${d!==1?'s':''} en mora</div>`:''}
+    ${aplicaProntoPago(c)?(()=>{
+      const dr=diasRestantesProntoPago(c);
+      const mp=montoProntoPago(c);
+      return `<div style="background:linear-gradient(135deg,rgba(232,197,71,.18),rgba(232,197,71,.04));border:1.5px solid rgba(232,197,71,.4);border-radius:12px;padding:12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--gold);margin-bottom:6px">⚡ CLIENTE EN PRONTO PAGO</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.5">Si el cliente quiere cancelar TODO de una sola vez en los próximos <strong style="color:var(--gold)">${dr} día${dr===1?'':'s'}</strong>, debe pagar <strong style="color:var(--gold)">${fmt(mp)}</strong> (capital + ${c.tasaProntoPago}%).</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">⚠️ El cobrador NO ejecuta esto. Avisa al admin si el cliente quiere acogerse.</div>
+      </div>`;
+    })():''}
     ${pendientes.length?`<div style="background:var(--amberd);border:1px solid rgba(255,170,68,.2);border-radius:10px;padding:10px;font-size:12px;color:var(--amber);margin-bottom:10px">⏳ Tiene ${pendientes.length} solicitud${pendientes.length!==1?'es':''} pendiente${pendientes.length!==1?'s':''} con admin</div>`:''}
     <div class="ct" style="margin-bottom:8px">Próximas fechas de pago</div>
     <div style="overflow-x:auto">
@@ -1130,8 +1198,10 @@ function renderRuta(){
   ruta.forEach(c=>{
     const p=sameCoDate(c.ultimoPago,h);
     const m=mora(c);
-    if(p){cobrado+=c.cuota;countCob++;}
-    else{pendiente+=c.cuota+m;countPend++;}
+    // Si ya pagó, usar cuota del índice anterior (la que se pagó). Si no, próxima cuota.
+    const cuotaEstaSemana=cuotaDe(c,p?Math.max(0,c.pagadas-1):c.pagadas);
+    if(p){cobrado+=cuotaEstaSemana;countCob++;}
+    else{pendiente+=cuotaEstaSemana+m;countPend++;}
     if(m>0&&!p)countMora++;
   });
   document.getElementById('r-pendiente').textContent=fmt(pendiente);
@@ -1157,7 +1227,7 @@ function renderRuta(){
   el.innerHTML=ord.map(c=>{
     const yp=sameCoDate(c.ultimoPago,h);
     const noPagoHoy=!yp&&sameCoDate(c.historialNoPago?.slice(-1)[0]?.fecha,h);
-    const m=mora(c),d=diasMora(c),total=c.cuota+m;
+    const m=mora(c),d=diasMora(c),cuotaReal=cuotaDe(c,c.pagadas),total=cuotaReal+m;
     const graciaOn=graciaActiva(c,h),graciaTxt=graciaLabel(c);
     const mananaKey=addDaysToKey(h,1),mManana=mora(c,mananaKey),graciaManana=graciaActiva(c,mananaKey);
     return`<div class="cobro-card ${yp?'pagado':noPagoHoy?'urgente':m>0?'urgente':''}">
@@ -1174,23 +1244,33 @@ function renderRuta(){
       <div class="cc-meta">
         <span class="badge ${m>0?'br':'bgray'}">Cuota ${c.pagadas+1}/${c.numCuotas}</span>
         ${m>0?`<span class="badge br">⚠ ${d} día${d!==1?'s':''} · ${fmt(m)}</span>`:''}
+        ${aplicaProntoPago(c)?`<span class="badge bgold" style="font-weight:700">⚡ Pronto pago ${diasRestantesProntoPago(c)}d</span>`:''}
         ${graciaOn?`<span class="badge bgold">🛡️ Sin mora hasta ${graciaTxt}</span>`:''}
         ${c.notas?`<span class="badge bgold" style="font-size:10px">📝 ${c.notas.substring(0,20)}${c.notas.length>20?'...':''}</span>`:''}
       </div>
       ${m>0?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        <div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div>
+        <div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(cuotaReal)}</div></div>
         <div class="cs"><div class="csl">Mora ${d}d</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>
       </div>`:graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta el <strong>${graciaTxt}</strong>.</div>`:''}
       ${c.telefono?`<div style="margin-bottom:10px"><a href="tel:${c.telefono}" style="font-size:12px;color:var(--text3);text-decoration:none">📞 ${c.telefono}</a></div>`:''}
-      ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div style="color:var(--text2)">${mManana>0?`Mañana cobrar: <strong style="color:var(--red)">${fmt(c.cuota+mManana)}</strong> (cuota + mora)`:(graciaManana?`Mañana sigue sin mora hasta <strong style="color:#6EB3FF">${graciaTxt}</strong>`:`Mañana cobrar: <strong>${fmt(c.cuota)}</strong> (solo cuota)`)}</div></div>`:''}
-      <button class="pay-btn ${yp?'done':noPagoHoy?'done':'pending'}" ${yp||noPagoHoy?'':'onclick="abrirConfirm(\''+c.id+'\')"'}>
-        ${yp?'✓ Pago registrado':noPagoHoy?'✓ Visita registrada':m>0?'💰 Cobrar cuota + mora':'💰 Marcar como pagado'}
-      </button>
-      ${!yp&&!noPagoHoy?`
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
-          <button onclick="abrirAbonoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">💵 Solicitar abono</button>
-          <button onclick="registrarNoPagoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--red);color:var(--red);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">❌ No pagó</button>
-        </div>`:''}
+      ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div style="color:var(--text2)">${mManana>0?`Mañana cobrar: <strong style="color:var(--red)">${fmt(cuotaReal+mManana)}</strong> (cuota + mora)`:(graciaManana?`Mañana sigue sin mora hasta <strong style="color:#6EB3FF">${graciaTxt}</strong>`:`Mañana cobrar: <strong>${fmt(cuotaReal)}</strong> (solo cuota)`)}</div></div>`:''}
+      ${aplicaProntoPago(c)?`
+        <div style="background:linear-gradient(135deg,rgba(232,197,71,.18),rgba(232,197,71,.04));border:1.5px solid rgba(232,197,71,.4);border-radius:10px;padding:10px;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--gold);margin-bottom:4px">⚡ EN PRONTO PAGO — ${diasRestantesProntoPago(c)} día${diasRestantesProntoPago(c)===1?'':'s'}</div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.4">Si cancela todo: <strong style="color:var(--gold)">${fmt(montoProntoPago(c))}</strong>. NO recibas pagos parciales — avisa al admin.</div>
+        </div>
+        <button class="pay-btn pending" style="background:var(--gold);color:#0a0a0f;font-weight:700" onclick="solicitarProntoPago('${c.id}')">⚡ Cliente quiere CANCELAR — avisar a admin</button>
+        <button class="pay-btn done" disabled style="margin-top:6px;opacity:.4;cursor:not-allowed" title="Bloqueado durante pronto pago">🔒 Marcar como pagado (bloqueado)</button>
+      `:`
+        <button class="pay-btn ${yp?'done':noPagoHoy?'done':'pending'}" ${yp||noPagoHoy?'':'onclick="abrirConfirm(\''+c.id+'\')"'}>
+          ${yp?'✓ Pago registrado':noPagoHoy?'✓ Visita registrada':m>0?'💰 Cobrar cuota + mora':'💰 Marcar como pagado'}
+        </button>
+        ${!yp&&!noPagoHoy?`
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
+            <button onclick="abrirAbonoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">💵 Solicitar abono</button>
+            <button onclick="registrarNoPagoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--red);color:var(--red);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">❌ No pagó</button>
+          </div>`:''}
+      `}
       ${yp&&(c.abonoPendiente||0)>0?`<div style="font-size:11px;color:var(--amber);text-align:center;margin-top:6px">💵 Abono parcial registrado hoy</div>`:''}
       ${c.abonoPendiente>0&&!yp?`<div style="background:var(--amberd);border-radius:8px;padding:7px 10px;margin-top:6px;font-size:12px;color:var(--amber)">Ya abonado: <strong>${fmt(c.abonoPendiente)}</strong> — falta <strong>${fmt(Math.max(0,(c.cuotasData[c.pagadas]?.cuota||c.cuota)+mora(c)-c.abonoPendiente))}</strong></div>`:''}
     </div>`;
@@ -1210,18 +1290,19 @@ function renderTodos(){
     const pendientes=solicitudesPendientesCliente(c.id).length;
     const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
     const badgeSoli=pendientes?`<span class="badge ba">⏳ ${pendientes} solicitud${pendientes!==1?'es':''}</span>`:'';
-    return`<div class="cobro-card" style="margin-bottom:10px;cursor:pointer" onclick="abrirDetalleClienteCobrador('${c.id}')">
+    const badgePP=aplicaProntoPago(c)?`<span class="badge bgold" style="font-weight:700">⚡ Pronto pago ${diasRestantesProntoPago(c)}d</span>`:'';
+    return`<div class="cobro-card" style="margin-bottom:10px;cursor:pointer${aplicaProntoPago(c)?';border:1.5px solid rgba(232,197,71,.4)':''}" onclick="abrirDetalleClienteCobrador('${c.id}')">
       <div class="cc-top" style="margin-bottom:9px">
         <div><div class="cc-name" style="font-size:14px">${c.nombre}</div><div class="cc-det">${c.tipo} · ${c.pagadas}/${c.numCuotas} cuotas</div></div>
-        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">${badge}${badgeSoli}</div>
+        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">${badge}${badgeSoli}${badgePP}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:9px">
         <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
-        <div class="cs"><div class="csl">Cuota</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
+        <div class="cs"><div class="csl">Cuota</div><div class="csv" style="color:var(--green)">${fmt(cuotaDe(c))}</div></div>
       </div>
       <div class="prog"><div class="prog-f" style="width:${pct}%"></div></div>
       <div style="font-size:11px;color:var(--text3);margin-top:8px">Toca la tarjeta para ver próximas fechas y enviar solicitudes.</div>
-      ${!pag&&tieneH&&!yp?`<button class="pay-btn pending" style="margin-top:11px" onclick="event.stopPropagation();abrirConfirm('${c.id}')">💰 Registrar pago</button>`:''}
+      ${!pag&&tieneH&&!yp?(aplicaProntoPago(c)?`<button class="pay-btn done" disabled style="margin-top:11px;opacity:.4;cursor:not-allowed" onclick="event.stopPropagation()">🔒 En pronto pago — abre la ficha</button>`:`<button class="pay-btn pending" style="margin-top:11px" onclick="event.stopPropagation();abrirConfirm('${c.id}')">💰 Registrar pago</button>`):''}
     </div>`;
   }).join('');
 }
@@ -1229,8 +1310,9 @@ function renderTodos(){
 // CONFIRM PAGO
 function abrirConfirm(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(aplicaProntoPago(c)){notify('🔒 Cliente en pronto pago — no puedes registrar pagos. Usa "Avisar a admin"','err');return;}
   pendingPago=id;
-  const m=mora(c),total=c.cuota+m;
+  const m=mora(c),cuotaReal=cuotaDe(c,c.pagadas),total=cuotaReal+m;
   document.getElementById('confirm-nombre').textContent=c.nombre;
   document.getElementById('confirm-amount').textContent=fmt(total);
   document.getElementById('confirm-amount').style.color=m>0?'var(--red)':'var(--green)';
@@ -1244,6 +1326,7 @@ let pendingAbonoCob=null;
 
 function abrirAbonoCobrador(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(aplicaProntoPago(c)){notify('🔒 Cliente en pronto pago — no se aceptan abonos parciales','err');return;}
   pendingAbonoCob=id;
   const m=mora(c);
   const cuotaBase=c.cuotasData[c.pagadas]?.cuota||c.cuota;
@@ -1410,7 +1493,7 @@ async function confirmarPago(){
   const c=clientes.find(x=>x.id===pendingPago);if(!c)return;
   cerrarConfirm();
   if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
-  const m=mora(c),total=c.cuota+m;
+  const m=mora(c),cuotaReal=cuotaDe(c,c.pagadas),total=cuotaReal+m;
   const partes=partesCuotaIndex(c,c.pagadas);
   c.pagadas++;
   if(m>0){
