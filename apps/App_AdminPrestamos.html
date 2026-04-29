@@ -587,6 +587,28 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 </div>
 
 <!-- MODAL CLIENTE -->
+<div class="modal-overlay" id="modal-liquidar" onclick="if(event.target===this)cerrar('modal-liquidar')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">💰 Liquidar préstamo</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Cierra el préstamo cobrando el monto que el cliente paga. Define cuánto es capital, interés y mora.</div>
+    <div id="liq-info" style="margin-bottom:12px"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Monto recibido ($)</label><input type="number" id="liq-monto" step="1000" min="0" oninput="prevLiquidar()"></div>
+      <div class="fg"><label class="fl">→ Capital ($)</label><input type="number" id="liq-capital" step="1000" min="0" oninput="prevLiquidar()"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">→ Interés ($)</label><input type="number" id="liq-interes" step="1000" min="0" oninput="prevLiquidar()"></div>
+      <div class="fg"><label class="fl">→ Mora ($)</label><input type="number" id="liq-mora" step="1000" min="0" oninput="prevLiquidar()"></div>
+    </div>
+    <div class="fg"><label class="fl">Motivo (obligatorio)</label><input type="text" id="liq-motivo" placeholder="Ej: Cliente pagó todo de una, acuerdo de pago..."></div>
+    <div id="liq-prev" style="margin-top:8px"></div>
+    <button class="btn btn-primary" style="margin-top:12px;background:var(--green);color:#0a0a0f" onclick="confirmarLiquidacion()">✅ Confirmar liquidación</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-liquidar')">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL CLIENTE -->
 <div class="modal-overlay" id="modal-cli" onclick="if(event.target===this)cerrar('modal-cli')">
   <div class="modal"><div class="mhandle"></div><div id="modal-cli-body"></div></div>
 </div>
@@ -1629,6 +1651,7 @@ function verCliente(id,soliId=null){
     ${c.telefono?`<a href="https://wa.me/57${c.telefono.replace(/\D/g,'')}" target="_blank" class="wa-btn btn-full" style="justify-content:center;margin-top:4px">💬 WhatsApp al cliente</a>`:''}
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cli');abrirFotos('${c.id}')">📷 Ver / agregar fotos</button>
     <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="abrirAjusteSaldo('${c.id}')">⚖️ Ajuste manual de saldo</button>
+    ${c.pagadas<c.numCuotas?`<button class="btn btn-full" style="margin-top:6px;background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.3)" onclick="abrirLiquidarPrestamo('${c.id}')">💰 Liquidar préstamo (cliente paga todo)</button>`:''}
     ${htmlCiclosCliente(c)}
     ${generarHistorialCliente(c)}
     ${generarSeccionMora(c)}`;
@@ -1908,7 +1931,8 @@ function abrirAjusteSaldo(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   pendingAjuste=id;
   const sd=saldo(c);
-  document.getElementById('ajuste-info').innerHTML=`<strong>${c.nombre}</strong> · Saldo actual: <strong>${fmt(sd)}</strong> · Cuota actual: <strong>${fmt(c.cuotasData?.[c.pagadas]?.cuota||c.cuota)}</strong>`;
+  const abonoP=c.abonoPendiente||0;
+  document.getElementById('ajuste-info').innerHTML=`<strong>${c.nombre}</strong> · Saldo actual: <strong>${fmt(sd)}</strong> · Cuota actual: <strong>${fmt(c.cuotasData?.[c.pagadas]?.cuota||c.cuota)}</strong>${abonoP>0?`<div style="margin-top:8px;padding:8px;background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:12px"><strong>⚠ Abono parcial pendiente: ${fmt(abonoP)}</strong><br>Debes completar la cuota o devolver el abono ANTES de ajustar el saldo. Si ajustas ahora, el sistema bloqueará la operación.</div>`:''}`;
   // Panel del último ajuste (si existe y es revertible)
   const ult=(c.historialAjustes||[]).slice(-1)[0];
   const elUlt=document.getElementById('ajuste-ultimo');
@@ -1968,6 +1992,7 @@ function confirmarAjuste(){
 
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado, no se puede ajustar','err');return;}
   if(!Array.isArray(c.cuotasData)||!c.cuotasData.length){notify('Cliente sin cuotas configuradas','err');return;}
+  if((c.abonoPendiente||0)>0){notify(`No se puede ajustar: hay abono parcial pendiente de ${fmt(c.abonoPendiente)}. Completa o devuelve el abono primero.`,'err');return;}
 
   // Snapshot ANTES del cambio (para historial y posible reversa)
   const snapshot={
@@ -2126,6 +2151,125 @@ function montoProntoPago(c){
 }
 
 // Ejecutar la cancelación con descuento
+// ════════════════════════════════════════════════════════════
+// LIQUIDACIÓN MANUAL — Cierra cualquier préstamo cobrando un monto definido
+// Útil para cuando el cliente paga todo de una y querés cerrar sin importar
+// la fecha ni el estado del préstamo. El admin define cuánto es capital y cuánto interés.
+// ════════════════════════════════════════════════════════════
+let pendingLiquidar=null;
+
+function abrirLiquidarPrestamo(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  if((c.abonoPendiente||0)>0){notify(`Hay abono parcial pendiente de ${fmt(c.abonoPendiente)}. Ciérralo o devuélvelo antes de liquidar.`,'err');return;}
+  pendingLiquidar=id;
+  const sd=saldo(c);
+  const m=mora(c);
+  const capPagado=capitalRecuperadoPagado(c,c.pagadas);
+  const intPagado=interesRealizadoPagado(c,c.pagadas);
+  const capPendiente=Math.max(0,(c.capital||0)-capPagado);
+  const intPendiente=Math.max(0,(c.interes||0)-intPagado);
+  document.getElementById('liq-info').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+      <div class="cs"><div class="csl">Cliente</div><div class="csv">${c.nombre}</div></div>
+      <div class="cs"><div class="csl">Saldo según sistema</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
+      <div class="cs"><div class="csl">Capital pendiente</div><div class="csv">${fmt(capPendiente)}</div></div>
+      <div class="cs"><div class="csl">Interés pendiente</div><div class="csv">${fmt(intPendiente)}</div></div>
+      ${m>0?`<div class="cs" style="grid-column:1/-1"><div class="csl">Mora del día</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>`:''}
+    </div>`;
+  // Pre-llenar con valores sugeridos
+  document.getElementById('liq-monto').value=sd+m;
+  document.getElementById('liq-capital').value=capPendiente;
+  document.getElementById('liq-interes').value=intPendiente;
+  document.getElementById('liq-mora').value=m;
+  document.getElementById('liq-motivo').value='';
+  document.getElementById('liq-prev').innerHTML='';
+  cerrar('modal-cli');
+  document.getElementById('modal-liquidar').classList.add('open');
+  prevLiquidar();
+}
+
+function prevLiquidar(){
+  const monto=parseFloat(document.getElementById('liq-monto').value)||0;
+  const cap=parseFloat(document.getElementById('liq-capital').value)||0;
+  const int=parseFloat(document.getElementById('liq-interes').value)||0;
+  const mor=parseFloat(document.getElementById('liq-mora').value)||0;
+  const suma=cap+int+mor;
+  const c=clientes.find(x=>x.id===pendingLiquidar);
+  const pct=c?pctCliente(c):40;
+  const comision=Math.round((int+mor)*pct/100);
+  const adminGana=Math.max(0,(int+mor)-comision);
+  const ok=Math.abs(monto-suma)<1;
+  document.getElementById('liq-prev').innerHTML=`
+    <div style="font-size:12px;line-height:1.7;background:${ok?'var(--greend)':'rgba(255,107,107,.12)'};border:1px solid ${ok?'rgba(34,197,94,.3)':'var(--red)'};border-radius:8px;padding:10px">
+      <div style="font-weight:700;color:${ok?'var(--green)':'var(--red)'};margin-bottom:6px">${ok?'✓ Cuadre correcto':`⚠ Desajuste: monto ${fmt(monto)} vs desglose ${fmt(suma)} (diferencia ${fmt(monto-suma)})`}</div>
+      <div>Capital: <strong>${fmt(cap)}</strong> | Interés: <strong>${fmt(int)}</strong>${mor>0?` | Mora: <strong>${fmt(mor)}</strong>`:''}</div>
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+        Comisión cobrador (${pct}%): <strong style="color:var(--gold)">${fmt(comision)}</strong> · Admin: <strong>${fmt(adminGana)}</strong>
+      </div>
+    </div>`;
+}
+
+function confirmarLiquidacion(){
+  const c=clientes.find(x=>x.id===pendingLiquidar);if(!c)return;
+  const monto=parseFloat(document.getElementById('liq-monto').value)||0;
+  const cap=Math.max(0,parseFloat(document.getElementById('liq-capital').value)||0);
+  const int=Math.max(0,parseFloat(document.getElementById('liq-interes').value)||0);
+  const mor=Math.max(0,parseFloat(document.getElementById('liq-mora').value)||0);
+  const motivo=document.getElementById('liq-motivo').value.trim();
+  if(monto<=0){notify('Monto inválido','err');return;}
+  if(!motivo){notify('El motivo es obligatorio','err');return;}
+  const suma=cap+int+mor;
+  if(Math.abs(monto-suma)>=1){notify(`El desglose no cuadra: ${fmt(suma)} ≠ ${fmt(monto)}`,'err');return;}
+
+  // 1. Registrar mora si hay
+  if(mor>0){
+    registrarEventoMora(c,'cobrada',mor,`Cobrada en liquidación: ${motivo}`,'Admin');
+    c.moraPerdonada=(c.moraPerdonada||0)+mor;
+    c.moraCobradaTotal=(c.moraCobradaTotal||0)+mor;
+  }
+
+  // 2. Actualizar c.total y c.interes a lo realmente cobrado (capital ya pagado + lo de hoy)
+  const capPagadoAntes=capitalRecuperadoPagado(c,c.pagadas);
+  const intPagadoAntes=interesRealizadoPagado(c,c.pagadas);
+  c.total=capPagadoAntes+intPagadoAntes+cap+int;
+  c.interes=Math.max(0,c.total-c.capital);
+  c.descuentoAplicado=((c.interes_original||c.interes)+(c.cuotasData?.reduce((s,q)=>s+(q.interes||0),0)-intPagadoAntes-int))||0;
+
+  // 3. Marcar todas las cuotas como pagadas
+  c.pagadas=c.numCuotas;
+  c.abonoPendiente=0;
+  c.moraBaseDate=null;
+  c.ultimoPago=coDateTimeISO();
+  c.liquidadoManual=true;
+  c.liquidadoManualFecha=coDateTimeISO();
+  c.liquidadoManualMotivo=motivo;
+
+  // 4. Caja: registrar capital, interés y mora cobrados
+  if(cap>0)registrarCajaAuto('recuperacion_capital',cap,`Recuperación capital ${c.nombre} · liquidación`,`liquidar:${c.id}:capital:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+  if(int>0)registrarCajaAuto('interes_cobrado',int,`Interés cobrado ${c.nombre} · liquidación: ${motivo}`,`liquidar:${c.id}:interes:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+  if(mor>0)registrarCajaAuto('mora_cobrada',mor,`Mora cobrada ${c.nombre} · liquidación`,`liquidar:${c.id}:mora:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+
+  // 5. Comisión sobre interés y mora del día
+  if(int>0||mor>0){
+    registrarComisionEventoCliente(c,{interes:int,mora:mor,autor:'Admin',nota:`Liquidación manual: ${motivo}`});
+  }
+
+  save();
+  log({tipo:'liquidacion_manual',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`${motivo} · cap ${fmt(cap)} + int ${fmt(int)}${mor>0?' + mora '+fmt(mor):''}`});
+  notify(`${c.nombre} liquidado ✓ Recibido ${fmt(monto)}`,'ok');
+  cerrar('modal-liquidar');
+  pendingLiquidar=null;
+  renderClientes();renderInicio();renderCaja();
+
+  // Ofrecer nuevo ciclo
+  setTimeout(()=>{
+    if(confirm(`✅ ${c.nombre} pagó todo (liquidación manual).\n¿Crear un nuevo ciclo de préstamo?`)){
+      abrirNuevoCiclo(c.id);
+    }
+  },300);
+}
+
 function cancelarConDescuento(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   if(!aplicaProntoPago(c)){notify('Pronto pago no aplica para este cliente','err');return;}
