@@ -1386,7 +1386,7 @@ async function confirmarAbonoCobrador(){
   cerrarAbono();
 
   if(v>=totalDeber){
-    // Pago completo — marcar cuota como pagada
+    // PASO 1: Cubre la primera cuota (con mora si hay)
     const sobrante=v-totalDeber;
     if(m>0){
       if(!c.historialMora)c.historialMora=[];
@@ -1395,11 +1395,37 @@ async function confirmarAbonoCobrador(){
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
     }
     c.pagadas++;
-    c.abonoPendiente=sobrante>0?sobrante:0;
+    c.abonoPendiente=0; // se consume al completar
     c.moraBaseDate=null;
     c.ultimoPago=coDateTimeISO();
     const partes=partesCuotaIndex(c,c.pagadas-1);
     registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Cobrador',nota:`Abono completo cuota ${c.pagadas}/${c.numCuotas}`});
+
+    // PASO 2: Iterar cubriendo cuotas adicionales si hay sobrante
+    let restante=sobrante;
+    let cuotasExtraCubiertas=0;
+    const cuotasExtraEventos=[]; // para registrar caja después del update
+    while(restante>0&&c.pagadas<c.numCuotas){
+      const sigCuota=c.cuotasData[c.pagadas]?.cuota||c.cuota;
+      if(sigCuota<=0)break;
+      if(restante>=sigCuota){
+        const cNo=c.pagadas+1;
+        const p=partesCuotaIndex(c,c.pagadas);
+        c.pagadas++;
+        restante-=sigCuota;
+        cuotasExtraCubiertas++;
+        registrarComisionEventoCliente(c,{interes:p.interes,mora:0,autor:'Cobrador',nota:`Abono completo cuota ${cNo}/${c.numCuotas} (sobrante)`});
+        cuotasExtraEventos.push({cuotaNo:cNo,partes:p});
+      } else {
+        c.abonoPendiente=restante;
+        const dp=deltaDesgloseAbono(c,restante);
+        if(dp.interesDelta>0)registrarComisionEventoCliente(c,{interes:dp.interesDelta,mora:0,autor:'Cobrador',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
+        cuotasExtraEventos.push({parcial:true,delta:dp,nroCuota:c.pagadas+1});
+        restante=0;
+      }
+    }
+    const excedente=restante; // si todavía queda después de cubrir todo
+
     try{
       await db.ref('clientes/'+c.id).update({
         pagadas:c.pagadas,ultimoPago:c.ultimoPago,
@@ -1410,22 +1436,32 @@ async function confirmarAbonoCobrador(){
         comisionEventos:c.comisionEventos||[],
         moraBaseDate:null
       });
-      // BUGFIX: registrar en caja
-      const cuotaNo=c.pagadas;
+      const cuotaNo=c.pagadas-cuotasExtraCubiertas;
+      // Registrar caja de la primera cuota (cubierta por totalDeber)
       await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
       await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
       if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
-      if(sobrante>0)await registrarCajaCobrador('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono_cob:${c.id}:${cuotaNo}:sobr`, {clienteId:c.id, cliente:c.nombre});
-      await db.ref('actividad').push({tipo:'pago',cliente:c.nombre,monto:v,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',nota:m>0?`abono completo + mora ${fmt(m)}`:'abono completo'});
+      // Registrar caja de cuotas extra cubiertas
+      for(const ev of cuotasExtraEventos){
+        if(ev.parcial){
+          if(ev.delta.capitalDelta>0)await registrarCajaCobrador('recuperacion_capital', ev.delta.capitalDelta, `Capital parcial ${c.nombre}`, `abono_cob:${c.id}:${ev.nroCuota}:cap_parcial:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+          if(ev.delta.interesDelta>0)await registrarCajaCobrador('interes_cobrado', ev.delta.interesDelta, `Interés parcial ${c.nombre}`, `abono_cob:${c.id}:${ev.nroCuota}:int_parcial:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+        } else {
+          await registrarCajaCobrador('recuperacion_capital', ev.partes.capital, `Capital ${c.nombre} · cuota ${ev.cuotaNo}`, `abono_cob:${c.id}:${ev.cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
+          await registrarCajaCobrador('interes_cobrado', ev.partes.interes, `Interés ${c.nombre} · cuota ${ev.cuotaNo}`, `abono_cob:${c.id}:${ev.cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
+        }
+      }
+      if(excedente>0)await registrarCajaCobrador('abono_adelantado', excedente, `Excedente ${c.nombre} (préstamo completo)`, `abono_cob:${c.id}:exceso:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+      const notaActividad=cuotasExtraCubiertas>0?`abono cubrió ${1+cuotasExtraCubiertas} cuotas`:(m>0?`abono completo + mora ${fmt(m)}`:'abono completo');
+      await db.ref('actividad').push({tipo:'pago',cliente:c.nombre,monto:v,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',nota:notaActividad});
       const cobro={id:c.id,nombre:c.nombre,monto:v,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||''};
       cobrosHoy.push(cobro);
       localStorage.setItem('cobros_hoy',JSON.stringify(cobrosHoy));
-      // WhatsApp recibo
       const msg=encodeURIComponent(buildWAMsg(c,c.pagadas,v,m));
       const waUrl=c.telefono?`https://wa.me/57${c.telefono.replace(/\D/g,'')}?text=${msg}`:'#';
       document.getElementById('wa-recibo').href=waUrl;
       document.getElementById('wa-recibo').style.display=c.telefono?'inline-flex':'none';
-      document.getElementById('success-sub').textContent=`${c.nombre} · ${fmt(v)}`;
+      document.getElementById('success-sub').textContent=`${c.nombre} · ${fmt(v)}${cuotasExtraCubiertas>0?' ('+(1+cuotasExtraCubiertas)+' cuotas)':''}`;
       document.getElementById('success-overlay').classList.add('open');
       if(navigator.vibrate)navigator.vibrate([80,40,80]);
       setTimeout(()=>{

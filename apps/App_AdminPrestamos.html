@@ -1650,6 +1650,7 @@ function verCliente(id,soliId=null){
     ${c.pagadas>=c.numCuotas?`<button class="btn btn-green btn-full" style="margin-top:4px" onclick="abrirNuevoCiclo('${c.id}')">🔄 Crear nuevo ciclo</button>`:''}
     ${c.telefono?`<a href="https://wa.me/57${c.telefono.replace(/\D/g,'')}" target="_blank" class="wa-btn btn-full" style="justify-content:center;margin-top:4px">💬 WhatsApp al cliente</a>`:''}
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cli');abrirFotos('${c.id}')">📷 Ver / agregar fotos</button>
+    ${esClienteLegacyMalFormado(c)?`<div style="margin-top:10px;padding:12px;background:rgba(255,170,68,.12);border:1px solid var(--amber);border-radius:10px"><div style="font-weight:700;color:var(--amber);margin-bottom:6px">⚠ Cliente legacy mal formado</div><div style="font-size:12px;color:var(--text2);margin-bottom:8px">Este cliente fue migrado con numCuotas:1 (estructura vieja). Eso causa errores al cobrar o ajustar. Normalízalo antes de cualquier operación.</div><button class="btn btn-full" style="background:var(--amber);color:#000;font-weight:700" onclick="abrirNormalizarLegacy('${c.id}')">🔧 Normalizar a cuotas reales</button></div>`:''}
     <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="abrirAjusteSaldo('${c.id}')">⚖️ Ajuste manual de saldo</button>
     ${c.pagadas<c.numCuotas?`<button class="btn btn-full" style="margin-top:6px;background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.3)" onclick="abrirLiquidarPrestamo('${c.id}')">💰 Liquidar préstamo (cliente paga todo)</button>`:''}
     ${htmlCiclosCliente(c)}
@@ -1993,6 +1994,7 @@ function confirmarAjuste(){
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado, no se puede ajustar','err');return;}
   if(!Array.isArray(c.cuotasData)||!c.cuotasData.length){notify('Cliente sin cuotas configuradas','err');return;}
   if((c.abonoPendiente||0)>0){notify(`No se puede ajustar: hay abono parcial pendiente de ${fmt(c.abonoPendiente)}. Completa o devuelve el abono primero.`,'err');return;}
+  if(esClienteLegacyMalFormado(c)){notify('Cliente legacy mal formado: normalízalo primero antes de ajustar','err');return;}
 
   // Snapshot ANTES del cambio (para historial y posible reversa)
   const snapshot={
@@ -2157,6 +2159,68 @@ function montoProntoPago(c){
 // la fecha ni el estado del préstamo. El admin define cuánto es capital y cuánto interés.
 // ════════════════════════════════════════════════════════════
 let pendingLiquidar=null;
+
+// ════════════════════════════════════════════════════════════
+// NORMALIZAR CLIENTE LEGACY — Repara clientes migrados con numCuotas:1
+// que en realidad son préstamos de N cuotas. Necesario porque la migración
+// inicial dejó algunos clientes con cuotasData de 1 sola fila gigante.
+// ════════════════════════════════════════════════════════════
+function esClienteLegacyMalFormado(c){
+  if(!c)return false;
+  if(c.numCuotas!==1)return false;
+  if(!c.cuotasData||c.cuotasData.length!==1)return false;
+  // Si la "cuota" es muy grande comparada con el capital, es legacy mal formado
+  const cuotaUnica=c.cuotasData[0]?.cuota||0;
+  if(cuotaUnica<(c.capital||0))return false;
+  return true;
+}
+
+function abrirNormalizarLegacy(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(!esClienteLegacyMalFormado(c)){notify('Cliente ya está normalizado','ok');return;}
+  // Sugerir plazo basado en tipoLabel o default 15
+  const plazoSugerido=c.plazo||c.numCuotasOriginal||15;
+  const nuevoPlazo=parseInt(prompt(
+    `Cliente legacy detectado: ${c.nombre}\n\n`+
+    `Capital: ${fmt(c.capital)} · Total: ${fmt(c.total)} · Interés: ${fmt(c.interes)}\n\n`+
+    `Pagado hasta ahora: ${c.pagadas} de ${c.numCuotas} cuotas (legacy)\n\n`+
+    `¿En cuántas cuotas debería estar dividido este préstamo?\n`+
+    `(este es el plazo original real, NO 1)`,
+    plazoSugerido
+  ));
+  if(!nuevoPlazo||nuevoPlazo<2){notify('Plazo inválido','err');return;}
+  if(!confirm(
+    `Se va a normalizar ${c.nombre}:\n\n`+
+    `• numCuotas: 1 → ${nuevoPlazo}\n`+
+    `• cuotasData se regenerará con ${nuevoPlazo} cuotas\n`+
+    `• pagadas se ajustará a 0 (cliente desde el principio)\n\n`+
+    `Las comisiones y caja YA registradas NO se tocan.\n`+
+    `Continuar?`
+  ))return;
+
+  // Regenerar cuotasData con el plazo correcto
+  const tipo=c.tipo||'diario';
+  const fecha=c.fechaInicio||hoy();
+  const rd=c.redondeo||1000;
+  const {arr,total,cuota,cuotaUltima,interes}=genCuotas(c.capital,c.tasa||20,nuevoPlazo,tipo,fecha,rd);
+  c.numCuotas=nuevoPlazo;
+  c.plazo=nuevoPlazo;
+  c.cuota=cuota;
+  c.cuotaUltima=cuotaUltima;
+  c.cuotasData=arr;
+  c.total=total;
+  c.interes=interes;
+  c.pagadas=0;
+  c.abonoPendiente=0;
+  c.normalizadoLegacy=true;
+  c.normalizadoLegacyFecha=coDateTimeISO();
+
+  save();
+  log({tipo:'normalizacion_legacy',cliente:c.nombre,ts:Date.now(),autor:'Admin',nota:`Migrado de numCuotas:1 a ${nuevoPlazo}`});
+  notify(`${c.nombre} normalizado a ${nuevoPlazo} cuotas ✓`,'ok');
+  cerrar('modal-cli');
+  renderClientes();renderInicio();
+}
 
 function abrirLiquidarPrestamo(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
@@ -2479,7 +2543,7 @@ function confirmarAbono(){
   const totalDeber=cuotaBase+m-(c.abonoPendiente||0);
 
   if(monto>=totalDeber){
-    // Cubre todo → cuota pagada
+    // PASO 1: Cubre la primera cuota (con mora si hay)
     const sobrante=monto-totalDeber;
     if(m>0){
       registrarEventoMora(c,'cobrada',m,`Cobrada via abono — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
@@ -2489,21 +2553,53 @@ function confirmarAbono(){
     const cuotaNo=c.pagadas+1;
     const partes=partesCuotaIndex(c,c.pagadas);
     c.pagadas++;
-    c.abonoPendiente=sobrante>0?sobrante:0;
-    c.moraBaseDate=null; // limpiar — la cuota quedó pagada
+    c.abonoPendiente=0; // se consume al completar la cuota
+    c.moraBaseDate=null;
     c.ultimoPago=coDateTimeISO();
     registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Abono completo cuota ${cuotaNo}/${c.numCuotas}`});
     registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
     registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
     if(m>0)registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
-    if(sobrante>0)registrarCajaAuto('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono:${c.id}:${cuotaNo}:sobrante`, {clienteId:c.id, cliente:c.nombre});
-    const msg=sobrante>0
-      ?`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}. Sobrante ${fmt(sobrante)} a la siguiente`
-      :`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}`;
+
+    // PASO 2: Si quedó sobrante, ITERAR cubriendo cuotas adicionales completas
+    let restante=sobrante;
+    let cuotasExtraCubiertas=0;
+    while(restante>0&&c.pagadas<c.numCuotas){
+      const sigCuota=c.cuotasData[c.pagadas]?.cuota||c.cuota;
+      if(sigCuota<=0)break;
+      if(restante>=sigCuota){
+        // Cubre la cuota completa
+        const cNo=c.pagadas+1;
+        const p=partesCuotaIndex(c,c.pagadas);
+        c.pagadas++;
+        restante-=sigCuota;
+        cuotasExtraCubiertas++;
+        registrarComisionEventoCliente(c,{interes:p.interes,mora:0,autor:'Admin',nota:`Abono completo cuota ${cNo}/${c.numCuotas} (sobrante)`});
+        registrarCajaAuto('recuperacion_capital', p.capital, `Recuperación capital ${c.nombre} · cuota ${cNo}`, `abono:${c.id}:${cNo}:capital`, {clienteId:c.id, cliente:c.nombre});
+        registrarCajaAuto('interes_cobrado', p.interes, `Interés cobrado ${c.nombre} · cuota ${cNo}`, `abono:${c.id}:${cNo}:interes`, {clienteId:c.id, cliente:c.nombre});
+      } else {
+        // Resto queda como abono pendiente parcial sobre la siguiente cuota
+        c.abonoPendiente=restante;
+        const deltaPartes=deltaDesgloseAbono(c,restante);
+        if(deltaPartes.capitalDelta>0)registrarCajaAuto('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono:${c.id}:${c.pagadas+1}:capital_parcial:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+        if(deltaPartes.interesDelta>0)registrarCajaAuto('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono:${c.id}:${c.pagadas+1}:interes_parcial:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+        if(deltaPartes.interesDelta>0)registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:0,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
+        restante=0;
+      }
+    }
+    // Si todavía queda restante (todas las cuotas cubiertas, sobrepago)
+    if(restante>0){
+      registrarCajaAuto('abono_adelantado', restante, `Abono excedente ${c.nombre} (préstamo ya completo)`, `abono:${c.id}:exceso:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+      notify(`⚠ Préstamo ya completo. Excedente ${fmt(restante)} registrado en caja como abono adelantado`,'warn');
+    }
+
+    const msg=cuotasExtraCubiertas>0
+      ?`Cubiertas ${1+cuotasExtraCubiertas} cuotas (${c.pagadas}/${c.numCuotas} pagadas)${m>0?' + mora '+fmt(m):''}${c.abonoPendiente>0?'. Pendiente parcial '+fmt(c.abonoPendiente):''}`
+      :(c.abonoPendiente>0?`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}. Sobrante ${fmt(c.abonoPendiente)} a la siguiente`:`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}`);
     log({tipo:'abono',cliente:c.nombre,monto,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:msg});
     notify(`${msg} ✓`,'ok');
   } else {
-    // Abono parcial — primero cubre mora de hoy, resto va a cuota
+    // Abono parcial (no llega a cubrir 1 cuota)
     const abonoEnMora=Math.min(monto,m);
     const abonoEnCuota=monto-abonoEnMora;
     if(abonoEnMora>0){
@@ -2521,7 +2617,7 @@ function confirmarAbono(){
     if(deltaPartes.interesDelta>0||abonoEnMora>0){
       registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:abonoEnMora,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
     }
-    c.moraBaseDate=hoy(); // mora reinicia desde hoy → mañana suma 1 día nuevo
+    c.moraBaseDate=hoy();
     c.ultimoPago=coDateTimeISO();
     const faltaBase=cuotaBase-c.abonoPendiente;
     const nota=`Abono ${fmt(monto)}${abonoEnMora>0?' (incluye mora '+fmt(abonoEnMora)+')':''} — cuota base falta ${fmt(Math.max(0,faltaBase))}`;
