@@ -1179,8 +1179,12 @@ function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom){
   // Cuota redondeada al alza al múltiplo más cercano
   const cuotaExacta=total/plazo;
   const cuota=rd>1?Math.ceil(cuotaExacta/rd)*rd:Math.round(cuotaExacta);
-  // Última cuota = lo que realmente queda (puede ser menor o igual)
-  const cuotaUltima=Math.max(rd,total-(cuota*(plazo-1)));
+  // Última cuota = lo que realmente queda para que la suma cuadre EXACTA con el total
+  // BUGFIX: Si el redondeo hacia arriba genera que (plazo-1)*cuota > total,
+  // la última cuota puede ser MENOR que el redondeo (incluso 0 si las primeras ya cubren todo).
+  // No se debe forzar a "rd" mínimo porque eso descuadra la contabilidad.
+  const cuotaUltimaCalculada=total-(cuota*(plazo-1));
+  const cuotaUltima=Math.max(0,cuotaUltimaCalculada);
   // Días entre cuotas: personalizado o fijo según tipo
   const dxc=diasCustom||(tipo==='personalizado'?diasEntreCuotas(tipo):DIAS[tipo]||1);
   // BUGFIX: usar UTC para evitar desfase de fechas según TZ del navegador
@@ -1189,13 +1193,15 @@ function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom){
     const f=new Date(ini);f.setUTCDate(ini.getUTCDate()+i*dxc);
     const esFinal=i===plazo;
     const cq=esFinal?Math.round(cuotaUltima):cuota;
+    // Capital e interés por cuota proporcional al monto de la cuota (para que cuadre)
+    const proporcion=total>0?cq/total:0;
     arr.push({
       num:i,
       fecha:labelFromUTCDate(f),
       fechaISO:keyFromUTCDate(f),
       cuota:cq,
-      capital:Math.round(capital/plazo),
-      interes:Math.round(int/plazo),
+      capital:Math.round(capital*proporcion),
+      interes:Math.max(0,cq-Math.round(capital*proporcion)),
       saldo:Math.round(Math.max(0,total-cuota*(i-1)-cq))
     });
   }
