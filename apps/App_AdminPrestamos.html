@@ -276,10 +276,6 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <input type="date" id="n-gracia">
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Si lo llenas, al cliente no se le cobra mora hasta esa fecha inclusive. Útil para pactar pagos 2-3 días después de lo normal.</div>
     </div>
-    <div class="fr">
-      <div class="fg"><label class="fl">⚡ Días pronto pago</label><input type="number" id="n-dias-pronto" value="15" min="0" max="365" step="1"><div style="font-size:11px;color:var(--text3);margin-top:4px">Si cancela TODO antes de N días, se le cobra solo 10% en vez de la tasa normal. Pon 0 para desactivar.</div></div>
-      <div class="fg"><label class="fl">⚡ Tasa pronto pago (%)</label><input type="number" id="n-tasa-pronto" value="10" min="0" max="100" step="1"><div style="font-size:11px;color:var(--text3);margin-top:4px">Tasa con descuento. Default: 10%.</div></div>
-    </div>
     <div class="fg">
       <label class="fl">% comisión cobrador <span style="color:var(--text3);font-weight:400;text-transform:none">(deja vacío para usar el global)</span></label>
       <input type="number" id="n-comision" placeholder="Ej: 40  — o vacío para usar global" min="0" max="100" step="5">
@@ -563,7 +559,6 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="mhandle"></div>
     <div class="mtitle">⚖️ Ajuste manual de saldo</div>
     <div id="ajuste-info" class="ibox blue" style="margin-bottom:12px"></div>
-    <div id="ajuste-ultimo" style="margin-bottom:12px"></div>
     <div class="fr">
       <div class="fg">
         <label class="fl">Tipo de ajuste</label>
@@ -583,28 +578,6 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div id="ajuste-prev" class="ibox amber" style="margin-top:8px"></div>
     <button class="btn btn-primary" onclick="confirmarAjuste()" style="margin-top:12px">✅ Aplicar ajuste</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-ajuste')">Cancelar</button>
-  </div>
-</div>
-
-<!-- MODAL CLIENTE -->
-<div class="modal-overlay" id="modal-liquidar" onclick="if(event.target===this)cerrar('modal-liquidar')">
-  <div class="modal">
-    <div class="mhandle"></div>
-    <div class="mtitle">💰 Liquidar préstamo</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Cierra el préstamo cobrando el monto que el cliente paga. Define cuánto es capital, interés y mora.</div>
-    <div id="liq-info" style="margin-bottom:12px"></div>
-    <div class="fr">
-      <div class="fg"><label class="fl">Monto recibido ($)</label><input type="number" id="liq-monto" step="1000" min="0" oninput="prevLiquidar()"></div>
-      <div class="fg"><label class="fl">→ Capital ($)</label><input type="number" id="liq-capital" step="1000" min="0" oninput="prevLiquidar()"></div>
-    </div>
-    <div class="fr">
-      <div class="fg"><label class="fl">→ Interés ($)</label><input type="number" id="liq-interes" step="1000" min="0" oninput="prevLiquidar()"></div>
-      <div class="fg"><label class="fl">→ Mora ($)</label><input type="number" id="liq-mora" step="1000" min="0" oninput="prevLiquidar()"></div>
-    </div>
-    <div class="fg"><label class="fl">Motivo (obligatorio)</label><input type="text" id="liq-motivo" placeholder="Ej: Cliente pagó todo de una, acuerdo de pago..."></div>
-    <div id="liq-prev" style="margin-top:8px"></div>
-    <button class="btn btn-primary" style="margin-top:12px;background:var(--green);color:#0a0a0f" onclick="confirmarLiquidacion()">✅ Confirmar liquidación</button>
-    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-liquidar')">Cancelar</button>
   </div>
 </div>
 
@@ -697,6 +670,20 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div id="abono-prev" style="font-size:13px;color:var(--text2);min-height:20px;margin-bottom:12px"></div>
     <button class="btn btn-primary" onclick="confirmarAbono()">💵 Registrar abono</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-abono')">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL EXTENSIÓN INTERÉS -->
+<div class="modal-overlay" id="modal-extension" onclick="if(event.target===this)cerrar('modal-extension')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">💳 Solo interés — Extensión</div>
+    <div id="ext-info" style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6"></div>
+    <div class="fg"><label class="fl">Monto recibido hoy ($)</label><input type="number" id="ext-monto" placeholder="0" step="1000" min="0" oninput="prevExtension()"></div>
+    <div class="fg"><label class="fl">Próxima fecha de pago</label><input type="date" id="ext-fecha"></div>
+    <div id="ext-prev" style="font-size:13px;color:var(--text2);min-height:40px;margin-bottom:12px;background:var(--bg3);border-radius:8px;padding:8px 10px;line-height:1.8"></div>
+    <button class="btn btn-primary" onclick="confirmarExtensionInteres()">💳 Registrar extensión</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-extension')">Cancelar</button>
   </div>
 </div>
 
@@ -797,7 +784,7 @@ function graciaLabel(c){return c&&c.graciaHasta?labelFromUTCDate(coUTCDateFromKe
 function graciaActiva(c,refKey){refKey=refKey||hoy();return !!(c&&c.graciaHasta)&&refKey<=c.graciaHasta;}
 
 const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
-let db=null,fbOk=false,clientes=[],actividad=[],caja=[],liquidaciones=[],pendingRefin=null,pendingAbono=null;
+let db=null,fbOk=false,clientes=[],actividad=[],caja=[],liquidaciones=[],pendingRefin=null,pendingAbono=null,pendingExtension=null;
 const PIN_KEY='cr_pin_admin';
 const NOTIF_KEY='cr_admin_notif_enabled';
 let pinBuf='',pinMode='check';
@@ -1179,12 +1166,8 @@ function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom){
   // Cuota redondeada al alza al múltiplo más cercano
   const cuotaExacta=total/plazo;
   const cuota=rd>1?Math.ceil(cuotaExacta/rd)*rd:Math.round(cuotaExacta);
-  // Última cuota = lo que realmente queda para que la suma cuadre EXACTA con el total
-  // BUGFIX: Si el redondeo hacia arriba genera que (plazo-1)*cuota > total,
-  // la última cuota puede ser MENOR que el redondeo (incluso 0 si las primeras ya cubren todo).
-  // No se debe forzar a "rd" mínimo porque eso descuadra la contabilidad.
-  const cuotaUltimaCalculada=total-(cuota*(plazo-1));
-  const cuotaUltima=Math.max(0,cuotaUltimaCalculada);
+  // Última cuota = lo que realmente queda (puede ser menor o igual)
+  const cuotaUltima=Math.max(rd,total-(cuota*(plazo-1)));
   // Días entre cuotas: personalizado o fijo según tipo
   const dxc=diasCustom||(tipo==='personalizado'?diasEntreCuotas(tipo):DIAS[tipo]||1);
   // BUGFIX: usar UTC para evitar desfase de fechas según TZ del navegador
@@ -1193,15 +1176,13 @@ function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom){
     const f=new Date(ini);f.setUTCDate(ini.getUTCDate()+i*dxc);
     const esFinal=i===plazo;
     const cq=esFinal?Math.round(cuotaUltima):cuota;
-    // Capital e interés por cuota proporcional al monto de la cuota (para que cuadre)
-    const proporcion=total>0?cq/total:0;
     arr.push({
       num:i,
       fecha:labelFromUTCDate(f),
       fechaISO:keyFromUTCDate(f),
       cuota:cq,
-      capital:Math.round(capital*proporcion),
-      interes:Math.max(0,cq-Math.round(capital*proporcion)),
+      capital:Math.round(capital/plazo),
+      interes:Math.round(int/plazo),
       saldo:Math.round(Math.max(0,total-cuota*(i-1)-cq))
     });
   }
@@ -1226,11 +1207,9 @@ function crearPrestamo(){
   const diasCustom=tipo==='personalizado'?parseInt(document.getElementById('n-dias-custom')?.value)||3:null;
   const graciaHastaRaw=(document.getElementById('n-gracia')?.value||'').trim();
   const graciaHasta=graciaHastaRaw||null;
-  const diasProntoPago=Math.max(0,parseInt(document.getElementById('n-dias-pronto')?.value)||0);
-  const tasaProntoPago=Math.max(0,parseFloat(document.getElementById('n-tasa-pronto')?.value)||10);
   const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
-  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,diasProntoPago,tasaProntoPago,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],creado:coDateTimeISO()};
+  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],creado:coDateTimeISO()};
   clientes.push(c);save();
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
   log({tipo:'nuevo',cliente:nombre,monto:capital,ts:Date.now(),autor:'Admin'});
@@ -1630,23 +1609,8 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
-    ${aplicaProntoPago(c)?(()=>{
-      const mp=montoProntoPago(c);
-      const dr=diasRestantesProntoPago(c);
-      return `<div style="background:linear-gradient(135deg,var(--goldd),rgba(232,197,71,.04));border:1.5px solid var(--goldb);border-radius:var(--r);padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-          <div style="font-size:12px;font-weight:700;color:var(--gold)">⚡ PRONTO PAGO DISPONIBLE</div>
-          <span class="badge bgold" style="font-size:10px">${dr} día${dr===1?'':'s'} restante${dr===1?'':'s'}</span>
-        </div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Si cancela TODO hoy se le cobra ${c.tasaProntoPago}% en vez de ${c.tasa}%. Ahorra ${fmt((c.interes||0)-mp.interes)}.</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
-          <div class="cs"><div class="csl">Total a recibir</div><div class="csv" style="color:var(--gold);font-weight:700">${fmt(mp.totalConMora)}</div></div>
-          <div class="cs"><div class="csl">Vs. cuotas</div><div class="csv">${fmt(c.total||0)}</div></div>
-        </div>
-        <button class="btn btn-primary btn-sm" style="width:100%" onclick="cancelarConDescuento('${c.id}')">⚡ Cancelar con descuento</button>
-      </div>`;
-    })():''}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn btn-blue btn-sm" style="font-size:11px" onclick="abrirExtensionInteres('${c.id}')">💳 Solo interés</button>
       <button class="btn btn-blue btn-sm" onclick="abrirRefin('${c.id}')">🔄 Refinanciar</button>
       <button class="btn btn-ghost btn-sm" onclick="abrirEditarCliente('${c.id}')">✏️ Editar</button>
     </div>
@@ -1656,9 +1620,7 @@ function verCliente(id,soliId=null){
     ${c.pagadas>=c.numCuotas?`<button class="btn btn-green btn-full" style="margin-top:4px" onclick="abrirNuevoCiclo('${c.id}')">🔄 Crear nuevo ciclo</button>`:''}
     ${c.telefono?`<a href="https://wa.me/57${c.telefono.replace(/\D/g,'')}" target="_blank" class="wa-btn btn-full" style="justify-content:center;margin-top:4px">💬 WhatsApp al cliente</a>`:''}
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cli');abrirFotos('${c.id}')">📷 Ver / agregar fotos</button>
-    ${esClienteLegacyMalFormado(c)?`<div style="margin-top:10px;padding:12px;background:rgba(255,170,68,.12);border:1px solid var(--amber);border-radius:10px"><div style="font-weight:700;color:var(--amber);margin-bottom:6px">⚠ Cliente legacy mal formado</div><div style="font-size:12px;color:var(--text2);margin-bottom:8px">Este cliente fue migrado con numCuotas:1 (estructura vieja). Eso causa errores al cobrar o ajustar. Normalízalo antes de cualquier operación.</div><button class="btn btn-full" style="background:var(--amber);color:#000;font-weight:700" onclick="abrirNormalizarLegacy('${c.id}')">🔧 Normalizar a cuotas reales</button></div>`:''}
     <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="abrirAjusteSaldo('${c.id}')">⚖️ Ajuste manual de saldo</button>
-    ${c.pagadas<c.numCuotas?`<button class="btn btn-full" style="margin-top:6px;background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.3)" onclick="abrirLiquidarPrestamo('${c.id}')">💰 Liquidar préstamo (cliente paga todo)</button>`:''}
     ${htmlCiclosCliente(c)}
     ${generarHistorialCliente(c)}
     ${generarSeccionMora(c)}`;
@@ -1674,8 +1636,7 @@ function infoSolicitudAdmin(s){
     cobro_anticipado:{label:'Cobro anticipado',icon:'⏩',color:'var(--gold)'},
     abono:{label:'Abono',icon:'💵',color:'var(--amber)'},
     novedad:{label:'Novedad',icon:'📝',color:'var(--blue)'},
-    renovacion:{label:'Renovación de ciclo',icon:'🔄',color:'var(--green)'},
-    pronto_pago_intencion:{label:'⚡ Cliente quiere cancelar (pronto pago)',icon:'⚡',color:'var(--gold)'}
+    renovacion:{label:'Renovación de ciclo',icon:'🔄',color:'var(--green)'}
   }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
 }
 function resolverSolicitudAdmin(soliId,estado='aprobado',accionAdmin='',notaAdmin=''){
@@ -1735,11 +1696,6 @@ function renderSolicitudesAdmin(){
       :tipo==='renovacion'
       ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
           <button class="btn btn-green btn-sm" onclick="procesarSolicitudRenovacion('${s.id}')">🔄 Crear ciclo</button>
-          <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
-        </div>`
-      :tipo==='pronto_pago_intencion'
-      ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
-          <button class="btn btn-sm" style="background:var(--gold);color:#0a0a0f;font-weight:700" onclick="ejecutarProntoPagoDesdeSolicitud('${s.id}')">⚡ Liquidar con descuento</button>
           <button class="btn btn-red btn-sm" onclick="rechazarSolicitud('${s.id}')">❌ Rechazar</button>
         </div>`
       :`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
@@ -1938,25 +1894,7 @@ function abrirAjusteSaldo(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   pendingAjuste=id;
   const sd=saldo(c);
-  const abonoP=c.abonoPendiente||0;
-  document.getElementById('ajuste-info').innerHTML=`<strong>${c.nombre}</strong> · Saldo actual: <strong>${fmt(sd)}</strong> · Cuota actual: <strong>${fmt(c.cuotasData?.[c.pagadas]?.cuota||c.cuota)}</strong>${abonoP>0?`<div style="margin-top:8px;padding:8px;background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:12px"><strong>⚠ Abono parcial pendiente: ${fmt(abonoP)}</strong><br>Debes completar la cuota o devolver el abono ANTES de ajustar el saldo. Si ajustas ahora, el sistema bloqueará la operación.</div>`:''}`;
-  // Panel del último ajuste (si existe y es revertible)
-  const ult=(c.historialAjustes||[]).slice(-1)[0];
-  const elUlt=document.getElementById('ajuste-ultimo');
-  if(ult&&ult.cuotasDataAntes){
-    elUlt.innerHTML=`
-      <div style="background:var(--amberd);border:1px solid rgba(255,170,68,.25);border-radius:10px;padding:10px;font-size:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <strong style="color:var(--amber)">Último ajuste: ${ult.tipoLabel} ${fmt(ult.monto)}</strong>
-          <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px" onclick="revertirUltimoAjuste('${c.id}')">↶ Revertir</button>
-        </div>
-        <div style="color:var(--text2);font-size:11px">${ult.motivo} · ${ult.fecha?.split('T')[0]||''}</div>
-      </div>`;
-  } else if(ult){
-    elUlt.innerHTML=`<div style="font-size:11px;color:var(--text3);text-align:center">Hay ajustes anteriores (versión antigua, no revertibles)</div>`;
-  } else {
-    elUlt.innerHTML='';
-  }
+  document.getElementById('ajuste-info').innerHTML=`<strong>${c.nombre}</strong> · Saldo actual: <strong>${fmt(sd)}</strong>`;
   document.getElementById('ajuste-monto').value='';
   document.getElementById('ajuste-motivo').value='';
   document.getElementById('ajuste-prev').innerHTML='';
@@ -1970,22 +1908,10 @@ function prevAjuste(){
   const tipo=document.getElementById('ajuste-tipo').value;
   if(!monto){document.getElementById('ajuste-prev').innerHTML='';return;}
   const sd=saldo(c);
-  const delta=tipo==='cargo'?monto:-monto;
-  const nuevoSaldo=Math.max(0,sd+delta);
-  const N=Math.max(0,c.numCuotas-c.pagadas);
-  const cuotaActual=c.cuotasData?.[c.pagadas]?.cuota||c.cuota||0;
-  let cuotaNueva=0;
-  if(N>0&&nuevoSaldo>0){
-    const rd=c.redondeo||1000;
-    cuotaNueva=rd>1?Math.floor((nuevoSaldo/N)/rd)*rd:Math.floor(nuevoSaldo/N);
-  }
+  const nuevoSaldo=tipo==='cargo'?sd+monto:Math.max(0,sd-monto);
   const diferencia=tipo==='cargo'?'+'+fmt(monto):'-'+fmt(monto);
-  const cap=nuevoSaldo===0?' <span style="color:var(--green)">→ préstamo se cerrará</span>':'';
   document.getElementById('ajuste-prev').innerHTML=`
-    <div style="font-size:12px;line-height:1.7">
-      Saldo: <strong>${fmt(sd)}</strong> ${diferencia} = <strong style="color:var(--amber)">${fmt(nuevoSaldo)}</strong>${cap}<br>
-      Cuota: <strong>${fmt(cuotaActual)}</strong> → <strong style="color:var(--gold)">${fmt(cuotaNueva)}</strong> × ${N} cuotas restantes
-    </div>`;
+    Saldo actual: <strong>${fmt(sd)}</strong> ${diferencia} = Nuevo saldo: <strong style="color:var(--amber)">${fmt(nuevoSaldo)}</strong>`;
 }
 
 function confirmarAjuste(){
@@ -1997,406 +1923,31 @@ function confirmarAjuste(){
   if(!motivo){notify('El motivo es obligatorio','err');return;}
   const tipoLabel={descuento:'Descuento',cargo:'Cargo',correccion:'Corrección',acuerdo:'Acuerdo especial'}[tipo];
 
-  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado, no se puede ajustar','err');return;}
-  if(!Array.isArray(c.cuotasData)||!c.cuotasData.length){notify('Cliente sin cuotas configuradas','err');return;}
-  if((c.abonoPendiente||0)>0){notify(`No se puede ajustar: hay abono parcial pendiente de ${fmt(c.abonoPendiente)}. Completa o devuelve el abono primero.`,'err');return;}
-  if(esClienteLegacyMalFormado(c)){notify('Cliente legacy mal formado: normalízalo primero antes de ajustar','err');return;}
-
-  // Snapshot ANTES del cambio (para historial y posible reversa)
-  const snapshot={
-    fecha:coDateTimeISO(),tipo,tipoLabel,monto,motivo,autor:'Admin',
-    totalAntes:c.total,interesAntes:c.interes,cuotaAntes:c.cuota,
-    cuotasDataAntes:JSON.parse(JSON.stringify(c.cuotasData)),
-    abonoPendienteAntes:c.abonoPendiente||0,
-    pagadasAntes:c.pagadas
-  };
-
-  // Pendientes ANTES del ajuste
-  const pendientesIdx=c.cuotasData.map((_,i)=>i).filter(i=>i>=c.pagadas);
-  const totalPendienteAntes=pendientesIdx.reduce((s,i)=>s+(c.cuotasData[i].cuota||0),0);
-
-  // Cargo: SUMA al saldo. Descuento/corrección/acuerdo: RESTAN del saldo.
-  const delta=tipo==='cargo'?monto:-monto;
-  let nuevoTotalPendiente=totalPendienteAntes+delta;
-
-  // Salvavidas: si descuento es mayor al saldo, lo capamos
-  if(nuevoTotalPendiente<0){
-    const exceso=-nuevoTotalPendiente;
-    notify(`Descuento mayor al saldo. Se aplicó solo ${fmt(monto-exceso)} (saldo era ${fmt(totalPendienteAntes)})`,'warn');
-    nuevoTotalPendiente=0;
-  }
-
-  // Recalcular cuotas pendientes: dividir nuevoTotalPendiente entre N cuotas restantes
-  // Usar FLOOR en cuota base para garantizar que la suma NUNCA supere el saldo nuevo
-  // La última cuota absorbe el residuo (puede ser mayor que las demás)
-  const N=pendientesIdx.length;
-  if(nuevoTotalPendiente===0){
-    pendientesIdx.forEach(i=>{
-      c.cuotasData[i].cuota=0;
-      c.cuotasData[i].capital=0;
-      c.cuotasData[i].interes=0;
-    });
-    c.pagadas=c.numCuotas;
-    c.abonoPendiente=0;
+  // Aplicar el ajuste modificando las cuotas pendientes
+  // Si es descuento: reducir abonoPendiente (suma al ya abonado)
+  // Si es cargo: agregar al saldo pendiente como cuota extra en moraPerdonada negativa
+  if(tipo==='cargo'){
+    // Añadir como mora adicional (cargo)
+    if(!c.historialAjustes)c.historialAjustes=[];
+    c.historialAjustes.push({fecha:coDateTimeISO(),tipo,tipoLabel,monto,motivo,autor:'Admin'});
+    // Restar de moraPerdonada para que aparezca como mora adicional
+    c.moraPerdonada=(c.moraPerdonada||0)-monto;
   } else {
-    const rd=c.redondeo||1000;
-    const cuotaBase=rd>1?Math.floor((nuevoTotalPendiente/N)/rd)*rd:Math.floor(nuevoTotalPendiente/N);
-    const ultimaCuota=Math.max(0,nuevoTotalPendiente-cuotaBase*(N-1));
-    // Capital ya recuperado en cuotas pagadas (suma de q.capital de las pagadas)
-    const capitalPagado=c.cuotasData.slice(0,c.pagadas).reduce((s,q)=>s+(parseFloat(q.capital)||0),0);
-    const capitalPendiente=Math.max(0,(c.capital||0)-capitalPagado);
-    // Interés pendiente = nuevoTotalPendiente - capitalPendiente (puede ser negativo si descuento muy grande)
-    const interesPendiente=Math.max(0,nuevoTotalPendiente-capitalPendiente);
-    // Para cada cuota pendiente: distribuir capital e interés proporcionalmente al monto de la cuota
-    pendientesIdx.forEach((i,k)=>{
-      const cuotaK=k===N-1?ultimaCuota:cuotaBase;
-      c.cuotasData[i].cuota=cuotaK;
-      // Proporción de esta cuota respecto al total pendiente
-      const proporcion=nuevoTotalPendiente>0?cuotaK/nuevoTotalPendiente:0;
-      c.cuotasData[i].capital=Math.round(capitalPendiente*proporcion);
-      c.cuotasData[i].interes=Math.max(0,cuotaK-c.cuotasData[i].capital);
-    });
-    while(c.abonoPendiente>=(c.cuotasData[c.pagadas]?.cuota||Infinity)&&c.pagadas<c.numCuotas){
-      c.abonoPendiente-=c.cuotasData[c.pagadas].cuota;
+    // Descuento/corrección/acuerdo: aumentar abonoPendiente
+    if(!c.historialAjustes)c.historialAjustes=[];
+    c.historialAjustes.push({fecha:coDateTimeISO(),tipo,tipoLabel,monto,motivo,autor:'Admin'});
+    c.abonoPendiente=(c.abonoPendiente||0)+monto;
+    // Si el abono cubre la cuota completa, marcarla como pagada
+    while(c.abonoPendiente>=c.cuota&&c.pagadas<c.numCuotas){
       c.pagadas++;
+      c.abonoPendiente-=c.cuota;
     }
   }
-
-  // Actualizar KPIs globales del préstamo
-  // total = capital + interés efectivo. Acá el ajuste cambia el total directamente.
-  c.total=(c.total||0)+delta;
-  c.interes=Math.max(0,c.total-c.capital);
-  // c.cuota se usa como referencia "monto típico" — actualizamos a la nueva cuota base
-  if(N>0&&nuevoTotalPendiente>0){
-    c.cuota=c.cuotasData[c.pagadas]?.cuota||c.cuota;
-    c.cuotaUltima=c.cuotasData[c.numCuotas-1]?.cuota||c.cuotaUltima;
-  }
-
-  // Historial con snapshot completo (permite revertir)
-  if(!c.historialAjustes)c.historialAjustes=[];
-  c.historialAjustes.push(snapshot);
-
-  // Si fue cargo, registrar en caja como ingreso pendiente; si descuento, NO mover caja
-  // (descuento no es egreso real, es una rebaja contable)
-  // Comisión: si descuento afecta interés cobrable, NO se ajusta retroactivamente
-  // (se mantiene la comisión sobre lo efectivamente cobrado al pagar las cuotas)
-
   save();
-  log({tipo:'ajuste_saldo',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',
-       nota:`${tipoLabel}: ${motivo} · saldo ${fmt(totalPendienteAntes)} → ${fmt(nuevoTotalPendiente)}`});
-  notify(`${tipoLabel} de ${fmt(monto)} aplicado a ${c.nombre} ✓ Cuotas recalculadas a ${fmt(c.cuota)}`,'ok');
+  log({tipo:'ajuste_saldo',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`${tipoLabel}: ${motivo}`});
+  notify(`${tipoLabel} de ${fmt(monto)} aplicado a ${c.nombre} ✓`,'ok');
   cerrar('modal-ajuste');
   renderClientes();renderInicio();
-}
-
-// Revertir el último ajuste manual (deshacer)
-function revertirUltimoAjuste(id){
-  const c=clientes.find(x=>x.id===id);if(!c)return;
-  const h=c.historialAjustes||[];
-  if(!h.length){notify('Sin ajustes para revertir','err');return;}
-  const ult=h[h.length-1];
-  if(!ult.cuotasDataAntes){notify('Este ajuste es de versión antigua, no se puede revertir automáticamente','err');return;}
-  if(!confirm(`¿Revertir el último ajuste?\n\n${ult.tipoLabel}: ${fmt(ult.monto)} (${ult.motivo})\nFecha: ${ult.fecha}\n\nEsto restaurará el estado anterior del préstamo.`))return;
-  c.cuotasData=JSON.parse(JSON.stringify(ult.cuotasDataAntes));
-  c.total=ult.totalAntes;
-  c.interes=ult.interesAntes;
-  c.cuota=ult.cuotaAntes;
-  c.cuotaUltima=c.cuotasData[c.numCuotas-1]?.cuota||c.cuotaUltima;
-  c.abonoPendiente=ult.abonoPendienteAntes;
-  c.pagadas=ult.pagadasAntes;
-  h.pop();
-  save();
-  log({tipo:'ajuste_revertido',cliente:c.nombre,monto:ult.monto,ts:Date.now(),autor:'Admin',
-       nota:`Revertido ${ult.tipoLabel}: ${ult.motivo}`});
-  notify(`Ajuste revertido para ${c.nombre} ✓`,'ok');
-  cerrar('modal-cli');
-  renderClientes();renderInicio();
-}
-
-// ════════════════════════════════════════════════════════════
-// PRONTO PAGO — Cancelación anticipada con tasa reducida
-// ════════════════════════════════════════════════════════════
-// Días transcurridos desde fechaInicio (UTC Colombia)
-function diasDesdeInicio(c){
-  if(!c?.fechaInicio)return 0;
-  const ini=coUTCDateFromKey(c.fechaInicio);
-  const hoyD=coUTCDateFromKey(hoy());
-  return Math.floor((hoyD.getTime()-ini.getTime())/86400000);
-}
-
-// ¿Aplica pronto pago HOY? Reglas duras:
-// - Préstamo activo, no refinanciado, sin cuotas pagadas todavía
-// - Días transcurridos <= ventana configurada
-// - Ventana > 0 y tasa pronto pago < tasa normal
-function aplicaProntoPago(c){
-  if(!c)return false;
-  if(c.pagadas>0)return false;
-  if(c.pagadas>=c.numCuotas)return false;
-  if(c.refinanciado===true)return false;
-  if((c.conteoRefinanciaciones||0)>0)return false;
-  if(c.prontoPagoUsado===true)return false;
-  const ventana=c.diasProntoPago||0;
-  if(ventana<=0)return false;
-  const tasaPP=c.tasaProntoPago||0;
-  if(tasaPP<=0||tasaPP>=(c.tasa||20))return false;
-  return diasDesdeInicio(c)<=ventana;
-}
-
-// Días que faltan para que venza la ventana (>= 0)
-function diasRestantesProntoPago(c){
-  return Math.max(0,(c.diasProntoPago||0)-diasDesdeInicio(c));
-}
-
-// Monto total a cobrar para liquidar con descuento
-// Como pagadas===0, no hay capital ni interés ya recuperado.
-// Se suma mora pendiente del día (si tiene, aunque normalmente no debería).
-function montoProntoPago(c){
-  const cap=c.capital||0;
-  const tasaPP=c.tasaProntoPago||10;
-  const interesPP=Math.round(cap*(tasaPP/100));
-  const m=mora(c)||0;
-  return {capital:cap,interes:interesPP,total:cap+interesPP,mora:m,totalConMora:cap+interesPP+m};
-}
-
-// Ejecutar la cancelación con descuento
-// ════════════════════════════════════════════════════════════
-// LIQUIDACIÓN MANUAL — Cierra cualquier préstamo cobrando un monto definido
-// Útil para cuando el cliente paga todo de una y querés cerrar sin importar
-// la fecha ni el estado del préstamo. El admin define cuánto es capital y cuánto interés.
-// ════════════════════════════════════════════════════════════
-let pendingLiquidar=null;
-
-// ════════════════════════════════════════════════════════════
-// NORMALIZAR CLIENTE LEGACY — Repara clientes migrados con numCuotas:1
-// que en realidad son préstamos de N cuotas. Necesario porque la migración
-// inicial dejó algunos clientes con cuotasData de 1 sola fila gigante.
-// ════════════════════════════════════════════════════════════
-function esClienteLegacyMalFormado(c){
-  if(!c)return false;
-  if(c.numCuotas!==1)return false;
-  if(!c.cuotasData||c.cuotasData.length!==1)return false;
-  // Si la "cuota" es muy grande comparada con el capital, es legacy mal formado
-  const cuotaUnica=c.cuotasData[0]?.cuota||0;
-  if(cuotaUnica<(c.capital||0))return false;
-  return true;
-}
-
-function abrirNormalizarLegacy(id){
-  const c=clientes.find(x=>x.id===id);if(!c)return;
-  if(!esClienteLegacyMalFormado(c)){notify('Cliente ya está normalizado','ok');return;}
-  // Sugerir plazo basado en tipoLabel o default 15
-  const plazoSugerido=c.plazo||c.numCuotasOriginal||15;
-  const nuevoPlazo=parseInt(prompt(
-    `Cliente legacy detectado: ${c.nombre}\n\n`+
-    `Capital: ${fmt(c.capital)} · Total: ${fmt(c.total)} · Interés: ${fmt(c.interes)}\n\n`+
-    `Pagado hasta ahora: ${c.pagadas} de ${c.numCuotas} cuotas (legacy)\n\n`+
-    `¿En cuántas cuotas debería estar dividido este préstamo?\n`+
-    `(este es el plazo original real, NO 1)`,
-    plazoSugerido
-  ));
-  if(!nuevoPlazo||nuevoPlazo<2){notify('Plazo inválido','err');return;}
-  if(!confirm(
-    `Se va a normalizar ${c.nombre}:\n\n`+
-    `• numCuotas: 1 → ${nuevoPlazo}\n`+
-    `• cuotasData se regenerará con ${nuevoPlazo} cuotas\n`+
-    `• pagadas se ajustará a 0 (cliente desde el principio)\n\n`+
-    `Las comisiones y caja YA registradas NO se tocan.\n`+
-    `Continuar?`
-  ))return;
-
-  // Regenerar cuotasData con el plazo correcto
-  const tipo=c.tipo||'diario';
-  const fecha=c.fechaInicio||hoy();
-  const rd=c.redondeo||1000;
-  const {arr,total,cuota,cuotaUltima,interes}=genCuotas(c.capital,c.tasa||20,nuevoPlazo,tipo,fecha,rd);
-  c.numCuotas=nuevoPlazo;
-  c.plazo=nuevoPlazo;
-  c.cuota=cuota;
-  c.cuotaUltima=cuotaUltima;
-  c.cuotasData=arr;
-  c.total=total;
-  c.interes=interes;
-  c.pagadas=0;
-  c.abonoPendiente=0;
-  c.normalizadoLegacy=true;
-  c.normalizadoLegacyFecha=coDateTimeISO();
-
-  save();
-  log({tipo:'normalizacion_legacy',cliente:c.nombre,ts:Date.now(),autor:'Admin',nota:`Migrado de numCuotas:1 a ${nuevoPlazo}`});
-  notify(`${c.nombre} normalizado a ${nuevoPlazo} cuotas ✓`,'ok');
-  cerrar('modal-cli');
-  renderClientes();renderInicio();
-}
-
-function abrirLiquidarPrestamo(id){
-  const c=clientes.find(x=>x.id===id);if(!c)return;
-  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
-  if((c.abonoPendiente||0)>0){notify(`Hay abono parcial pendiente de ${fmt(c.abonoPendiente)}. Ciérralo o devuélvelo antes de liquidar.`,'err');return;}
-  pendingLiquidar=id;
-  const sd=saldo(c);
-  const m=mora(c);
-  const capPagado=capitalRecuperadoPagado(c,c.pagadas);
-  const intPagado=interesRealizadoPagado(c,c.pagadas);
-  const capPendiente=Math.max(0,(c.capital||0)-capPagado);
-  const intPendiente=Math.max(0,(c.interes||0)-intPagado);
-  document.getElementById('liq-info').innerHTML=`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
-      <div class="cs"><div class="csl">Cliente</div><div class="csv">${c.nombre}</div></div>
-      <div class="cs"><div class="csl">Saldo según sistema</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
-      <div class="cs"><div class="csl">Capital pendiente</div><div class="csv">${fmt(capPendiente)}</div></div>
-      <div class="cs"><div class="csl">Interés pendiente</div><div class="csv">${fmt(intPendiente)}</div></div>
-      ${m>0?`<div class="cs" style="grid-column:1/-1"><div class="csl">Mora del día</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>`:''}
-    </div>`;
-  // Pre-llenar con valores sugeridos
-  document.getElementById('liq-monto').value=sd+m;
-  document.getElementById('liq-capital').value=capPendiente;
-  document.getElementById('liq-interes').value=intPendiente;
-  document.getElementById('liq-mora').value=m;
-  document.getElementById('liq-motivo').value='';
-  document.getElementById('liq-prev').innerHTML='';
-  cerrar('modal-cli');
-  document.getElementById('modal-liquidar').classList.add('open');
-  prevLiquidar();
-}
-
-function prevLiquidar(){
-  const monto=parseFloat(document.getElementById('liq-monto').value)||0;
-  const cap=parseFloat(document.getElementById('liq-capital').value)||0;
-  const int=parseFloat(document.getElementById('liq-interes').value)||0;
-  const mor=parseFloat(document.getElementById('liq-mora').value)||0;
-  const suma=cap+int+mor;
-  const c=clientes.find(x=>x.id===pendingLiquidar);
-  const pct=c?pctCliente(c):40;
-  const comision=Math.round((int+mor)*pct/100);
-  const adminGana=Math.max(0,(int+mor)-comision);
-  const ok=Math.abs(monto-suma)<1;
-  document.getElementById('liq-prev').innerHTML=`
-    <div style="font-size:12px;line-height:1.7;background:${ok?'var(--greend)':'rgba(255,107,107,.12)'};border:1px solid ${ok?'rgba(34,197,94,.3)':'var(--red)'};border-radius:8px;padding:10px">
-      <div style="font-weight:700;color:${ok?'var(--green)':'var(--red)'};margin-bottom:6px">${ok?'✓ Cuadre correcto':`⚠ Desajuste: monto ${fmt(monto)} vs desglose ${fmt(suma)} (diferencia ${fmt(monto-suma)})`}</div>
-      <div>Capital: <strong>${fmt(cap)}</strong> | Interés: <strong>${fmt(int)}</strong>${mor>0?` | Mora: <strong>${fmt(mor)}</strong>`:''}</div>
-      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
-        Comisión cobrador (${pct}%): <strong style="color:var(--gold)">${fmt(comision)}</strong> · Admin: <strong>${fmt(adminGana)}</strong>
-      </div>
-    </div>`;
-}
-
-function confirmarLiquidacion(){
-  const c=clientes.find(x=>x.id===pendingLiquidar);if(!c)return;
-  const monto=parseFloat(document.getElementById('liq-monto').value)||0;
-  const cap=Math.max(0,parseFloat(document.getElementById('liq-capital').value)||0);
-  const int=Math.max(0,parseFloat(document.getElementById('liq-interes').value)||0);
-  const mor=Math.max(0,parseFloat(document.getElementById('liq-mora').value)||0);
-  const motivo=document.getElementById('liq-motivo').value.trim();
-  if(monto<=0){notify('Monto inválido','err');return;}
-  if(!motivo){notify('El motivo es obligatorio','err');return;}
-  const suma=cap+int+mor;
-  if(Math.abs(monto-suma)>=1){notify(`El desglose no cuadra: ${fmt(suma)} ≠ ${fmt(monto)}`,'err');return;}
-
-  // 1. Registrar mora si hay
-  if(mor>0){
-    registrarEventoMora(c,'cobrada',mor,`Cobrada en liquidación: ${motivo}`,'Admin');
-    c.moraPerdonada=(c.moraPerdonada||0)+mor;
-    c.moraCobradaTotal=(c.moraCobradaTotal||0)+mor;
-  }
-
-  // 2. Actualizar c.total y c.interes a lo realmente cobrado (capital ya pagado + lo de hoy)
-  const capPagadoAntes=capitalRecuperadoPagado(c,c.pagadas);
-  const intPagadoAntes=interesRealizadoPagado(c,c.pagadas);
-  c.total=capPagadoAntes+intPagadoAntes+cap+int;
-  c.interes=Math.max(0,c.total-c.capital);
-  c.descuentoAplicado=((c.interes_original||c.interes)+(c.cuotasData?.reduce((s,q)=>s+(q.interes||0),0)-intPagadoAntes-int))||0;
-
-  // 3. Marcar todas las cuotas como pagadas
-  c.pagadas=c.numCuotas;
-  c.abonoPendiente=0;
-  c.moraBaseDate=null;
-  c.ultimoPago=coDateTimeISO();
-  c.liquidadoManual=true;
-  c.liquidadoManualFecha=coDateTimeISO();
-  c.liquidadoManualMotivo=motivo;
-
-  // 4. Caja: registrar capital, interés y mora cobrados
-  if(cap>0)registrarCajaAuto('recuperacion_capital',cap,`Recuperación capital ${c.nombre} · liquidación`,`liquidar:${c.id}:capital:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
-  if(int>0)registrarCajaAuto('interes_cobrado',int,`Interés cobrado ${c.nombre} · liquidación: ${motivo}`,`liquidar:${c.id}:interes:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
-  if(mor>0)registrarCajaAuto('mora_cobrada',mor,`Mora cobrada ${c.nombre} · liquidación`,`liquidar:${c.id}:mora:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
-
-  // 5. Comisión sobre interés y mora del día
-  if(int>0||mor>0){
-    registrarComisionEventoCliente(c,{interes:int,mora:mor,autor:'Admin',nota:`Liquidación manual: ${motivo}`});
-  }
-
-  save();
-  log({tipo:'liquidacion_manual',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`${motivo} · cap ${fmt(cap)} + int ${fmt(int)}${mor>0?' + mora '+fmt(mor):''}`});
-  notify(`${c.nombre} liquidado ✓ Recibido ${fmt(monto)}`,'ok');
-  cerrar('modal-liquidar');
-  pendingLiquidar=null;
-  renderClientes();renderInicio();renderCaja();
-
-  // Ofrecer nuevo ciclo
-  setTimeout(()=>{
-    if(confirm(`✅ ${c.nombre} pagó todo (liquidación manual).\n¿Crear un nuevo ciclo de préstamo?`)){
-      abrirNuevoCiclo(c.id);
-    }
-  },300);
-}
-
-function cancelarConDescuento(id){
-  const c=clientes.find(x=>x.id===id);if(!c)return;
-  if(!aplicaProntoPago(c)){notify('Pronto pago no aplica para este cliente','err');return;}
-  const mp=montoProntoPago(c);
-  const txtConfirm=`¿Liquidar el préstamo de ${c.nombre} con descuento?\n\n`+
-    `Capital: ${fmt(mp.capital)}\n`+
-    `Interés ${c.tasaProntoPago}% (en vez de ${c.tasa}%): ${fmt(mp.interes)}\n`+
-    (mp.mora>0?`Mora pendiente: ${fmt(mp.mora)}\n`:'')+
-    `Total a recibir: ${fmt(mp.totalConMora)}\n\n`+
-    `El préstamo se cierra y NO podrá pagarse en cuotas.`;
-  if(!confirm(txtConfirm))return;
-
-  // Registrar mora pendiente como cobrada (si hay)
-  if(mp.mora>0){
-    registrarEventoMora(c,'cobrada',mp.mora,`Cobrada al cancelar con pronto pago`,'Admin');
-    c.moraPerdonada=(c.moraPerdonada||0)+mp.mora;
-    c.moraCobradaTotal=(c.moraCobradaTotal||0)+mp.mora;
-  }
-
-  // Sobrescribir el cliente como liquidado:
-  // - Recalcular interés total al de pronto pago
-  // - Marcar todas las cuotas como pagadas
-  // - Conservar trazabilidad
-  const interesOriginal=c.interes||0;
-  const totalOriginal=c.total||0;
-  c.interes=mp.interes;
-  c.total=mp.capital+mp.interes;
-  c.descuentoAplicado=interesOriginal-mp.interes;
-  c.prontoPagoUsado=true;
-  c.prontoPagoFecha=coDateTimeISO();
-  c.prontoPagoDiasUsados=diasDesdeInicio(c);
-  c.pagadas=c.numCuotas;          // marcar liquidado
-  c.abonoPendiente=0;
-  c.moraBaseDate=null;
-  c.ultimoPago=coDateTimeISO();
-
-  // Caja: capital + interés con descuento
-  registrarCajaAuto('recuperacion_capital',mp.capital,`Recuperación capital ${c.nombre} · pronto pago`,`pronto_pago:${c.id}:capital`,{clienteId:c.id,cliente:c.nombre});
-  registrarCajaAuto('interes_cobrado',mp.interes,`Interés cobrado ${c.nombre} · pronto pago ${c.tasaProntoPago}%`,`pronto_pago:${c.id}:interes`,{clienteId:c.id,cliente:c.nombre});
-  if(mp.mora>0)registrarCajaAuto('mora_cobrada',mp.mora,`Mora cobrada ${c.nombre} · pronto pago`,`pronto_pago:${c.id}:mora`,{clienteId:c.id,cliente:c.nombre});
-
-  // Comisión: solo sobre el interés efectivamente cobrado
-  registrarComisionEventoCliente(c,{interes:mp.interes,mora:mp.mora,autor:'Admin',nota:`Pronto pago ${c.tasaProntoPago}% (descuento ${fmt(c.descuentoAplicado)})`});
-
-  save();
-  log({tipo:'pronto_pago',cliente:c.nombre,monto:mp.totalConMora,ts:Date.now(),autor:'Admin',nota:`Liquidado con ${c.tasaProntoPago}% — ahorró ${fmt(c.descuentoAplicado)} en interés`});
-  resolverSolicitudActiva('pronto_pago',`Préstamo liquidado con descuento: ${fmt(mp.totalConMora)}`);
-  notify(`${c.nombre} liquidado con descuento ✓ Ahorró ${fmt(c.descuentoAplicado)}`,'ok');
-  cerrar('modal-cli');
-  renderClientes();renderInicio();renderCaja();
-
-  // Ofrecer nuevo ciclo igual que en pago final
-  setTimeout(()=>{
-    if(confirm(`✅ ${c.nombre} terminó de pagar (pronto pago).\n¿Crear un nuevo ciclo de préstamo?`)){
-      abrirNuevoCiclo(c.id);
-    }
-  },300);
 }
 
 // PAGOS
@@ -2405,7 +1956,7 @@ function pagoNormal(id){
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
   const cuotaNo=c.pagadas+1;
   const partes=partesCuotaIndex(c,c.pagadas);
-  c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
+  c.pagadas++;c.moraBaseDate=null;c.graciaHasta=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
   save();
   // Alimentar pool con cuota cobrada
@@ -2549,7 +2100,7 @@ function confirmarAbono(){
   const totalDeber=cuotaBase+m-(c.abonoPendiente||0);
 
   if(monto>=totalDeber){
-    // PASO 1: Cubre la primera cuota (con mora si hay)
+    // Cubre todo → cuota pagada
     const sobrante=monto-totalDeber;
     if(m>0){
       registrarEventoMora(c,'cobrada',m,`Cobrada via abono — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
@@ -2559,53 +2110,21 @@ function confirmarAbono(){
     const cuotaNo=c.pagadas+1;
     const partes=partesCuotaIndex(c,c.pagadas);
     c.pagadas++;
-    c.abonoPendiente=0; // se consume al completar la cuota
-    c.moraBaseDate=null;
+    c.abonoPendiente=sobrante>0?sobrante:0;
+    c.moraBaseDate=null;c.graciaHasta=null; // limpiar — la cuota quedó pagada
     c.ultimoPago=coDateTimeISO();
     registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Abono completo cuota ${cuotaNo}/${c.numCuotas}`});
     registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
     registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
     if(m>0)registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
-
-    // PASO 2: Si quedó sobrante, ITERAR cubriendo cuotas adicionales completas
-    let restante=sobrante;
-    let cuotasExtraCubiertas=0;
-    while(restante>0&&c.pagadas<c.numCuotas){
-      const sigCuota=c.cuotasData[c.pagadas]?.cuota||c.cuota;
-      if(sigCuota<=0)break;
-      if(restante>=sigCuota){
-        // Cubre la cuota completa
-        const cNo=c.pagadas+1;
-        const p=partesCuotaIndex(c,c.pagadas);
-        c.pagadas++;
-        restante-=sigCuota;
-        cuotasExtraCubiertas++;
-        registrarComisionEventoCliente(c,{interes:p.interes,mora:0,autor:'Admin',nota:`Abono completo cuota ${cNo}/${c.numCuotas} (sobrante)`});
-        registrarCajaAuto('recuperacion_capital', p.capital, `Recuperación capital ${c.nombre} · cuota ${cNo}`, `abono:${c.id}:${cNo}:capital`, {clienteId:c.id, cliente:c.nombre});
-        registrarCajaAuto('interes_cobrado', p.interes, `Interés cobrado ${c.nombre} · cuota ${cNo}`, `abono:${c.id}:${cNo}:interes`, {clienteId:c.id, cliente:c.nombre});
-      } else {
-        // Resto queda como abono pendiente parcial sobre la siguiente cuota
-        c.abonoPendiente=restante;
-        const deltaPartes=deltaDesgloseAbono(c,restante);
-        if(deltaPartes.capitalDelta>0)registrarCajaAuto('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono:${c.id}:${c.pagadas+1}:capital_parcial:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
-        if(deltaPartes.interesDelta>0)registrarCajaAuto('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono:${c.id}:${c.pagadas+1}:interes_parcial:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
-        if(deltaPartes.interesDelta>0)registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:0,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
-        restante=0;
-      }
-    }
-    // Si todavía queda restante (todas las cuotas cubiertas, sobrepago)
-    if(restante>0){
-      registrarCajaAuto('abono_adelantado', restante, `Abono excedente ${c.nombre} (préstamo ya completo)`, `abono:${c.id}:exceso:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
-      notify(`⚠ Préstamo ya completo. Excedente ${fmt(restante)} registrado en caja como abono adelantado`,'warn');
-    }
-
-    const msg=cuotasExtraCubiertas>0
-      ?`Cubiertas ${1+cuotasExtraCubiertas} cuotas (${c.pagadas}/${c.numCuotas} pagadas)${m>0?' + mora '+fmt(m):''}${c.abonoPendiente>0?'. Pendiente parcial '+fmt(c.abonoPendiente):''}`
-      :(c.abonoPendiente>0?`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}. Sobrante ${fmt(c.abonoPendiente)} a la siguiente`:`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}`);
+    if(sobrante>0)registrarCajaAuto('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono:${c.id}:${cuotaNo}:sobrante`, {clienteId:c.id, cliente:c.nombre});
+    const msg=sobrante>0
+      ?`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}. Sobrante ${fmt(sobrante)} a la siguiente`
+      :`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}`;
     log({tipo:'abono',cliente:c.nombre,monto,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:msg});
     notify(`${msg} ✓`,'ok');
   } else {
-    // Abono parcial (no llega a cubrir 1 cuota)
+    // Abono parcial — primero cubre mora de hoy, resto va a cuota
     const abonoEnMora=Math.min(monto,m);
     const abonoEnCuota=monto-abonoEnMora;
     if(abonoEnMora>0){
@@ -2623,7 +2142,7 @@ function confirmarAbono(){
     if(deltaPartes.interesDelta>0||abonoEnMora>0){
       registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:abonoEnMora,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
     }
-    c.moraBaseDate=hoy();
+    c.moraBaseDate=hoy(); // mora reinicia desde hoy → mañana suma 1 día nuevo
     c.ultimoPago=coDateTimeISO();
     const faltaBase=cuotaBase-c.abonoPendiente;
     const nota=`Abono ${fmt(monto)}${abonoEnMora>0?' (incluye mora '+fmt(abonoEnMora)+')':''} — cuota base falta ${fmt(Math.max(0,faltaBase))}`;
@@ -2633,6 +2152,82 @@ function confirmarAbono(){
   save();
   resolverSolicitudActiva('abono_registrado',`Abono aplicado por admin: ${fmt(monto)}`);
   cerrar('modal-abono');renderClientes();renderInicio();renderCaja();
+}
+
+// EXTENSIÓN INTERÉS
+function calcularFechaExtension(c){
+  const h=coUTCDateFromKey(hoy());
+  const dias=c.diasCuota||15;
+  const next=new Date(h.getTime()+dias*DAY_MS);
+  const y=next.getUTCFullYear(),m=String(next.getUTCMonth()+1).padStart(2,'0'),d=String(next.getUTCDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function abrirExtensionInteres(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  pendingExtension=id;
+  const m=mora(c);
+  const partes=partesCuotaIndex(c,c.pagadas);
+  document.getElementById('ext-info').innerHTML=
+    `<strong>${c.nombre}</strong> · Cuota ${c.pagadas+1}/${c.numCuotas}<br>`+
+    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">`+
+    `<div class="cs"><div class="csl">Interés cuota</div><div class="csv">${fmt(partes.interes)}</div></div>`+
+    `<div class="cs"><div class="csl">Capital cuota</div><div class="csv">${fmt(partes.capital)}</div></div>`+
+    (m>0?`<div class="cs"><div class="csl">Mora actual</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>`:'')+
+    `</div>`+
+    `<div style="margin-top:8px;font-size:11px;color:var(--text3);background:rgba(110,179,255,.08);border-radius:6px;padding:6px 8px">El cliente paga solo el interés hoy. La cuota completa de <strong>${fmt(partes.cuota)}</strong> queda pendiente para la próxima fecha seleccionada. No se cobra mora.</div>`;
+  document.getElementById('ext-monto').value='';
+  document.getElementById('ext-fecha').value=calcularFechaExtension(c);
+  document.getElementById('ext-prev').innerHTML='';
+  cerrar('modal-cli');
+  document.getElementById('modal-extension').classList.add('open');
+}
+function prevExtension(){
+  const c=clientes.find(x=>x.id===pendingExtension);if(!c)return;
+  const v=parseFloat(document.getElementById('ext-monto').value)||0;
+  if(v<=0){document.getElementById('ext-prev').innerHTML='';return;}
+  const m=mora(c);
+  const moraEnEste=Math.min(v,m);
+  const interesEnEste=Math.max(0,v-moraEnEste);
+  const pct=pctCliente(c);
+  const base=interesEnEste+moraEnEste;
+  const comCob=Math.round(base*pct/100);
+  const comAdmin=Math.max(0,base-comCob);
+  let msg='';
+  if(moraEnEste>0)msg+=`<span style="color:var(--red)">Mora cobrada: <strong>${fmt(moraEnEste)}</strong></span><br>`;
+  msg+=`Interés extensión: <strong>${fmt(interesEnEste)}</strong><br>`;
+  msg+=`<span style="color:var(--green)">Comisión cobrador (${pct}%): <strong>${fmt(comCob)}</strong> · Admin: <strong>${fmt(comAdmin)}</strong></span>`;
+  document.getElementById('ext-prev').innerHTML=msg;
+}
+function confirmarExtensionInteres(){
+  const c=clientes.find(x=>x.id===pendingExtension);if(!c)return;
+  const monto=parseFloat(document.getElementById('ext-monto').value)||0;
+  if(monto<=0){notify('Ingresa el monto recibido','err');return;}
+  const fechaExtension=document.getElementById('ext-fecha').value;
+  if(!fechaExtension){notify('Selecciona la próxima fecha de pago','err');return;}
+  const m=mora(c);
+  const moraEnEste=Math.min(monto,m);
+  const interesEnEste=Math.max(0,monto-moraEnEste);
+  if(moraEnEste>0){
+    registrarEventoMora(c,'cobrada',moraEnEste,`Mora en extensión interés — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
+    c.moraPerdonada=(c.moraPerdonada||0)+moraEnEste;
+    c.moraCobradaTotal=(c.moraCobradaTotal||0)+moraEnEste;
+    registrarCajaAuto('mora_cobrada',moraEnEste,`Mora extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:mora:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+  }
+  if(interesEnEste>0){
+    registrarCajaAuto('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:int:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+  }
+  if(interesEnEste>0||moraEnEste>0){
+    registrarComisionEventoCliente(c,{interes:interesEnEste,mora:moraEnEste,autor:'Admin',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaExtension}`});
+  }
+  c.graciaHasta=fechaExtension;
+  c.moraBaseDate=fechaExtension;
+  c.ultimoPago=coDateTimeISO();
+  log({tipo:'extension_interes',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}. Interés: ${fmt(interesEnEste)}${moraEnEste>0?', Mora: '+fmt(moraEnEste):''}`});
+  notify(`Extensión registrada — próxima cuota: ${fechaExtension} ✓`,'ok');
+  save();
+  cerrar('modal-extension');
+  renderClientes();renderInicio();renderCaja();
 }
 
 // REFINANCIAR
@@ -4282,22 +3877,6 @@ function htmlCiclosCliente(c){
     <span style="color:var(--text3);font-size:16px">›</span>
   </div>`;
   return html;
-}
-
-// Procesar solicitud de pronto pago: valida y ejecuta cancelación con descuento
-function ejecutarProntoPagoDesdeSolicitud(soliId){
-  const s=(window._solicitudes||[]).find(x=>x.id===soliId);
-  if(!s||s.tipoSolicitud!=='pronto_pago_intencion'){notify('Solicitud inválida','err');return;}
-  const c=clientes.find(x=>x.id===s.clienteId);
-  if(!c){notify('Cliente no encontrado','err');return;}
-  if(!aplicaProntoPago(c)){
-    notify(`Pronto pago ya no aplica para ${c.nombre} (venció la ventana, o ya pagó cuotas)`,'err');
-    resolverSolicitudAdmin(soliId,'rechazado','pronto_pago_no_aplica','La ventana de pronto pago expiró o el cliente ya pagó cuotas');
-    return;
-  }
-  window._soliContextoActiva=soliId;
-  cancelarConDescuento(c.id);
-  // resolverSolicitudActiva se dispara dentro de cancelarConDescuento → marca aprobada
 }
 
 // ══════════════════════════════════════════════

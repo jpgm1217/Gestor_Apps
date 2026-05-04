@@ -311,19 +311,6 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <button class="btn btn-primary" onclick="guardarPIN()">🔒 Guardar PIN</button>
   </div>
   <div class="card" style="margin-top:12px">
-    <div class="ct">Seguimiento de no-pago</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Cuando un cliente no paga el día programado, sigue apareciendo en tu ruta los próximos días para que vuelvas a pasar.</div>
-    <div class="fg"><label class="fl">Días que sigue apareciendo</label>
-      <select id="cfg-seguimiento" onchange="setSeguimientoDias(this.value)">
-        <option value="1">1 día</option>
-        <option value="2">2 días</option>
-        <option value="3">3 días</option>
-        <option value="4">4 días</option>
-        <option value="5">5 días</option>
-      </select>
-    </div>
-  </div>
-  <div class="card" style="margin-top:12px">
     <div class="ct">Firebase</div>
     <div style="font-size:13px;color:var(--text2);line-height:1.9">
       Proyecto: <strong style="color:var(--text)">prestamosjv</strong><br>
@@ -384,6 +371,31 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
 </div>
 
+<!-- EXTENSIÓN INTERÉS COBRADOR -->
+<div class="confirm-overlay" id="extension-overlay">
+  <div class="confirm-box" style="width:100%;max-width:340px">
+    <div class="confirm-icon">💳</div>
+    <div class="confirm-title">Solo interés — Extensión</div>
+    <div class="confirm-name" id="ext-cob-nombre">—</div>
+    <div id="ext-cob-desglose" style="width:100%;margin:10px 0;font-size:12px;color:var(--text2);text-align:left;background:var(--bg3);border-radius:10px;padding:10px 12px;line-height:2"></div>
+    <div style="width:100%;margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:6px">¿Cuánto recibiste hoy?</label>
+      <input type="number" id="ext-cob-valor" placeholder="Ej: 20000" step="1000" min="0"
+        style="width:100%;padding:12px;border-radius:10px;border:1.5px solid var(--border2);background:var(--bg3);color:var(--text);font-size:18px;font-weight:700;text-align:center"
+        oninput="prevExtensionCob()">
+      <div id="ext-cob-prev" style="font-size:12px;margin-top:8px;min-height:18px;text-align:center"></div>
+    </div>
+    <div style="width:100%;margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:6px">Próxima fecha de pago</label>
+      <input type="date" id="ext-cob-fecha"
+        style="width:100%;padding:10px;border-radius:10px;border:1.5px solid var(--border2);background:var(--bg3);color:var(--text);font-size:14px;font-weight:600">
+    </div>
+    <div class="confirm-btns">
+      <button class="confirm-no" onclick="cerrarExtensionCob()">Cancelar</button>
+      <button class="confirm-yes" onclick="confirmarExtensionCobrador()" style="background:#6EB3FF">💳 Registrar</button>
+    </div>
+  </div>
+</div>
 
 <!-- DETALLE CLIENTE -->
 <div class="confirm-overlay" id="cliente-overlay" onclick="if(event.target===this)cerrarClienteDetalle()">
@@ -1099,46 +1111,21 @@ function abrirDetalleClienteCobrador(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   const h=hoy(),pag=c.pagadas>=c.numCuotas,m=mora(c),d=diasMora(c),sd=saldo(c);
   const pendientes=(window._misSolicitudes||[]).filter(s=>s.estado==='pendiente'&&s.clienteId===c.id);
-  const renovPendiente=pendientes.find(s=>s.tipoSolicitud==='renovacion');
   const próximas=(c.cuotasData||[]).filter((q,i)=>i>=c.pagadas).slice(0,8);
   const filas=próximas.length?próximas.map(q=>{
     const estado=q.fechaISO===h?'Hoy':q.fechaISO<h?'Vencida':'Pendiente';
     const color=q.fechaISO===h?'var(--gold)':q.fechaISO<h?'var(--red)':'var(--text2)';
     return `<tr><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${q.fecha}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px;font-size:11px;color:${color}">${estado}</td></tr>`;
   }).join(''):'<tr><td colspan="4" style="padding:8px 4px;font-size:11px;color:var(--text3)">Sin cuotas pendientes</td></tr>';
-  // Accesos directos al cliente (siempre visibles)
-  const tel=(c.telefono||'').replace(/\D/g,'');
-  const accesosDirectos=`
-    <div style="display:grid;grid-template-columns:${tel?'1fr 1fr':'1fr'};gap:8px;margin-bottom:12px">
-      ${tel?`<a href="tel:${tel}" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:11px;background:var(--blued);color:var(--blue);border:1px solid rgba(110,179,255,.25);border-radius:10px;text-decoration:none;font-size:13px;font-weight:600">📞 Llamar</a>`:''}
-      ${tel?`<a href="https://wa.me/57${tel}?text=${encodeURIComponent('Hola '+c.nombre+', le saluda su cobrador.')}" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:11px;background:rgba(18,140,126,.15);color:#25D366;border:1px solid rgba(37,211,102,.3);border-radius:10px;text-decoration:none;font-size:13px;font-weight:600">💬 WhatsApp</a>`:'<div style="font-size:12px;color:var(--text3);text-align:center;padding:10px;background:var(--bg3);border-radius:8px">Sin teléfono registrado</div>'}
+  const acciones=pag?'<div style="font-size:12px;color:var(--text3);padding:10px 0;text-align:center">Préstamo completado. No hay acciones disponibles.</div>':`
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px">
+      <button class="btn btn-primary" onclick="solicitarCobroAnticipado('${c.id}')">⏩ Solicitar cobro anticipado</button>
+      <button class="btn" style="background:var(--amberd);color:var(--amber);border:1px solid rgba(255,170,68,.2)" onclick="solicitarAbonoCliente('${c.id}')">💵 Solicitar abono</button>
+      <button class="btn" style="background:var(--blued);color:var(--blue);border:1px solid rgba(110,179,255,.2)" onclick="solicitarNovedadCliente('${c.id}')">📝 Reportar novedad</button>
     </div>`;
-  // Acciones según estado del préstamo
-  let acciones;
-  if(pag){
-    // Cliente completó el préstamo → puede solicitar nuevo ciclo (renovación)
-    acciones=renovPendiente
-      ?`<div style="background:var(--amberd);border:1px solid rgba(255,170,68,.3);border-radius:10px;padding:12px;text-align:center;margin-top:12px">
-          <div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px">⏳ Renovación pendiente</div>
-          <div style="font-size:11px;color:var(--text2)">El admin ya recibió la solicitud${renovPendiente.capitalSolicitado>0?' por '+fmt(renovPendiente.capitalSolicitado):''}.</div>
-        </div>`
-      :`<div style="background:var(--greend);border:1px solid rgba(76,175,80,.25);border-radius:10px;padding:10px;margin-top:12px;margin-bottom:8px">
-          <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:2px">✅ Préstamo completado</div>
-          <div style="font-size:11px;color:var(--text2)">Pagó ${c.pagadas}/${c.numCuotas} cuotas. Puedes solicitar un nuevo préstamo sin volver a llenar los datos.</div>
-        </div>
-        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="solicitarRenovacionRapida('${c.id}')">🔄 Solicitar nuevo préstamo</button>`;
-  } else {
-    acciones=`
-      <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px">
-        <button class="btn btn-primary" onclick="solicitarCobroAnticipado('${c.id}')">⏩ Solicitar cobro anticipado</button>
-        <button class="btn" style="background:var(--amberd);color:var(--amber);border:1px solid rgba(255,170,68,.2)" onclick="solicitarAbonoCliente('${c.id}')">💵 Solicitar abono</button>
-        <button class="btn" style="background:var(--blued);color:var(--blue);border:1px solid rgba(110,179,255,.2)" onclick="solicitarNovedadCliente('${c.id}')">📝 Reportar novedad</button>
-      </div>`;
-  }
   document.getElementById('cliente-detalle-body').innerHTML=`
     <div class="confirm-title" style="margin-bottom:8px">${c.nombre}</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">${c.negocio||'—'}${c.zona?' · '+c.zona:''}${c.telefono?' · '+c.telefono:''}</div>
-    ${accesosDirectos}
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${c.negocio||'—'}${c.zona?' · '+c.zona:''}${c.telefono?' · 📞 '+c.telefono:''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
       <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
       <div class="cs"><div class="csl">Cuota actual</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
@@ -1160,94 +1147,10 @@ function abrirDetalleClienteCobrador(id){
 }
 function cerrarClienteDetalle(){document.getElementById('cliente-overlay').classList.remove('open');}
 
-// ══════════════════════════════════════════════
-// SEGUIMIENTO DE "NO PAGÓ" — clientes que no pagaron siguen visibles 2-3 días
-// ══════════════════════════════════════════════
-const SEGUIMIENTO_DIAS_KEY='cr_seguimiento_dias';
-function getSeguimientoDias(){
-  const v=parseInt(localStorage.getItem(SEGUIMIENTO_DIAS_KEY)||'2',10);
-  return (v>=1&&v<=5)?v:2;
-}
-function setSeguimientoDias(n){
-  const v=Math.max(1,Math.min(5,parseInt(n,10)||2));
-  localStorage.setItem(SEGUIMIENTO_DIAS_KEY,String(v));
-  notify(`Seguimiento ajustado a ${v} día${v!==1?'s':''} ✓`,'ok');
-  renderRuta();
-}
-// Devuelve metadata de seguimiento si el cliente tuvo un "no pagó" reciente
-// dentro de la ventana configurada (1-5 días) y aún no ha pagado.
-function infoSeguimiento(c,h){
-  if(!c.historialNoPago||!c.historialNoPago.length)return null;
-  if(c.pagadas>=c.numCuotas)return null;
-  if(sameCoDate(c.ultimoPago,h))return null;
-  const dias=getSeguimientoDias();
-  const ult=c.historialNoPago[c.historialNoPago.length-1];
-  if(!ult||!ult.fecha)return null;
-  const fechaNoPago=coDateKey(ult.fecha);
-  if(!fechaNoPago||fechaNoPago>=h)return null; // hoy o futuro: ya está en flujo normal
-  // Calcular días transcurridos desde el no-pago
-  let transcurridos=0,cursor=fechaNoPago;
-  while(cursor<h&&transcurridos<10){cursor=addDaysToKey(cursor,1);transcurridos++;}
-  if(transcurridos>dias)return null; // fuera de ventana
-  return {diasDesde:transcurridos,ventana:dias,motivo:ult.motivo||'Sin motivo',fechaOriginal:fechaNoPago};
-}
-// ¿Tiene cuota programada para hoy?
-function tieneCuotaHoy(c,h){
-  return !!(c.cuotasData&&c.cuotasData.some(q=>q.fechaISO===h&&q.num>c.pagadas));
-}
-
-// ══════════════════════════════════════════════
-// RENOVACIÓN RÁPIDA — desde ficha del cliente (sin re-llenar datos)
-// ══════════════════════════════════════════════
-function solicitarRenovacionRapida(clienteId){
-  const c=clientes.find(x=>x.id===clienteId);
-  if(!c){notify('Cliente no encontrado','err');return;}
-  if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
-  if(c.pagadas<c.numCuotas){notify('El cliente aún tiene cuotas pendientes','err');return;}
-  const yaExiste=(window._misSolicitudes||[]).find(
-    x=>x.clienteId===c.id&&x.tipoSolicitud==='renovacion'&&x.estado==='pendiente'
-  );
-  if(yaExiste){notify('Ya hay una solicitud de renovación pendiente para este cliente','err');return;}
-  const montoTxt=prompt(`Nuevo préstamo para ${c.nombre}\n\n¿Qué monto solicita? (anterior: ${fmt(c.capital||0)})`,String(c.capital||0));
-  if(montoTxt===null)return;
-  const monto=parseFloat(String(montoTxt).replace(/[^\d.]/g,''))||0;
-  if(monto<=0){notify('Monto inválido','err');return;}
-  const nota=prompt('Notas para el admin (opcional):','')||'';
-  const soli={
-    id:'soli_'+Date.now(),
-    tipoSolicitud:'renovacion',
-    clienteId:c.id,
-    clienteNombre:c.nombre,
-    nombre:c.nombre,
-    cedula:c.cedula||'',
-    telefono:c.telefono||'',
-    negocio:c.negocio||'',
-    zona:c.zona||'',
-    capitalSolicitado:monto,
-    notas:nota.trim()||`Renovación solicitada por cobrador. Ciclo previo: ${((c.ciclos||[]).length)+1} completado.`,
-    estado:'pendiente',
-    autor:'Cobrador',
-    fecha:coDateTimeISO(),
-    ts:Date.now()
-  };
-  db.ref('solicitudes/'+soli.id).set(soli)
-    .then(()=>{
-      notify(`Renovación de ${c.nombre} enviada al admin ✓`,'ok');
-      cerrarClienteDetalle();
-      renderTodos();
-    })
-    .catch(()=>notify('Error al enviar la solicitud','err'));
-}
-
 // RENDER RUTA
 function renderRuta(){
   const h=hoy();
-  // Incluir clientes con cuota hoy O en seguimiento por no-pago reciente
-  const ruta=clientes.filter(c=>{
-    if(c.esInterno)return false;
-    if(tieneCuotaHoy(c,h))return true;
-    return !!infoSeguimiento(c,h);
-  });
+  const ruta=clientes.filter(c=>!c.esInterno&&c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
   let pendiente=0,cobrado=0,countPend=0,countCob=0,countMora=0;
   ruta.forEach(c=>{
     const p=sameCoDate(c.ultimoPago,h);
@@ -1281,6 +1184,7 @@ function renderRuta(){
     const noPagoHoy=!yp&&sameCoDate(c.historialNoPago?.slice(-1)[0]?.fecha,h);
     const m=mora(c),d=diasMora(c),total=c.cuota+m;
     const graciaOn=graciaActiva(c,h),graciaTxt=graciaLabel(c);
+    const extActiva=!!(c.moraBaseDate&&c.moraBaseDate>h);
     const mananaKey=addDaysToKey(h,1),mManana=mora(c,mananaKey),graciaManana=graciaActiva(c,mananaKey);
     return`<div class="cobro-card ${yp?'pagado':noPagoHoy?'urgente':m>0?'urgente':''}">
       <div class="cc-top">
@@ -1289,29 +1193,31 @@ function renderRuta(){
           <div class="cc-det">${c.negocio||'—'}${c.zona?' · '+c.zona:''}</div>
         </div>
         <div>
-          <div class="cc-amt-lbl">${m>0?'Cuota + mora':graciaOn?'Solo cuota':'A cobrar'}</div>
-          <div class="cc-amt" style="${m>0?'color:var(--red)':''}">${fmt(total)}</div>
+          <div class="cc-amt-lbl">${m>0?'Cuota + mora':extActiva?'Cuota diferida':graciaOn?'Solo cuota':'A cobrar'}</div>
+          <div class="cc-amt" style="${m>0?'color:var(--red)':extActiva?'color:#6EB3FF':''}">${fmt(total)}</div>
         </div>
       </div>
       <div class="cc-meta">
         <span class="badge ${m>0?'br':'bgray'}">Cuota ${c.pagadas+1}/${c.numCuotas}</span>
         ${m>0?`<span class="badge br">⚠ ${d} día${d!==1?'s':''} · ${fmt(m)}</span>`:''}
-        ${graciaOn?`<span class="badge bgold">🛡️ Sin mora hasta ${graciaTxt}</span>`:''}
+        ${extActiva?`<span class="badge" style="background:rgba(110,179,255,.18);color:#6EB3FF">📅 Cuota diferida hasta ${graciaTxt}</span>`:(graciaOn?`<span class="badge bgold">🛡️ Sin mora hasta ${graciaTxt}</span>`:'')}
         ${c.notas?`<span class="badge bgold" style="font-size:10px">📝 ${c.notas.substring(0,20)}${c.notas.length>20?'...':''}</span>`:''}
       </div>
       ${m>0?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
         <div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div>
         <div class="cs"><div class="csl">Mora ${d}d</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>
-      </div>`:graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta el <strong>${graciaTxt}</strong>.</div>`:''}
+      </div>`:extActiva?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">📅 Interés pagado. Cuota completa de <strong>${fmt(c.cuotasData[c.pagadas]?.cuota||c.cuota)}</strong> pendiente — próx. pago: <strong>${graciaTxt}</strong>.</div>`:(graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta el <strong>${graciaTxt}</strong>.</div>`:'')}
+
       ${c.telefono?`<div style="margin-bottom:10px"><a href="tel:${c.telefono}" style="font-size:12px;color:var(--text3);text-decoration:none">📞 ${c.telefono}</a></div>`:''}
       ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div style="color:var(--text2)">${mManana>0?`Mañana cobrar: <strong style="color:var(--red)">${fmt(c.cuota+mManana)}</strong> (cuota + mora)`:(graciaManana?`Mañana sigue sin mora hasta <strong style="color:#6EB3FF">${graciaTxt}</strong>`:`Mañana cobrar: <strong>${fmt(c.cuota)}</strong> (solo cuota)`)}</div></div>`:''}
       <button class="pay-btn ${yp?'done':noPagoHoy?'done':'pending'}" ${yp||noPagoHoy?'':'onclick="abrirConfirm(\''+c.id+'\')"'}>
         ${yp?'✓ Pago registrado':noPagoHoy?'✓ Visita registrada':m>0?'💰 Cobrar cuota + mora':'💰 Marcar como pagado'}
       </button>
       ${!yp&&!noPagoHoy?`
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
-          <button onclick="abrirAbonoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">💵 Solicitar abono</button>
-          <button onclick="registrarNoPagoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--red);color:var(--red);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">❌ No pagó</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px">
+          <button onclick="abrirAbonoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:10px;font-size:11px;font-weight:600;cursor:pointer">💵 Abono</button>
+          <button onclick="abrirExtensionCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid #6EB3FF;color:#6EB3FF;border-radius:10px;font-size:11px;font-weight:600;cursor:pointer">💳 Solo interés</button>
+          <button onclick="registrarNoPagoCobrador('${c.id}')" style="padding:9px;background:transparent;border:1px solid var(--red);color:var(--red);border-radius:10px;font-size:11px;font-weight:600;cursor:pointer">❌ No pagó</button>
         </div>`:''}
       ${yp&&(c.abonoPendiente||0)>0?`<div style="font-size:11px;color:var(--amber);text-align:center;margin-top:6px">💵 Abono parcial registrado hoy</div>`:''}
       ${c.abonoPendiente>0&&!yp?`<div style="background:var(--amberd);border-radius:8px;padding:7px 10px;margin-top:6px;font-size:12px;color:var(--amber)">Ya abonado: <strong>${fmt(c.abonoPendiente)}</strong> — falta <strong>${fmt(Math.max(0,(c.cuotasData[c.pagadas]?.cuota||c.cuota)+mora(c)-c.abonoPendiente))}</strong></div>`:''}
@@ -1330,7 +1236,6 @@ function renderTodos(){
     const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),pag=c.pagadas>=c.numCuotas;
     const yp=sameCoDate(c.ultimoPago,h),tieneH=c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas);
     const pendientes=solicitudesPendientesCliente(c.id).length;
-    const renovPend=(window._misSolicitudes||[]).some(s=>s.estado==='pendiente'&&s.clienteId===c.id&&s.tipoSolicitud==='renovacion');
     const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
     const badgeSoli=pendientes?`<span class="badge ba">⏳ ${pendientes} solicitud${pendientes!==1?'es':''}</span>`:'';
     return`<div class="cobro-card" style="margin-bottom:10px;cursor:pointer" onclick="abrirDetalleClienteCobrador('${c.id}')">
@@ -1345,8 +1250,6 @@ function renderTodos(){
       <div class="prog"><div class="prog-f" style="width:${pct}%"></div></div>
       <div style="font-size:11px;color:var(--text3);margin-top:8px">Toca la tarjeta para ver próximas fechas y enviar solicitudes.</div>
       ${!pag&&tieneH&&!yp?`<button class="pay-btn pending" style="margin-top:11px" onclick="event.stopPropagation();abrirConfirm('${c.id}')">💰 Registrar pago</button>`:''}
-      ${pag&&!renovPend?`<button class="pay-btn pending" style="margin-top:11px;background:var(--green);border-color:var(--green)" onclick="event.stopPropagation();solicitarRenovacionRapida('${c.id}')">🔄 Solicitar nuevo préstamo</button>`:''}
-      ${pag&&renovPend?`<div style="margin-top:11px;padding:8px;background:var(--amberd);border:1px solid rgba(255,170,68,.25);border-radius:8px;font-size:11px;color:var(--amber);text-align:center;font-weight:600">⏳ Renovación pendiente con admin</div>`:''}
     </div>`;
   }).join('');
 }
@@ -1365,7 +1268,7 @@ function abrirConfirm(id){
 function cerrarConfirm(){document.getElementById('confirm-overlay').classList.remove('open');pendingPago=null;}
 
 // ===== ABONO PARCIAL COBRADOR =====
-let pendingAbonoCob=null;
+let pendingAbonoCob=null,pendingExtensionCob=null;
 
 function abrirAbonoCobrador(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
@@ -1392,6 +1295,93 @@ function abrirAbonoCobrador(id){
 function cerrarAbono(){
   document.getElementById('abono-overlay').classList.remove('open');
   pendingAbonoCob=null;
+}
+
+// EXTENSIÓN INTERÉS COBRADOR
+function calcularFechaExtension(c){
+  const h=coUTCDateFromKey(hoy());
+  const dias=c.diasCuota||15;
+  const next=new Date(h.getTime()+dias*DAY_MS);
+  const y=next.getUTCFullYear(),mo=String(next.getUTCMonth()+1).padStart(2,'0'),d=String(next.getUTCDate()).padStart(2,'0');
+  return `${y}-${mo}-${d}`;
+}
+function abrirExtensionCobrador(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  pendingExtensionCob=id;
+  const m=mora(c);
+  const partes=partesCuotaIndex(c,c.pagadas);
+  document.getElementById('ext-cob-nombre').textContent=`${c.nombre} · Cuota ${c.pagadas+1}/${c.numCuotas}`;
+  document.getElementById('ext-cob-desglose').innerHTML=
+    `Interés cuota: <strong>${fmt(partes.interes)}</strong><br>`+
+    (m>0?`Mora actual: <strong style="color:var(--red)">${fmt(m)}</strong><br>`:'')+
+    `<span style="font-size:11px;opacity:.8">La cuota completa (${fmt(partes.cuota)}) queda pendiente para la próxima fecha.</span>`;
+  document.getElementById('ext-cob-valor').value='';
+  document.getElementById('ext-cob-prev').innerHTML='';
+  document.getElementById('ext-cob-fecha').value=calcularFechaExtension(c);
+  document.getElementById('extension-overlay').classList.add('open');
+}
+function cerrarExtensionCob(){
+  document.getElementById('extension-overlay').classList.remove('open');
+  pendingExtensionCob=null;
+}
+function prevExtensionCob(){
+  const c=clientes.find(x=>x.id===pendingExtensionCob);if(!c)return;
+  const v=parseFloat(document.getElementById('ext-cob-valor').value)||0;
+  if(v<=0){document.getElementById('ext-cob-prev').innerHTML='';return;}
+  const m=mora(c);
+  const moraEnEste=Math.min(v,m);
+  const interesEnEste=Math.max(0,v-moraEnEste);
+  const pct=pctCliente(c);
+  const comCob=Math.round((interesEnEste+moraEnEste)*pct/100);
+  let msg='';
+  if(moraEnEste>0)msg+=`<span style="color:var(--red)">Mora: ${fmt(moraEnEste)}</span> · `;
+  msg+=`Interés: ${fmt(interesEnEste)} · `;
+  msg+=`<span style="color:var(--green)">Tu comisión: ${fmt(comCob)}</span>`;
+  document.getElementById('ext-cob-prev').innerHTML=msg;
+}
+async function confirmarExtensionCobrador(){
+  const c=clientes.find(x=>x.id===pendingExtensionCob);if(!c)return;
+  const monto=parseFloat(document.getElementById('ext-cob-valor').value)||0;
+  if(monto<=0){notify('Ingresa el monto recibido','err');return;}
+  const fechaExtension=document.getElementById('ext-cob-fecha').value;
+  if(!fechaExtension){notify('Selecciona la próxima fecha de pago','err');return;}
+  if(!fbOk||!db){notify('Sin conexión Firebase','err');return;}
+  const m=mora(c);
+  const moraEnEste=Math.min(monto,m);
+  const interesEnEste=Math.max(0,monto-moraEnEste);
+  cerrarExtensionCob();
+  if(moraEnEste>0){
+    if(!c.historialMora)c.historialMora=[];
+    c.historialMora.push({fecha:coDateTimeISO(),tipo:'cobrada',monto:moraEnEste,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Mora en extensión interés — cuota ${c.pagadas+1}/${c.numCuotas}`,autor:'Cobrador'});
+    c.moraPerdonada=(c.moraPerdonada||0)+moraEnEste;
+    c.moraCobradaTotal=(c.moraCobradaTotal||0)+moraEnEste;
+  }
+  if(interesEnEste>0||moraEnEste>0){
+    registrarComisionEventoCliente(c,{interes:interesEnEste,mora:moraEnEste,autor:'Cobrador',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaExtension}`});
+  }
+  c.graciaHasta=fechaExtension;
+  c.moraBaseDate=fechaExtension;
+  c.ultimoPago=coDateTimeISO();
+  try{
+    await db.ref('clientes/'+c.id).update({
+      graciaHasta:fechaExtension,
+      moraBaseDate:fechaExtension,
+      moraPerdonada:c.moraPerdonada||0,
+      moraCobradaTotal:c.moraCobradaTotal||0,
+      historialMora:c.historialMora||[],
+      comisionEventos:c.comisionEventos||[],
+      ultimoPago:c.ultimoPago
+    });
+    const stamp=Date.now();
+    if(moraEnEste>0)await registrarCajaCobrador('mora_cobrada',moraEnEste,`Mora extensión ${c.nombre}`,`ext_cob:${c.id}:${c.pagadas+1}:mora:${stamp}`,{clienteId:c.id,cliente:c.nombre});
+    if(interesEnEste>0)await registrarCajaCobrador('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre}`,`ext_cob:${c.id}:${c.pagadas+1}:int:${stamp}`,{clienteId:c.id,cliente:c.nombre});
+    await db.ref('actividad').push({tipo:'extension_interes',cliente:c.nombre,monto,ts:Date.now(),autor:'Cobrador',nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}`});
+    notify(`Extensión registrada — próx. pago: ${fechaExtension} ✓`,'ok');
+    renderRuta();renderTodos();renderDia();
+  }catch(e){
+    console.error(e);notify('Error al registrar','err');
+  }
 }
 
 function prevAbonoCob(){
@@ -1450,7 +1440,8 @@ async function confirmarAbonoCobrador(){
         moraCobradaTotal:c.moraCobradaTotal||0,
         historialMora:c.historialMora||[],
         comisionEventos:c.comisionEventos||[],
-        moraBaseDate:null
+        moraBaseDate:null,
+        graciaHasta:null
       });
       // BUGFIX: registrar en caja
       const cuotaNo=c.pagadas;
@@ -1546,7 +1537,7 @@ async function confirmarPago(){
   c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Cobrador',nota:`Cuota ${c.pagadas}/${c.numCuotas}`});
   try{
-    await db.ref('clientes/'+c.id).update({pagadas:c.pagadas,ultimoPago:c.ultimoPago,moraPerdonada:c.moraPerdonada||0,moraCobradaTotal:c.moraCobradaTotal||0,historialMora:c.historialMora||[],moraBaseDate:null,abonoPendiente:0,comisionEventos:c.comisionEventos||[]});
+    await db.ref('clientes/'+c.id).update({pagadas:c.pagadas,ultimoPago:c.ultimoPago,moraPerdonada:c.moraPerdonada||0,moraCobradaTotal:c.moraCobradaTotal||0,historialMora:c.historialMora||[],moraBaseDate:null,graciaHasta:null,abonoPendiente:0,comisionEventos:c.comisionEventos||[]});
     // BUGFIX: registrar en caja para que admin vea el cobro en "cobrado hoy" y métricas de caja
     const cuotaNo=c.pagadas;
     await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
@@ -1856,8 +1847,6 @@ function actualizarHeaderNombre(){
   if(el)el.textContent='📍 '+(n||'Cobrador');
   const inp=document.getElementById('cfg-nombre');
   if(inp&&n)inp.value=n;
-  const sel=document.getElementById('cfg-seguimiento');
-  if(sel)sel.value=String(getSeguimientoDias());
 }
 let _nt;
 function notify(msg,type){
