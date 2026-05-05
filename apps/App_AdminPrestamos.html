@@ -1212,6 +1212,7 @@ function crearPrestamo(){
   const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],creado:coDateTimeISO()};
   clientes.push(c);save();
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
+  moverPool('salida', capital, `Desembolso: ${nombre}`, nombre);
   log({tipo:'nuevo',cliente:nombre,monto:capital,ts:Date.now(),autor:'Admin'});
   // Si viene de una solicitud aprobada, marcarla en Firebase
   if(window._soliPendienteAprobacion&&fbOk&&db){
@@ -2086,7 +2087,7 @@ function prevAbono(){
     msg=`<span style="color:var(--green)">✓ Cubre cuota${m>0?' + mora':''} completa — se marcará como pagada</span>`;
     if(v>totalDeber)msg+=`<br><span style="color:var(--text2);font-size:11px">Sobran ${fmt(v-totalDeber)} que se abonan a la siguiente cuota</span>`;
   } else {
-    msg=`<span style="color:var(--amber)">Quedan ${fmt(diferencia)} pendientes (cuota${m>0?'+mora':''})</span>`;
+    msg=`<span style="color:var(--amber)">Quedan ${fmt(diferencia)} pendientes — mora sigue corriendo</span>`;
   }
   document.getElementById('abono-prev').innerHTML=msg;
 }
@@ -2124,9 +2125,10 @@ function confirmarAbono(){
     log({tipo:'abono',cliente:c.nombre,monto,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:msg});
     notify(`${msg} ✓`,'ok');
   } else {
-    // Abono parcial — primero cubre mora de hoy, resto va a cuota
-    const abonoEnMora=Math.min(monto,m);
-    const abonoEnCuota=monto-abonoEnMora;
+    // Abono parcial — el monto completo va a la cuota (capital+interés)
+    // La mora NO se descuenta del abono parcial; sigue corriendo hasta pago completo
+    const abonoEnMora=0;
+    const abonoEnCuota=monto;
     if(abonoEnMora>0){
       registrarEventoMora(c,'cobrada',abonoEnMora,`Mora parcial en abono — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
       c.moraPerdonada=(c.moraPerdonada||0)+abonoEnMora;
@@ -2186,16 +2188,10 @@ function prevExtension(){
   const c=clientes.find(x=>x.id===pendingExtension);if(!c)return;
   const v=parseFloat(document.getElementById('ext-monto').value)||0;
   if(v<=0){document.getElementById('ext-prev').innerHTML='';return;}
-  const m=mora(c);
-  const moraEnEste=Math.min(v,m);
-  const interesEnEste=Math.max(0,v-moraEnEste);
   const pct=pctCliente(c);
-  const base=interesEnEste+moraEnEste;
-  const comCob=Math.round(base*pct/100);
-  const comAdmin=Math.max(0,base-comCob);
-  let msg='';
-  if(moraEnEste>0)msg+=`<span style="color:var(--red)">Mora cobrada: <strong>${fmt(moraEnEste)}</strong></span><br>`;
-  msg+=`Interés extensión: <strong>${fmt(interesEnEste)}</strong><br>`;
+  const comCob=Math.round(v*pct/100);
+  const comAdmin=Math.max(0,v-comCob);
+  let msg=`Interés extensión: <strong>${fmt(v)}</strong><br>`;
   msg+=`<span style="color:var(--green)">Comisión cobrador (${pct}%): <strong>${fmt(comCob)}</strong> · Admin: <strong>${fmt(comAdmin)}</strong></span>`;
   document.getElementById('ext-prev').innerHTML=msg;
 }
@@ -2206,24 +2202,25 @@ function confirmarExtensionInteres(){
   const fechaExtension=document.getElementById('ext-fecha').value;
   if(!fechaExtension){notify('Selecciona la próxima fecha de pago','err');return;}
   const m=mora(c);
-  const moraEnEste=Math.min(monto,m);
-  const interesEnEste=Math.max(0,monto-moraEnEste);
-  if(moraEnEste>0){
-    registrarEventoMora(c,'cobrada',moraEnEste,`Mora en extensión interés — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
-    c.moraPerdonada=(c.moraPerdonada||0)+moraEnEste;
-    c.moraCobradaTotal=(c.moraCobradaTotal||0)+moraEnEste;
-    registrarCajaAuto('mora_cobrada',moraEnEste,`Mora extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:mora:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+  // "Solo interés" — el monto completo es interés puro. La mora acumulada se perdona
+  // automáticamente al fijar graciaHasta (nueva fecha de gracia). No se cobra mora aquí.
+  const moraEnEste=0;
+  const interesEnEste=monto;
+  if(m>0){
+    // Perdonar la mora actual para que la extensión parta de cero
+    registrarEventoMora(c,'perdonada',m,`Mora congelada por extensión solo interés — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
+    c.moraPerdonada=(c.moraPerdonada||0)+m;
   }
   if(interesEnEste>0){
     registrarCajaAuto('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:int:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
   }
-  if(interesEnEste>0||moraEnEste>0){
-    registrarComisionEventoCliente(c,{interes:interesEnEste,mora:moraEnEste,autor:'Admin',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaExtension}`});
+  if(interesEnEste>0){
+    registrarComisionEventoCliente(c,{interes:interesEnEste,mora:0,autor:'Admin',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaExtension}`});
   }
   c.graciaHasta=fechaExtension;
   c.moraBaseDate=fechaExtension;
   c.ultimoPago=coDateTimeISO();
-  log({tipo:'extension_interes',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}. Interés: ${fmt(interesEnEste)}${moraEnEste>0?', Mora: '+fmt(moraEnEste):''}`});
+  log({tipo:'extension_interes',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}. Interés: ${fmt(interesEnEste)}`});
   notify(`Extensión registrada — próxima cuota: ${fechaExtension} ✓`,'ok');
   save();
   cerrar('modal-extension');
@@ -2331,10 +2328,15 @@ function renderCalendario(){
   // Construir mapa: fechaISO -> lista de cobros
   const mapaCobros={};
   clientes.filter(c=>c.pagadas<c.numCuotas).forEach(c=>{
-    c.cuotasData.forEach(q=>{
+    c.cuotasData.forEach((q,i)=>{
       if(q.num>c.pagadas){
-        if(!mapaCobros[q.fechaISO])mapaCobros[q.fechaISO]=[];
-        mapaCobros[q.fechaISO].push({nombre:c.nombre,cuota:q.cuota,id:c.id,mora:mora(c)});
+        // Si la cuota actual tiene extensión (graciaHasta > fecha original), mostrarla en la nueva fecha
+        let fechaCalendario=q.fechaISO;
+        if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>q.fechaISO){
+          fechaCalendario=c.graciaHasta;
+        }
+        if(!mapaCobros[fechaCalendario])mapaCobros[fechaCalendario]=[];
+        mapaCobros[fechaCalendario].push({nombre:c.nombre,cuota:q.cuota,id:c.id,mora:mora(c),extendida:fechaCalendario!==q.fechaISO});
       }
     });
   });
@@ -2842,9 +2844,9 @@ function metricasCaja(){
   const activos=clientes.filter(c=>(c.pagadas||0)<(c.numCuotas||0));
   const principalCalle=activos.reduce((s,c)=>s+capitalPendiente(c),0);
   const carteraTotal=activos.reduce((s,c)=>s+saldo(c),0);
-  const interesRealizado=clientes.reduce((s,c)=>s+interesRealizadoCaja(c),0);
-  const interesPendiente=activos.reduce((s,c)=>s+Math.max(0,Math.round((c.interes||0)-interesRealizadoCaja(c))),0);
-  const moraReal=clientes.reduce((s,c)=>s+(c.moraCobradaTotal||0)+(c.moraHistoricaAcumulada||0),0);
+  const interesRealizado=caja.filter(m=>m.auto&&m.subtipo==='interes_cobrado').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+  const interesPendiente=activos.reduce((s,c)=>s+Math.max(0,Math.round((c.interes||0)-interesRealizadoPagado(c))),0);
+  const moraReal=caja.filter(m=>m.auto&&m.subtipo==='mora_cobrada').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
   const moraActiva=activos.reduce((s,c)=>s+mora(c),0);
   const comisionesPagadas=totalLiquidacionesComision();
   const utilidadNeta=Math.round(interesRealizado+moraReal-comisionesPagadas-gastos);
