@@ -868,6 +868,7 @@ async function saveAll() {
 function init() {
   $('l-f').value = hoy();
   $('m-f').value = hoy();
+  $('g-f').value = hoy();
   const m = new Date();
   $('r-m').value = m.getFullYear() + '-' + String(m.getMonth()+1).padStart(2,'0');
   // Auto-seleccionar conductor si solo hay uno
@@ -905,10 +906,12 @@ function fillSels() {
   const def = S.conductores.length === 1 ? '' : '<option value="">Seleccionar...</option>';
   $('l-c').innerHTML  = def + ops;
   $('m-cd').innerHTML = def + ops;
+  $('g-cd').innerHTML = def + ops;
   // Si hay un solo conductor, pre-seleccionarlo en los dropdowns
   if (S.conductores.length === 1) {
     $('l-c').value  = S.conductores[0].id;
     $('m-cd').value = S.conductores[0].id;
+    $('g-cd').value = S.conductores[0].id;
   }
   $('r-c').innerHTML  = '<option value="">Todos</option>' + ops;
   $('l-pl').innerHTML = (S.ajustes.plataformas||['Uber','InDriver']).map(p=>`<option>${p}</option>`).join('');
@@ -1074,7 +1077,7 @@ function rDash() {
             <div style="font-weight:500">${c.nombre}</div>
             <div class="mt">${d} días · ${c.turno}</div>
             <div class="pb"><div class="pbf" style="width:${pct}%"></div></div>
-            <div style="font-size:10px;color:var(--t3);margin-top:2px;font-family:'DM Mono',monospace">${pct}% del fondo · ${fmt(c.ahorro)}</div>
+            <div style="font-size:10px;color:${(c.ahorro||0)<0?'var(--re)':'var(--t3)'};margin-top:2px;font-family:'DM Mono',monospace">${pct}% del fondo · ${fmt(c.ahorro)}</div>
           </div>
         </div>`;
       }).join('')
@@ -1205,7 +1208,7 @@ async function delLiq(id) {
   if (l.tipo!=='Pico y placa' && l.tipo!=='Domingo libre') {
     const c = S.conductores.find(x=>x.id===l.conductorId);
     if (c) {
-      c.ahorro = Math.max(0,(c.ahorro||0)-(l.ahorro||0));
+      c.ahorro = (c.ahorro||0) - (l.ahorro||0);
       c.movimientos.push({ tipo:'salida', monto:l.ahorro||0, desc:'Reversa liquidación '+l.fecha, fecha:hoy() });
     }
   }
@@ -1408,7 +1411,7 @@ function rCG() {
       <div class="av">${ini(c.nombre)}</div>
       <div class="cn">${c.nombre}</div>
       <div class="ci">${c.turno} · ${c.plataformas||'—'}</div>
-      <div class="ca">Ahorro: ${fmt(c.ahorro)}</div>
+      <div class="ca" style="color:${(c.ahorro||0)<0?'var(--re)':''}">Ahorro: ${fmt(c.ahorro)}</div>
     </div>`).join('');
   if (S.selCond) { const c = S.conductores.find(x=>x.id===S.selCond); if (c) showCP(c); }
   
@@ -1427,6 +1430,7 @@ function showCP(c) {
   const d = S.liquidaciones.filter(l=>l.conductorId===c.id&&(l.tipo==='Normal'||l.tipo==='Festivo')).length;
   $('cp-d').textContent  = d;
   $('cp-ah').textContent = fmt(c.ahorro);
+  $('cp-ah').style.color = (c.ahorro||0) < 0 ? 'var(--re)' : '';
   $('cp-dc').textContent = fmt(c.descuentos||0);
   
   // Calcular trending
@@ -1478,7 +1482,6 @@ async function applyDesc() {
   const motivo = $('dc-mo').value.trim();
   if (!monto || !motivo) { toast('Ingresa monto y motivo'); return; }
   const c = S.conductores.find(x=>x.id===cid);
-  if (monto > c.ahorro) { toast('Sin ahorro suficiente ('+fmt(c.ahorro)+')'); return; }
   c.ahorro = (c.ahorro||0) - monto;
   c.descuentos = (c.descuentos||0) + monto;
   c.movimientos.push({ tipo:'salida', monto, desc:motivo, fecha:hoy() });
@@ -1579,11 +1582,10 @@ async function saveMant() {
   S.mantenimientos.push({ id:Date.now(), tipo, fecha, costo, resp, conductorId:cid, desc:$('m-d').value, proximaFecha:pf });
   if (resp==='cond' && cid) {
     const c = S.conductores.find(x=>x.id===cid);
-    if (c && costo<=c.ahorro) {
+    if (c) {
       c.ahorro -= costo; c.descuentos=(c.descuentos||0)+costo;
       c.movimientos.push({ tipo:'salida', monto:costo, desc:'Mantenimiento: '+tipo, fecha });
-      toast('Descuento aplicado al conductor ✓');
-    } else if (c) toast('Aviso: el conductor no tiene ahorro suficiente');
+    }
   }
   await saveAll(); rMH(); rDash();
   $('m-d').value=''; $('m-c').value='';
@@ -1904,7 +1906,7 @@ function rMaintVencidoMejorado() {
   const alertClass = d <= 0 ? 'e' : d <= 7 ? 'w' : 'i';
   const html = `<div class="al ${alertClass}" style="margin-bottom:12px">
     <div style="flex:1"><strong>${pm.tipo}</strong><div class="mt">${d <= 0 ? '¡Vencido hace '+Math.abs(d)+' días!' : 'Vence en '+d+' días'}</div></div>
-    <div style="display:flex;gap:6px"><button class="btn sm" onclick="postponeMaint(${pm.id})">Posponer 7d</button><button class="btn sm p" onclick="$('m-tipo').value='${pm.tipo}';openTab('mant')">Registrar</button></div>
+    <div style="display:flex;gap:6px"><button class="btn sm" onclick="postponeMaint(${pm.id})">Posponer 7d</button><button class="btn sm p" onclick="$('m-tp').value='${pm.tipo}';openTab('mant')">Registrar</button></div>
   </div>`;
   const alDiv = $('d-al');
   alDiv.innerHTML = html + alDiv.innerHTML;
