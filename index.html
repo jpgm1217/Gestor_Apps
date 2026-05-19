@@ -61,7 +61,16 @@ body::before {
   max-width: 480px;
   margin: 0 auto;
   padding: 48px 24px 60px;
+  display: flex;
+  flex-direction: column;
 }
+
+.container > .hero { order: 1; }
+.container > .stats { order: 2; }
+.container > .section:nth-of-type(4) { order: 3; }
+.container > .section:nth-of-type(3) { order: 4; }
+.container > .pwa { order: 5; }
+.container > .footer { order: 6; }
 
 .hero {
   margin-bottom: 52px;
