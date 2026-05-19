@@ -506,10 +506,31 @@ function graciaActiva(c,refKey){refKey=refKey||hoy();return !!(c&&c.graciaHasta)
 
 const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
 let db=null,fbOk=false,clientes=[],cobrosHoy=[],pendingPago=null,liquidaciones=[],caja=[];
+let clienteDetalleActivo=null;
 // FIX W11: debounce global anti doble-click cobrador
 let _busyConfirm=false;
 const PIN_KEY='cr_pin_cobrador';
 let pinBuf='',pinMode='check';
+
+function arrFirebase(v){
+  if(Array.isArray(v))return v;
+  if(v&&typeof v==='object')return Object.values(v);
+  return [];
+}
+function normalizarClienteSync(c){
+  if(!c||typeof c!=='object')return c;
+  const out={...c};
+  ['cuotasData','historialNoPago','historialMora','comisionEventos','ciclos','historialPrestamos','cargosManuales'].forEach(f=>{
+    if(out[f]&& !Array.isArray(out[f]))out[f]=arrFirebase(out[f]);
+  });
+  return out;
+}
+function cargarClientesLocalesCobrador(){
+  try{
+    clientes=arrFirebase(JSON.parse(localStorage.getItem('cr_clientes_local')||'[]')).map(normalizarClienteSync);
+    renderRuta();renderTodos();renderDia();renderGanancias();
+  }catch(e){console.warn('No se pudo cargar cache local cobrador',e);}
+}
 
 // BUGFIX: registrar movimientos en caja cuando cobrador recibe dinero
 // para que admin vea "cobrado hoy" y comisiones correctamente.
@@ -629,7 +650,11 @@ function initFirebase(){
       setConn(snap.val()===true);
     });
     escuchar();
-  }catch(e){setConn(false);console.error(e);}
+  }catch(e){
+    setConn(false);
+    cargarClientesLocalesCobrador();
+    console.error(e);
+  }
 }
 function setConn(ok){
   document.getElementById('conn-status').textContent=ok?'En línea':'Sin conexión';
@@ -722,12 +747,14 @@ function buildWAMsg(c,cuotaNum,montoTotal,moraAmt){
 
 function escuchar(){
   db.ref('clientes').on('value',s=>{
-    const d=s.val();clientes=d?Object.values(d):[];
-    renderRuta();renderTodos();renderDia();renderGanancias();
+    const d=s.val();clientes=d?Object.values(d).map(normalizarClienteSync):[];
+    try{localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));}catch(e){console.warn('Cache local cobrador omitido',e);}
+    renderRuta();renderTodos();renderDia();renderGanancias();refrescarDetalleClienteAbierto();
   });
   db.ref('caja').on('value',s=>{
     const d=s.val();
     caja=d?Object.values(d):[];
+    renderDia();
   });
   db.ref('liquidaciones').on('value',s=>{
     const d=s.val();
@@ -748,6 +775,7 @@ function escuchar(){
     });
     window._misSolicitudes=nuevas;
     renderSolicitudes();
+    refrescarDetalleClienteAbierto();
     // Badge en tab
     const pendientes=window._misSolicitudes.filter(x=>x.estado==='pendiente').length;
     const badge=document.getElementById('badge-soli');
@@ -1211,14 +1239,17 @@ function solicitarNovedadCliente(clienteId){
 }
 function abrirDetalleClienteCobrador(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
+  clienteDetalleActivo=id;
   const h=hoy(),pag=c.pagadas>=c.numCuotas,m=mora(c),d=diasMora(c),sd=saldo(c);
   const pendientes=(window._misSolicitudes||[]).filter(s=>s.estado==='pendiente'&&s.clienteId===c.id);
   const renovPendiente=pendientes.find(s=>s.tipoSolicitud==='renovacion');
-  const próximas=(c.cuotasData||[]).filter((q,i)=>i>=c.pagadas).slice(0,8);
+  const próximas=(c.cuotasData||[]).map((q,i)=>({...q,fechaProg:fechaCobroProgramada(c,q,i),extendida:fechaCobroProgramada(c,q,i)!==q.fechaISO})).filter(q=>q.num>c.pagadas).slice(0,8);
   const filas=próximas.length?próximas.map(q=>{
-    const estado=q.fechaISO===h?'Hoy':q.fechaISO<h?'Vencida':'Pendiente';
-    const color=q.fechaISO===h?'var(--gold)':q.fechaISO<h?'var(--red)':'var(--text2)';
-    return `<tr><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${q.fecha}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px;font-size:11px;color:${color}">${estado}</td></tr>`;
+    const fechaRef=q.fechaProg||q.fechaISO;
+    const estado=fechaRef===h?'Hoy':fechaRef<h?'Vencida':'Pendiente';
+    const color=fechaRef===h?'var(--gold)':fechaRef<h?'var(--red)':'var(--text2)';
+    const fechaTxt=q.extendida?labelFromUTCDate(coUTCDateFromKey(fechaRef))+' dif.':q.fecha;
+    return `<tr><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px;font-size:11px;color:${color}">${estado}</td></tr>`;
   }).join(''):'<tr><td colspan="4" style="padding:8px 4px;font-size:11px;color:var(--text3)">Sin cuotas pendientes</td></tr>';
   // Accesos directos al cliente (siempre visibles)
   const tel=(c.telefono||'').replace(/\D/g,'');
@@ -1272,7 +1303,13 @@ function abrirDetalleClienteCobrador(id){
     <button class="confirm-no" style="width:100%;margin-top:10px" onclick="cerrarClienteDetalle()">Cerrar</button>`;
   document.getElementById('cliente-overlay').classList.add('open');
 }
-function cerrarClienteDetalle(){document.getElementById('cliente-overlay').classList.remove('open');}
+function refrescarDetalleClienteAbierto(){
+  const ov=document.getElementById('cliente-overlay');
+  if(!clienteDetalleActivo||!ov||!ov.classList.contains('open'))return;
+  if(!clientes.some(x=>x.id===clienteDetalleActivo)){cerrarClienteDetalle();return;}
+  abrirDetalleClienteCobrador(clienteDetalleActivo);
+}
+function cerrarClienteDetalle(){document.getElementById('cliente-overlay').classList.remove('open');clienteDetalleActivo=null;}
 
 // ══════════════════════════════════════════════
 // SEGUIMIENTO DE "NO PAGÓ" — clientes que no pagaron siguen visibles 2-3 días
@@ -1306,8 +1343,30 @@ function infoSeguimiento(c,h){
   return {diasDesde:transcurridos,ventana:dias,motivo:ult.motivo||'Sin motivo',fechaOriginal:fechaNoPago};
 }
 // ¿Tiene cuota programada para hoy?
+function fechaCobroProgramada(c,q,i){
+  if(!q||!q.fechaISO)return null;
+  let fecha=q.fechaISO;
+  if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>fecha)fecha=c.graciaHasta;
+  return fecha;
+}
+function tieneCuotaEnFecha(c,fecha){
+  return !!(c.cuotasData&&c.cuotasData.some((q,i)=>q.num>c.pagadas&&fechaCobroProgramada(c,q,i)===fecha));
+}
+function gestionadoEnFecha(c,fecha){
+  return sameCoDate(c.ultimoPago,fecha)||!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,fecha)));
+}
+function montoCobradoClienteFecha(c,fecha){
+  if(!sameCoDate(c.ultimoPago,fecha))return 0;
+  const idx=Math.max(0,(c.pagadas||0)-1);
+  const q=c.cuotasData?.[idx]||{};
+  return q.cuota||c.cuota||0;
+}
+function movimientosCobroFecha(fecha){
+  const subt=['recuperacion_capital','interes_cobrado','mora_cobrada','abono_adelantado'];
+  return (caja||[]).filter(m=>m&&m.tipo==='ingreso'&&subt.includes(m.subtipo)&&sameCoDate(m.ts,fecha));
+}
 function tieneCuotaHoy(c,h){
-  return !!(c.cuotasData&&c.cuotasData.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  return tieneCuotaEnFecha(c,h);
 }
 
 // ══════════════════════════════════════════════
@@ -1360,6 +1419,7 @@ function renderRuta(){
   const ruta=clientes.filter(c=>{
     if(c.esInterno)return false;
     if(tieneCuotaHoy(c,h))return true;
+    if(gestionadoEnFecha(c,h))return true;
     return !!infoSeguimiento(c,h);
   });
   let pendiente=0,cobrado=0,countPend=0,countCob=0,countMora=0;
@@ -1392,7 +1452,7 @@ function renderRuta(){
   const ord=[...ruta].sort((a,b)=>(sameCoDate(a.ultimoPago,h)?1:0)-(sameCoDate(b.ultimoPago,h)?1:0));
   el.innerHTML=ord.map(c=>{
     const yp=sameCoDate(c.ultimoPago,h);
-    const noPagoHoy=!yp&&sameCoDate(c.historialNoPago?.slice(-1)[0]?.fecha,h);
+    const noPagoHoy=!yp&&!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,h)));
     const m=mora(c),d=diasMora(c),total=c.cuota+m;
     const graciaOn=graciaActiva(c,h),graciaTxt=graciaLabel(c);
     const extActiva=!!(c.moraBaseDate&&c.moraBaseDate>h);
@@ -1456,7 +1516,7 @@ function renderTodos(){
   if(!lista.length){el.innerHTML='<div class="empty"><div class="empty-i">📋</div><div class="empty-t">Sin clientes</div></div>';return;}
   el.innerHTML=lista.map(c=>{
     const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),pag=c.pagadas>=c.numCuotas;
-    const yp=sameCoDate(c.ultimoPago,h),tieneH=c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas);
+    const yp=sameCoDate(c.ultimoPago,h),tieneH=tieneCuotaEnFecha(c,h);
     const pendientes=solicitudesPendientesCliente(c.id).length;
     const renovPend=(window._misSolicitudes||[]).some(s=>s.estado==='pendiente'&&s.clienteId===c.id&&s.tipoSolicitud==='renovacion');
     const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
@@ -1929,11 +1989,13 @@ function mapaAgendaCobros(){
   const mapa={};
   const hoyStr=hoy();
   clientes.filter(c=>!c.esInterno&&c.pagadas<c.numCuotas).forEach(c=>{
-    (c.cuotasData||[]).forEach(q=>{
+    (c.cuotasData||[]).forEach((q,i)=>{
       if(q.num>c.pagadas){
-        if(!mapa[q.fechaISO])mapa[q.fechaISO]=[];
-        const moraAplicable=q.fechaISO<=hoyStr?mora(c):0;
-        mapa[q.fechaISO].push({
+        const fecha=fechaCobroProgramada(c,q,i);
+        if(!fecha)return;
+        if(!mapa[fecha])mapa[fecha]=[];
+        const moraAplicable=fecha<=hoyStr?mora(c):0;
+        mapa[fecha].push({
           id:c.id,
           nombre:c.nombre,
           cuota:q.cuota||c.cuota||0,
@@ -1942,7 +2004,8 @@ function mapaAgendaCobros(){
           negocio:c.negocio||'',
           telefono:c.telefono||'',
           cuotaNum:q.num,
-          totalCuotas:c.numCuotas||0
+          totalCuotas:c.numCuotas||0,
+          extendida:fecha!==q.fechaISO
         });
       }
     });
@@ -2042,7 +2105,7 @@ function renderAgendaDetalle(fecha,mapa){
       '<div style="font-size:14px;font-weight:700;color:var(--green)">'+fmt(total)+'</div>'+
     '</div>'+
     items.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="abrirDetalleClienteCobrador('${x.id}')">`+
-      `<div><div style="font-size:13px;font-weight:600;color:var(--text)">${x.nombre}</div><div style="font-size:11px;color:var(--text3)">${x.zona||x.negocio||'Sin zona'} · cuota ${x.cuotaNum}/${x.totalCuotas}</div></div>`+
+      `<div><div style="font-size:13px;font-weight:600;color:var(--text)">${x.nombre}</div><div style="font-size:11px;color:var(--text3)">${x.zona||x.negocio||'Sin zona'} · cuota ${x.cuotaNum}/${x.totalCuotas}${x.extendida?' · diferida':''}</div></div>`+
       `<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:${x.mora>0?'var(--red)':'var(--green)'}">${fmt((x.cuota||0)+(x.mora>0?x.mora:0))}</div>${x.mora>0?'<div style="font-size:10px;color:var(--red)">Incluye mora</div>':'<div style="font-size:10px;color:var(--text3)">Programado</div>'}</div>`+
     '</div>').join('');
 }
@@ -2142,11 +2205,13 @@ function renderSolicitudes(){
 
 function renderDia(){
   const h=hoy();
-  const countH=cobrosHoy.filter(c=>c.fecha===h).length;
-  const totalH=cobrosHoy.filter(c=>c.fecha===h).reduce((s,c)=>s+c.monto,0);
-  const rutaH=clientes.filter(c=>!c.esInterno&&c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
-  const pend=rutaH.filter(c=>!sameCoDate(c.ultimoPago,h)).length;
-  const pct=rutaH.length?Math.round(countH/rutaH.length*100):0;
+  const rutaH=clientes.filter(c=>!c.esInterno&&(tieneCuotaEnFecha(c,h)||gestionadoEnFecha(c,h)));
+  const pagadosH=rutaH.filter(c=>sameCoDate(c.ultimoPago,h));
+  const gestionadosH=rutaH.filter(c=>gestionadoEnFecha(c,h)).length;
+  const cajaHoy=movimientosCobroFecha(h);
+  const totalH=cajaHoy.length?cajaHoy.reduce((s,m)=>s+(m.monto||0),0):pagadosH.reduce((s,c)=>s+montoCobradoClienteFecha(c,h),0);
+  const pend=rutaH.filter(c=>tieneCuotaEnFecha(c,h)&&!gestionadoEnFecha(c,h)).length;
+  const pct=rutaH.length?Math.round(gestionadosH/rutaH.length*100):0;
   document.getElementById('resumen-dia').innerHTML=
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'+
       '<div class="cs"><div class="csl">Cobrado hoy</div><div class="csv" style="color:var(--green)">'+fmt(totalH)+'</div></div>'+
@@ -2160,14 +2225,30 @@ function renderDia(){
   renderAgendaCalendario();
 
   const hEl=document.getElementById('historial-dia');
-  const lista=cobrosHoy.filter(c=>c.fecha===h).slice().reverse();
+  const locales=cobrosHoy.filter(c=>c.fecha===h);
+  const porCliente=new Map();
+  cajaHoy.forEach(m=>{
+    const id=m.clienteId||m.cliente||m.id;
+    const prev=porCliente.get(id)||{id,nombre:m.cliente||'Movimiento',monto:0,cuota:'',fecha:h,hora:coTimeLabel(m.ts),telefono:'',tipo:'caja',ts:0};
+    prev.monto+=m.monto||0;
+    if((m.ts||0)>prev.ts){prev.ts=m.ts||0;prev.hora=coTimeLabel(m.ts);}
+    porCliente.set(id,prev);
+  });
+  const desdeCaja=[...porCliente.values()];
+  const idsCaja=new Set(desdeCaja.map(c=>c.id));
+  const idsLocales=new Set(locales.map(c=>c.id+':'+c.cuota));
+  const remotos=pagadosH
+    .filter(c=>!idsCaja.has(c.id)&&!idsLocales.has(c.id+':'+c.pagadas))
+    .map(c=>({id:c.id,nombre:c.nombre,monto:montoCobradoClienteFecha(c,h),cuota:c.pagadas,fecha:h,hora:coTimeLabel(c.ultimoPago),telefono:c.telefono||'',tipo:'sync'}));
+  const lista=desdeCaja.concat(locales.filter(c=>!idsCaja.has(c.id)),remotos).slice().reverse();
   if(!lista.length){hEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin cobros hoy</div>';return;}
   hEl.innerHTML=lista.map(c=>{
     const waLink=c.telefono?'<a href="https://wa.me/57'+c.telefono.replace(/\D/g,'')+'?text='+encodeURIComponent('Hola '+c.nombre+', recibo: '+fmt(c.monto))+'" target="_blank" style="font-size:11px;color:#128C7E;text-decoration:none">💬 Reenviar</a>':'';
+    const detalle=c.tipo==='caja'?'caja Firebase':'cuota '+c.cuota+(c.tipo==='abono'?' · abono':'');
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">'+
       '<div>'+
       '<div style="font-size:13px;font-weight:500">'+c.nombre+'</div>'+
-      '<div style="font-size:11px;color:var(--text3)">'+c.hora+' · cuota '+c.cuota+(c.tipo==='abono'?' · abono':'')+'</div>'+
+      '<div style="font-size:11px;color:var(--text3)">'+c.hora+' · '+detalle+'</div>'+
       '</div>'+
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'+
       '<div style="font-size:14px;font-weight:700;color:var(--green)">'+fmt(c.monto)+'</div>'+

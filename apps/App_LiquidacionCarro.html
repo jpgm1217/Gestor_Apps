@@ -435,7 +435,7 @@ const ICON_SVG = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
 };
-function renderIcons(){document.querySelectorAll('.ti[data-icon]').forEach(el=>{const svg=ICON_SVG[el.getAttribute('data-icon')];if(svg){el.innerHTML=svg;el.style.display='inline-block';el.style.verticalAlign='middle';}});
+function renderIcons(){document.querySelectorAll('.ti[data-icon]').forEach(el=>{const svg=ICON_SVG[el.getAttribute('data-icon')];if(svg){el.innerHTML=svg;el.style.display='inline-block';el.style.verticalAlign='middle';}});}
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',renderIcons):renderIcons();
 </script>
 </head>
@@ -487,10 +487,10 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="mcg">
       <div class="mc g"><div class="lb">Ingresos mes</div><div class="vl" id="d-mes">$0</div><div class="sb" id="d-dias">0 días</div></div>
       <div class="mc a"><div class="lb">Ahorro conductores</div><div class="vl" id="d-ah">$0</div></div>
-      <div class="mc w"><div class="lb">Mantenimientos mes</div><div class="vl" id="d-gast">$0</div><div class="sb" id="d-gast-total">acumulado $0</div></div>
+      <div class="mc w"><div class="lb">Gastos/Mant. mes</div><div class="vl" id="d-gast">$0</div><div class="sb" id="d-gast-total">acumulado $0</div></div>
     </div>
     <div class="mcg" style="margin-top:8px">
-      <div class="mc" style="background:var(--bg2)"><div class="lb">Neto mes</div><div class="vl" id="d-neto" style="color:var(--g)">$0</div><div class="sb">ingresos - mant.</div></div>
+      <div class="mc" style="background:var(--bg2)"><div class="lb">Neto mes</div><div class="vl" id="d-neto" style="color:var(--g)">$0</div><div class="sb">ingresos - operativo</div></div>
       <div class="mc" style="background:var(--bg2)"><div class="lb">Proyección mes</div><div class="vl" id="d-proy" style="color:var(--a)">$0</div><div class="sb" id="d-proy-sub">estimado</div></div>
       <div class="mc" style="background:var(--bg2)"><div class="lb">Mejor plataforma</div><div class="vl" id="d-plat" style="font-size:15px;color:var(--t1)">—</div><div class="sb" id="d-plat-sub">este mes</div></div>
     </div>
@@ -771,6 +771,7 @@ let S = {
   conductores: [],
   liquidaciones: [],
   mantenimientos: [],
+  gastos: [],
   ajustes: {
     base: 65000, ahorro: 10000, objetivo: 500000,
     diaFijo: 2, domingo: 'intercalado',
@@ -782,10 +783,93 @@ let S = {
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 const fmt = n => '$' + Math.round(n||0).toLocaleString('es-CO');
-const hoy = () => new Date().toISOString().split('T')[0];
+const hoy = () => new Intl.DateTimeFormat('en-CA', { timeZone:'America/Bogota', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
+const mesActual = () => hoy().slice(0, 7);
 const ini = n => (n||'').split(' ').map(x=>x[0]).join('').substr(0,2).toUpperCase() || '??';
 const $ = id => document.getElementById(id);
 const syncDot = $('sync-dot');
+
+function asArray(data) {
+  if (!data) return [];
+  return Array.isArray(data) ? data.filter(Boolean) : Object.values(data).filter(Boolean);
+}
+
+function byId(list) {
+  const out = {};
+  (list || []).forEach(item => {
+    if (item && item.id !== undefined && item.id !== null) out[item.id] = item;
+  });
+  return out;
+}
+
+function mergeById(primary, fallback) {
+  const map = new Map();
+  asArray(fallback).forEach(item => {
+    if (item?.id !== undefined && item?.id !== null) map.set(String(item.id), item);
+  });
+  asArray(primary).forEach(item => {
+    if (item?.id !== undefined && item?.id !== null) map.set(String(item.id), item);
+  });
+  return [...map.values()];
+}
+
+function mergeConductores(primary, legacy) {
+  const map = new Map();
+  asArray(primary).forEach(c => {
+    if (c?.id !== undefined && c?.id !== null) map.set(String(c.id), c);
+  });
+  if (legacy && !Array.isArray(legacy)) {
+    Object.entries(legacy).forEach(([key, value]) => {
+      if (!value || typeof value !== 'object') return;
+      const id = value.id ?? Number(key);
+      const base = map.get(String(id));
+      if (base) map.set(String(id), { ...base, ...value, id: base.id });
+      else if (value.nombre) map.set(String(id), { ...value, id });
+    });
+  } else {
+    asArray(legacy).forEach(c => {
+      if (c?.id === undefined || c?.id === null) return;
+      const base = map.get(String(c.id));
+      map.set(String(c.id), base ? { ...base, ...c, id: base.id } : c);
+    });
+  }
+  return [...map.values()];
+}
+
+function normalizeState() {
+  S.conductores = asArray(S.conductores).map(c => ({
+    ...c,
+    id: Number(c.id),
+    ahorro: Number(c.ahorro) || 0,
+    descuentos: Number(c.descuentos) || 0,
+    movimientos: asArray(c.movimientos)
+  })).filter(c => Number.isFinite(c.id));
+  S.liquidaciones = asArray(S.liquidaciones).map(l => ({
+    ...l,
+    id: Number(l.id),
+    conductorId: Number(l.conductorId),
+    base: Number(l.base) || 0,
+    ahorro: Number(l.ahorro) || 0
+  })).filter(l => Number.isFinite(l.id));
+  S.mantenimientos = asArray(S.mantenimientos).map(m => ({
+    ...m,
+    id: Number(m.id),
+    conductorId: m.conductorId === undefined || m.conductorId === null || m.conductorId === '' ? null : Number(m.conductorId),
+    costo: Number(m.costo) || 0,
+    prox: m.prox || ''
+  })).filter(m => Number.isFinite(m.id));
+  S.gastos = asArray(S.gastos).map(g => ({
+    ...g,
+    id: Number(g.id),
+    conductorId: Number(g.conductorId),
+    monto: Number(g.monto) || 0
+  })).filter(g => Number.isFinite(g.id));
+  S.nid = Number(S.nid) || ((S.conductores.reduce((max, c) => Math.max(max, c.id), 0)) + 1);
+}
+
+function isDiaOperativo(tipo) {
+  return tipo === 'Normal' || tipo === 'Festivo';
+}
 
 function setSyncState(state) {
   syncDot.className = 'sync-dot ' + state;
@@ -809,6 +893,14 @@ async function fbGet(path) {
   return snap.exists() ? snap.val() : null;
 }
 
+async function fbGetOptional(path) {
+  try {
+    return await fbGet(path);
+  } catch(e) {
+    return null;
+  }
+}
+
 async function fbRemove(path) {
   setSyncState('loading');
   try {
@@ -823,16 +915,28 @@ async function fbRemove(path) {
 // ─── LOAD FROM FIREBASE ────────────────────────────────────────────────────────
 async function loadFromFirebase() {
   try {
-    const data = await fbGet('flotaapp');
+    const [data, legacyLiq, legacyCond, legacyGastos, legacyMant] = await Promise.all([
+      fbGet('flotaapp'),
+      fbGetOptional('liquidaciones'),
+      fbGetOptional('cond'),
+      fbGetOptional('gastos'),
+      fbGetOptional('mantenimientos')
+    ]);
     if (data) {
-      S.conductores    = data.conductores    ? Object.values(data.conductores)    : [];
-      S.liquidaciones  = data.liquidaciones  ? Object.values(data.liquidaciones)  : [];
-      S.mantenimientos = data.mantenimientos ? Object.values(data.mantenimientos) : [];
+      S.conductores    = mergeConductores(asArray(data.conductores), legacyCond);
+      S.liquidaciones  = mergeById(asArray(data.liquidaciones), legacyLiq);
+      S.mantenimientos = mergeById(asArray(data.mantenimientos), legacyMant);
+      S.gastos         = mergeById(asArray(data.gastos), legacyGastos);
       S.ajustes        = data.ajustes        ? { ...S.ajustes, ...data.ajustes }  : S.ajustes;
       S.nid            = data.nid            || (S.conductores.length + 1);
-      // Asegurar que movimientos exista en cada conductor
-      S.conductores.forEach(c => { if (!c.movimientos) c.movimientos = []; });
+    } else {
+      S.conductores    = mergeConductores([], legacyCond);
+      S.liquidaciones  = mergeById([], legacyLiq);
+      S.mantenimientos = mergeById([], legacyMant);
+      S.gastos         = mergeById([], legacyGastos);
     }
+    normalizeState();
+    await saveAll();
     setSyncState('ok');
   } catch(e) {
     setSyncState('err');
@@ -847,18 +951,13 @@ async function loadFromFirebase() {
 
 // ─── GUARDAR TODO EL STATE ────────────────────────────────────────────────────
 async function saveAll() {
+  normalizeState();
   // Convertir arrays a objetos con clave = id para Firebase
-  const condObj = {};
-  S.conductores.forEach(c => { condObj[c.id] = c; });
-  const liqObj = {};
-  S.liquidaciones.forEach(l => { liqObj[l.id] = l; });
-  const mantObj = {};
-  S.mantenimientos.forEach(m => { mantObj[m.id] = m; });
-
   await fbSet('flotaapp', {
-    conductores:    condObj,
-    liquidaciones:  liqObj,
-    mantenimientos: mantObj,
+    conductores:    byId(S.conductores),
+    liquidaciones:  byId(S.liquidaciones),
+    mantenimientos: byId(S.mantenimientos),
+    gastos:         byId(S.gastos),
     ajustes:        S.ajustes,
     nid:            S.nid
   });
@@ -924,20 +1023,19 @@ function fillSels() {
 
 // ─── MANTENIMIENTO VENCIDO ────────────────────────────────────────────────────
 function rMaintVencido() {
-  const hoy = new Date();
+  const hoyFecha = new Date(hoy() + 'T00:00:00');
   const vencidos = [];
   const proximosVencer = [];
   
   (S.mantenimientos || []).forEach(m => {
-    if (!m.fecha) return;
-    const fechaMant = new Date(m.fecha);
-    const diasRecordatorio = parseInt(m.prox) || 30;
-    const fechaRecordatorio = new Date(fechaMant.getTime() + diasRecordatorio * 24 * 60 * 60 * 1000);
+    const fechaObjetivo = m.proximaFecha || (m.fecha ? new Date(new Date(m.fecha).getTime() + (parseInt(m.prox) || 30) * 86400000).toISOString().split('T')[0] : null);
+    if (!fechaObjetivo) return;
+    const fechaRecordatorio = new Date(fechaObjetivo + 'T00:00:00');
     
-    if (hoy >= fechaRecordatorio) {
+    if (hoyFecha >= fechaRecordatorio) {
       vencidos.push(m);
     } else {
-      const diasFaltantes = Math.ceil((fechaRecordatorio - hoy) / (1000 * 60 * 60 * 24));
+      const diasFaltantes = Math.ceil((fechaRecordatorio - hoyFecha) / 86400000);
       if (diasFaltantes <= 7) {
         proximosVencer.push({ ...m, diasFaltantes });
       }
@@ -949,7 +1047,8 @@ function rMaintVencido() {
   
   if (vencidos.length > 0) {
     const diasVencidos = vencidos.map(m => {
-      const dias = Math.floor((hoy - new Date(m.fecha)) / (1000 * 60 * 60 * 24));
+      const objetivo = m.proximaFecha || m.fecha;
+      const dias = Math.max(0, Math.floor((hoyFecha - new Date(objetivo + 'T00:00:00')) / 86400000));
       return `<strong>${m.tipo}</strong> (hace ${dias} días)`;
     }).join(' • ');
     
@@ -978,22 +1077,26 @@ function rMaintVencido() {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function rDash() {
-  const mes = new Date().toISOString().substr(0,7);
-  const lm  = S.liquidaciones.filter(l => l.fecha.substr(0,7)===mes);
-  const tw  = lm.filter(l => l.tipo==='Normal' || l.tipo==='Festivo');
+  const mes = mesActual();
+  const lm  = S.liquidaciones.filter(l => l.fecha && l.fecha.substr(0,7)===mes);
+  const tw  = lm.filter(l => isDiaOperativo(l.tipo));
   const ingresosMes = tw.reduce((a,l) => a+(l.base||0), 0);
   $('d-mes').textContent  = fmt(ingresosMes);
   $('d-dias').textContent = tw.length + ' días trabajados';
   $('d-ah').textContent   = fmt(S.conductores.reduce((a,c) => a+(c.ahorro||0), 0));
 
-  // Mantenimientos: mes actual y total acumulado
-  const mantMes   = S.mantenimientos.filter(m => m.fecha && m.fecha.substr(0,7)===mes).reduce((a,m)=>a+(m.costo||0),0);
-  const mantTotal = S.mantenimientos.reduce((a,m)=>a+(m.costo||0),0);
-  $('d-gast').textContent       = fmt(mantMes);
-  $('d-gast-total').textContent = 'acumulado ' + fmt(mantTotal);
+  // Mantenimientos y gastos: separar costo operativo vs descuentos a conductor.
+  const mantMesList = S.mantenimientos.filter(m => m.fecha && m.fecha.substr(0,7)===mes);
+  const mantMes     = mantMesList.reduce((a,m)=>a+(m.costo||0),0);
+  const mantPropMes = mantMesList.filter(m=>m.resp!=='cond').reduce((a,m)=>a+(m.costo||0),0);
+  const mantCondMes = mantMesList.filter(m=>m.resp==='cond').reduce((a,m)=>a+(m.costo||0),0);
+  const gastosMesTotal = (S.gastos || []).filter(g => g.fecha && g.fecha.substr(0,7) === mes).reduce((a,g)=>a+(g.monto||0),0);
+  const mantTotal = S.mantenimientos.reduce((a,m)=>a+(m.costo||0),0) + (S.gastos || []).reduce((a,g)=>a+(g.monto||0),0);
+  $('d-gast').textContent       = fmt(mantMes + gastosMesTotal);
+  $('d-gast-total').textContent = 'operativo ' + fmt(mantPropMes) + ' · desc. ' + fmt(mantCondMes + gastosMesTotal);
 
   // Neto del mes
-  const neto = ingresosMes - mantMes;
+  const neto = ingresosMes - mantPropMes;
   $('d-neto').textContent = fmt(neto);
   $('d-neto').style.color = neto >= 0 ? 'var(--g)' : 'var(--r)';
 
@@ -1020,7 +1123,7 @@ function rDash() {
   }
 
   // Gastos extras este mes (multas, parqueaderos, etc)
-  const gastosExtras = (S.gastos || []).filter(g => g.fecha.substr(0,7) === mes);
+  const gastosExtras = (S.gastos || []).filter(g => g.fecha && g.fecha.substr(0,7) === mes);
   const gastosPorTipo = {
     multa: gastosExtras.filter(g => g.tipo === 'multa').reduce((a,g) => a + g.monto, 0),
     parq: gastosExtras.filter(g => g.tipo === 'parq').reduce((a,g) => a + g.monto, 0),
@@ -1070,7 +1173,7 @@ function rDash() {
 
   $('d-cres').innerHTML = S.conductores.length
     ? S.conductores.map(c => {
-        const d   = S.liquidaciones.filter(l=>l.conductorId===c.id&&(l.tipo==='Normal'||l.tipo==='Festivo')).length;
+        const d   = S.liquidaciones.filter(l=>l.conductorId===c.id&&isDiaOperativo(l.tipo)).length;
         const pct = Math.min(100, Math.round((c.ahorro||0)/(S.ajustes.objetivo||500000)*100));
         return `<div class="li">
           <div style="flex:1">
@@ -1102,16 +1205,20 @@ async function saveLiq() {
   const plat  = $('l-pl').value;
   const tipo  = $('l-t').value;
   const nota  = $('l-n').value;
-  if (!cid || !fecha) { toast('Selecciona conductor y fecha'); return; }
+  const valid = validateLiquidacion(base, cid, fecha, ahorro);
+  if (!valid.ok) { toast(valid.msg); return; }
+  const duplicada = S.liquidaciones.find(l => l.conductorId === cid && l.fecha === fecha && isDiaOperativo(l.tipo) && isDiaOperativo(tipo));
+  if (duplicada && !confirm(`Ya existe liquidacion operativa para este conductor el ${fecha}. Registrar otra?`)) return;
 
   const id = Date.now();
   const liq = { id, conductorId: cid, fecha, base, ahorro, plataforma: plat, tipo, nota };
   S.liquidaciones.push(liq);
 
-  if (tipo !== 'Pico y placa' && tipo !== 'Domingo libre') {
+  if (isDiaOperativo(tipo)) {
     const c = S.conductores.find(x=>x.id===cid);
     if (c) {
       c.ahorro = (c.ahorro||0) + ahorro;
+      c.movimientos = c.movimientos || [];
       c.movimientos.push({ tipo:'entrada', monto:ahorro, desc:'Ahorro diario', fecha });
     }
   }
@@ -1154,9 +1261,11 @@ async function confirmarRapido() {
   const plat   = $('rq-plat').value;
   const tipo   = $('rq-tipo').value;
   const fecha  = hoy();
+  const valid = validateLiquidacion(base, cond.id, fecha, ahorro);
+  if (!valid.ok) { toast(valid.msg); return; }
 
   // Verificar si ya hay liquidación hoy
-  const yaHoy = S.liquidaciones.find(l => l.conductorId === cond.id && l.fecha === fecha);
+  const yaHoy = S.liquidaciones.find(l => l.conductorId === cond.id && l.fecha === fecha && isDiaOperativo(l.tipo) && isDiaOperativo(tipo));
   if (yaHoy) {
     if (!confirm(`Ya registraste liquidación hoy (${fecha}). ¿Registrar otra?`)) return;
   }
@@ -1165,8 +1274,9 @@ async function confirmarRapido() {
   const liq = { id, conductorId: cond.id, fecha, base, ahorro, plataforma: plat, tipo, nota: '' };
   S.liquidaciones.push(liq);
 
-  if (tipo !== 'Pico y placa' && tipo !== 'Domingo libre') {
+  if (isDiaOperativo(tipo)) {
     cond.ahorro = (cond.ahorro || 0) + ahorro;
+    cond.movimientos = cond.movimientos || [];
     cond.movimientos.push({ tipo:'entrada', monto:ahorro, desc:'Ahorro diario', fecha });
   }
 
@@ -1189,7 +1299,7 @@ function rLH() {
   </tr></thead><tbody>` +
   S.liquidaciones.slice().reverse().map(l => {
     const c  = S.conductores.find(x=>x.id===l.conductorId);
-    const ok = l.tipo==='Normal' || l.tipo==='Festivo';
+    const ok = isDiaOperativo(l.tipo);
     return `<tr>
       <td style="font-family:'DM Mono',monospace;font-size:11px">${l.fecha}</td>
       <td>${c?c.nombre:'—'}</td>
@@ -1205,10 +1315,11 @@ function rLH() {
 async function delLiq(id) {
   const l = S.liquidaciones.find(x=>x.id===id); if (!l) return;
   if (!confirm('¿Borrar esta liquidación? El ahorro de ese día se revertirá.')) return;
-  if (l.tipo!=='Pico y placa' && l.tipo!=='Domingo libre') {
+  if (isDiaOperativo(l.tipo)) {
     const c = S.conductores.find(x=>x.id===l.conductorId);
     if (c) {
       c.ahorro = (c.ahorro||0) - (l.ahorro||0);
+      c.movimientos = c.movimientos || [];
       c.movimientos.push({ tipo:'salida', monto:l.ahorro||0, desc:'Reversa liquidación '+l.fecha, fecha:hoy() });
     }
   }
@@ -1226,7 +1337,7 @@ window.delLiq = delLiq;
 
 function calcIngresos(conductorId, mes) {
   return (S.liquidaciones || [])
-    .filter(l => l.conductorId === conductorId && l.fecha.substr(0,7) === mes && (l.tipo === 'Normal' || l.tipo === 'Festivo'))
+    .filter(l => l.conductorId === conductorId && l.fecha && l.fecha.substr(0,7) === mes && isDiaOperativo(l.tipo))
     .reduce((a, l) => a + (l.base || 0), 0);
 }
 
@@ -1236,13 +1347,13 @@ function calcAhorro(conductorId) {
 }
 
 function calcMantenimientos(mes, conductorId = null) {
-  let filtered = (S.mantenimientos || []).filter(m => m.fecha.substr(0,7) === mes);
-  if (conductorId) filtered = filtered.filter(m => m.conductor === conductorId);
+  let filtered = (S.mantenimientos || []).filter(m => m.fecha && m.fecha.substr(0,7) === mes);
+  if (conductorId) filtered = filtered.filter(m => m.conductorId === conductorId);
   return filtered.reduce((a, m) => a + (m.costo || 0), 0);
 }
 
 function calcGastos(mes, conductorId = null) {
-  let filtered = (S.gastos || []).filter(g => g.fecha.substr(0,7) === mes);
+  let filtered = (S.gastos || []).filter(g => g.fecha && g.fecha.substr(0,7) === mes);
   if (conductorId) filtered = filtered.filter(g => g.conductorId === conductorId);
   return filtered.reduce((a, g) => a + g.monto, 0);
 }
@@ -1253,13 +1364,14 @@ function calcTotalGastos(mes) {
 
 function calcDiasTrabajados(conductorId, mes) {
   return (S.liquidaciones || [])
-    .filter(l => l.conductorId === conductorId && l.fecha.substr(0,7) === mes && (l.tipo === 'Normal' || l.tipo === 'Festivo'))
+    .filter(l => l.conductorId === conductorId && l.fecha && l.fecha.substr(0,7) === mes && isDiaOperativo(l.tipo))
     .length;
 }
 
 // ─── VALIDACIONES ─────────────────────────────────────────────────────────────
 
-function validateLiquidacion(base, conductorId, fecha) {
+function validateLiquidacion(base, conductorId, fecha, ahorro = 0) {
+  if (ahorro < 0) return { ok: false, msg: 'Ahorro no puede ser negativo' };
   if (!base || base <= 0) return { ok: false, msg: '❌ Base debe ser mayor a 0' };
   if (!conductorId) return { ok: false, msg: '❌ Selecciona un conductor' };
   if (!S.conductores.find(c => c.id === conductorId)) return { ok: false, msg: '❌ Conductor no existe' };
@@ -1333,10 +1445,10 @@ function rRanking() {
   const conductoresRanking = (S.conductores || []).map(c => {
     const perf = calcPerformance(c);
     const diasTrabajados = S.liquidaciones.filter(l => 
-      l.conductorId === c.id && (l.tipo === 'Normal' || l.tipo === 'Festivo')
+      l.conductorId === c.id && isDiaOperativo(l.tipo)
     ).length;
     const ingresosTotales = S.liquidaciones.filter(l => 
-      l.conductorId === c.id && (l.tipo === 'Normal' || l.tipo === 'Festivo')
+      l.conductorId === c.id && isDiaOperativo(l.tipo)
     ).reduce((a, l) => a + (l.base || 0), 0);
     
     return {
@@ -1427,7 +1539,7 @@ function showCP(c) {
   $('cp-av').textContent = ini(c.nombre);
   $('cp-nm').textContent = c.nombre;
   $('cp-sb').textContent = c.turno + ' · ' + (c.plataformas||'—') + (c.tel?' · '+c.tel:'');
-  const d = S.liquidaciones.filter(l=>l.conductorId===c.id&&(l.tipo==='Normal'||l.tipo==='Festivo')).length;
+  const d = S.liquidaciones.filter(l=>l.conductorId===c.id&&isDiaOperativo(l.tipo)).length;
   $('cp-d').textContent  = d;
   $('cp-ah').textContent = fmt(c.ahorro);
   $('cp-ah').style.color = (c.ahorro||0) < 0 ? 'var(--re)' : '';
@@ -1440,7 +1552,7 @@ function showCP(c) {
   const trendSign = perf.cambio > 0 ? '+' : '';
   
   // Agregar info de trending al HTML existente
-  let trendHTML = `<div style="display:flex; gap:8px; margin-top:8px; font-size:12px; color:var(--t2)">
+  let trendHTML = `<div id="cp-trend" style="display:flex; gap:8px; margin-top:8px; font-size:12px; color:var(--t2)">
     <div style="flex:1">
       <div style="font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--t3); margin-bottom:2px">Trending</div>
       <div style="font-size:16px; font-weight:700; color:${trendColor}">${trendIcon} ${trendSign}${perf.cambio}%</div>
@@ -1461,6 +1573,8 @@ function showCP(c) {
   
   // Actualizar sección después del primer mcg
   const cp = $('cp');
+  const prevTrend = $('cp-trend');
+  if (prevTrend) prevTrend.remove();
   const firstMcg = cp.querySelector('.mcg');
   if (firstMcg) {
     firstMcg.insertAdjacentHTML('afterend', trendHTML);
@@ -1480,10 +1594,13 @@ async function applyDesc() {
   const cid    = S.selCond; if (!cid) { toast('Selecciona un conductor'); return; }
   const monto  = +$('dc-m').value;
   const motivo = $('dc-mo').value.trim();
-  if (!monto || !motivo) { toast('Ingresa monto y motivo'); return; }
+  if (!monto || monto <= 0 || !motivo) { toast('Ingresa monto mayor a 0 y motivo'); return; }
   const c = S.conductores.find(x=>x.id===cid);
+  if (!c) { toast('Conductor no existe'); return; }
+  if (monto > (c.ahorro || 0)) { toast('Ahorro insuficiente'); return; }
   c.ahorro = (c.ahorro||0) - monto;
   c.descuentos = (c.descuentos||0) + monto;
+  c.movimientos = c.movimientos || [];
   c.movimientos.push({ tipo:'salida', monto, desc:motivo, fecha:hoy() });
   await saveAll(); showCP(c);
   $('dc-m').value = ''; $('dc-mo').value = '';
@@ -1515,6 +1632,8 @@ async function delCond() {
   if (!confirm('¿Borrar a '+c.nombre+'?\nSe eliminarán sus liquidaciones y movimientos. Esta acción es permanente en Firebase.')) return;
   S.conductores   = S.conductores.filter(x=>x.id!==cid);
   S.liquidaciones = S.liquidaciones.filter(l=>l.conductorId!==cid);
+  S.gastos        = (S.gastos || []).filter(g=>g.conductorId!==cid);
+  S.mantenimientos = S.mantenimientos.map(m=>m.conductorId===cid ? { ...m, conductorId:null, resp:m.resp==='cond'?'prop':m.resp } : m);
   S.selCond = null;
   $('cp').style.display = 'none';
   await saveAll(); rCG(); rDash(); toast('Conductor eliminado');
@@ -1531,11 +1650,9 @@ async function saveGasto() {
   const monto = +$('g-m').value;
   const fecha = $('g-f').value;
   const detalle = $('g-d').value;
-  
-  if (!cid || !monto || !fecha) {
-    toast('Completa todos los campos');
-    return;
-  }
+  const valid = validateGasto(monto, cid);
+  if (!valid.ok) { toast(valid.msg); return; }
+  if (!fecha) { toast('Fecha requerida'); return; }
   
   const gasto = {
     id: Date.now(),
@@ -1547,27 +1664,20 @@ async function saveGasto() {
     ts: new Date().toISOString()
   };
   
-  // Agregar a estado local
-  if (!S.gastos) S.gastos = [];
   S.gastos.push(gasto);
-  
-  // Guardar en Firebase
-  ref(db, 'gastos/' + gasto.id).set(gasto);
-  
-  // Descontar del ahorro del conductor
   const cond = S.conductores.find(c => c.id === cid);
   if (cond) {
     cond.ahorro = (cond.ahorro || 0) - monto;
-    ref(db, 'cond/' + cid + '/ahorro').set(cond.ahorro);
+    cond.descuentos = (cond.descuentos || 0) + monto;
+    cond.movimientos = cond.movimientos || [];
+    cond.movimientos.push({ tipo:'salida', monto, desc:'Gasto: '+tipo, fecha });
   }
-  
-  // Limpiar campos
+  await saveAll();
   $('g-m').value = '';
   $('g-d').value = '';
-  $('g-f').value = '';
-  
-  toast('Gasto registrado - $' + monto + ' descontado del ahorro');
-  rMH(); // Refrescar historial
+  $('g-f').value = hoy();
+  rMH(); rDash(); if (S.selCond === cid) showCP(cond);
+  toast('Gasto registrado - ' + fmt(monto) + ' descontado del ahorro');
 }
 window.saveGasto = saveGasto;
 
@@ -1578,16 +1688,20 @@ async function saveMant() {
   const resp  = $('m-r').value;
   const cid   = +$('m-cd').value || null;
   const dias  = +$('m-px').value || 0;
+  const valid = validateMantenimiento(tipo, costo, fecha);
+  if (!valid.ok) { toast(valid.msg); return; }
+  if (resp === 'cond' && !cid) { toast('Selecciona conductor'); return; }
+  const c = resp === 'cond' ? S.conductores.find(x=>x.id===cid) : null;
+  if (resp === 'cond' && !c) { toast('Conductor no existe'); return; }
+  if (resp === 'cond' && costo > (c.ahorro || 0)) { toast('Ahorro insuficiente'); return; }
   const pf    = dias ? new Date(new Date(fecha).getTime()+dias*86400000).toISOString().split('T')[0] : null;
-  S.mantenimientos.push({ id:Date.now(), tipo, fecha, costo, resp, conductorId:cid, desc:$('m-d').value, proximaFecha:pf });
-  if (resp==='cond' && cid) {
-    const c = S.conductores.find(x=>x.id===cid);
-    if (c) {
-      c.ahorro -= costo; c.descuentos=(c.descuentos||0)+costo;
-      c.movimientos.push({ tipo:'salida', monto:costo, desc:'Mantenimiento: '+tipo, fecha });
-    }
+  S.mantenimientos.push({ id:Date.now(), tipo, fecha, costo, resp, conductorId:cid, desc:$('m-d').value, proximaFecha:pf, prox:dias || '' });
+  if (resp==='cond' && c) {
+    c.ahorro -= costo; c.descuentos=(c.descuentos||0)+costo;
+    c.movimientos = c.movimientos || [];
+    c.movimientos.push({ tipo:'salida', monto:costo, desc:'Mantenimiento: '+tipo, fecha });
   }
-  await saveAll(); rMH(); rDash();
+  await saveAll(); rMH(); rDash(); if (resp==='cond' && c && S.selCond === c.id) showCP(c);
   $('m-d').value=''; $('m-c').value='';
   toast('Mantenimiento guardado ✓');
 }
@@ -1646,16 +1760,34 @@ function rMH() {
 }
 
 async function delGasto(id) {
+  const gasto = (S.gastos || []).find(g => g.id === id);
+  if (!gasto) return;
   if (!confirm('¿Borrar este gasto?')) return;
+  const c = S.conductores.find(x => x.id === gasto.conductorId);
+  if (c) {
+    c.ahorro = (c.ahorro || 0) + (gasto.monto || 0);
+    c.descuentos = Math.max(0, (c.descuentos || 0) - (gasto.monto || 0));
+    c.movimientos = c.movimientos || [];
+    c.movimientos.push({ tipo:'entrada', monto:gasto.monto||0, desc:'Reversa gasto '+(gasto.tipo||''), fecha:hoy() });
+  }
   S.gastos = (S.gastos || []).filter(g => g.id !== id);
-  await saveAll(); rMH(); rDash(); toast('Borrado');
+  await saveAll(); rMH(); rDash(); if (c && S.selCond === c.id) showCP(c); toast('Borrado');
 }
 window.delGasto = delGasto;
 
 async function delMant(id) {
+  const mant = S.mantenimientos.find(m=>m.id===id);
+  if (!mant) return;
   if (!confirm('¿Borrar este mantenimiento?')) return;
+  const c = mant.resp === 'cond' ? S.conductores.find(x => x.id === mant.conductorId) : null;
+  if (c) {
+    c.ahorro = (c.ahorro || 0) + (mant.costo || 0);
+    c.descuentos = Math.max(0, (c.descuentos || 0) - (mant.costo || 0));
+    c.movimientos = c.movimientos || [];
+    c.movimientos.push({ tipo:'entrada', monto:mant.costo||0, desc:'Reversa mantenimiento '+(mant.tipo||''), fecha:hoy() });
+  }
   S.mantenimientos = S.mantenimientos.filter(m=>m.id!==id);
-  await saveAll(); rMH(); rDash(); toast('Borrado');
+  await saveAll(); rMH(); rDash(); if (c && S.selCond === c.id) showCP(c); toast('Borrado');
 }
 window.delMant = delMant;
 
@@ -1698,12 +1830,14 @@ function descargarReporteExcel(data) {
 function genRep() {
   const mes = $('r-m').value;
   const cid = +$('r-c').value || null;
-  const liq  = S.liquidaciones.filter(l=>l.fecha.substr(0,7)===mes&&(!cid||l.conductorId===cid));
-  const mant = S.mantenimientos.filter(m=>m.fecha.substr(0,7)===mes);
-  const tw   = liq.filter(l=>l.tipo==='Normal'||l.tipo==='Festivo');
+  const liq  = S.liquidaciones.filter(l=>l.fecha&&l.fecha.substr(0,7)===mes&&(!cid||l.conductorId===cid));
+  const mant = S.mantenimientos.filter(m=>m.fecha&&m.fecha.substr(0,7)===mes&&(!cid||m.conductorId===cid||m.resp!=='cond'));
+  const gastos = (S.gastos || []).filter(g=>g.fecha&&g.fecha.substr(0,7)===mes&&(!cid||g.conductorId===cid));
+  const tw   = liq.filter(l=>isDiaOperativo(l.tipo));
   const tB   = tw.reduce((a,l)=>a+(l.base||0),0);
   const tA   = tw.reduce((a,l)=>a+(l.ahorro||0),0);
-  const tM   = mant.reduce((a,m)=>a+(m.costo||0),0);
+  const tM   = mant.reduce((a,m)=>a+(m.costo||0),0) + gastos.reduce((a,g)=>a+(g.monto||0),0);
+  const tOperativo = mant.filter(m=>m.resp!=='cond').reduce((a,m)=>a+(m.costo||0),0);
   const cn   = cid ? S.conductores.find(c=>c.id===cid)?.nombre : 'Todos los conductores';
   
   // Guardar datos para exportar
@@ -1714,14 +1848,14 @@ function genRep() {
     ingresos: tB,
     ahorros: tA,
     gast: tM,
-    neto: tB - tM,
+    neto: tB - tOperativo,
     conductores: S.conductores.map(c => ({
       nombre: c.nombre,
       dias: tw.filter(l=>l.conductorId===c.id).length,
       ingresos: tw.filter(l=>l.conductorId===c.id).reduce((a,l)=>a+(l.base||0),0),
       ahorro: tw.filter(l=>l.conductorId===c.id).reduce((a,l)=>a+(l.ahorro||0),0),
-      gast: mant.filter(m=>m.conductor===c.id).reduce((a,m)=>a+(m.costo||0),0),
-      neto: tw.filter(l=>l.conductorId===c.id).reduce((a,l)=>a+(l.base||0),0) - mant.filter(m=>m.conductor===c.id).reduce((a,m)=>a+(m.costo||0),0)
+      gast: mant.filter(m=>m.conductorId===c.id).reduce((a,m)=>a+(m.costo||0),0) + gastos.filter(g=>g.conductorId===c.id).reduce((a,g)=>a+(g.monto||0),0),
+      neto: tw.filter(l=>l.conductorId===c.id).reduce((a,l)=>a+(l.base||0),0) - mant.filter(m=>m.conductorId===c.id&&m.resp!=='cond').reduce((a,m)=>a+(m.costo||0),0)
     }))
   };
   
@@ -1733,12 +1867,12 @@ function genRep() {
         <div class="mc w"><div class="lb">Mantenimiento</div><div class="vl" style="font-size:18px">${fmt(tM)}</div></div>
         <div class="mc"><div class="lb">Días trabajados</div><div class="vl" style="font-size:18px">${tw.length}</div></div>
       </div>
-      <div class="row"><span class="lf">Balance neto (liquidado − mantenimiento)</span><span style="font-weight:600;color:var(--gr)">${fmt(tB-tM)}</span></div>
+      <div class="row"><span class="lf">Balance neto operativo</span><span style="font-weight:600;color:var(--gr)">${fmt(tB-tOperativo)}</span></div>
       <div class="row"><span class="lf">Promedio diario</span><span style="font-weight:600">${tw.length?fmt(tB/tw.length):'—'}</span></div>
       <div class="br"><button class="btn p" onclick="descargarReporteExcel(window.reporteActual)"><span class="ti" data-icon="download"></span>Descargar CSV</button></div>
     </div>
-    ${liq.length ? `<div class="box"><h3>Detalle de liquidaciones</h3>${liq.map(l=>{const c=S.conductores.find(x=>x.id===l.conductorId);const ok=l.tipo==='Normal'||l.tipo==='Festivo';return`<div class="li"><div><div>${c?c.nombre:'—'}</div><div class="mt">${l.fecha} · ${l.plataforma}</div></div><div style="text-align:right"><div style="font-weight:600">${fmt((l.base||0)+(l.ahorro||0))}</div><span class="pi ${ok?'ok':'pn'}">${l.tipo}</span></div></div>`;}).join('')}</div>` : ''}
-    ${mant.length ? `<div class="box"><h3>Mantenimientos del mes</h3>${mant.map(m=>`<div class="li"><div><div style="font-weight:500">${m.tipo}</div><div class="mt">${m.fecha}${m.desc?' · '+m.desc:''}</div></div><div style="font-weight:600">${fmt(m.costo)}</div></div>`).join('')}</div>` : ''}`;
+    ${liq.length ? `<div class="box"><h3>Detalle de liquidaciones</h3>${liq.map(l=>{const c=S.conductores.find(x=>x.id===l.conductorId);const ok=isDiaOperativo(l.tipo);return`<div class="li"><div><div>${c?c.nombre:'--'}</div><div class="mt">${l.fecha} - ${l.plataforma}</div></div><div style="text-align:right"><div style="font-weight:600">${fmt((l.base||0)+(l.ahorro||0))}</div><span class="pi ${ok?'ok':'pn'}">${l.tipo}</span></div></div>`;}).join('')}</div>` : ''}
+    ${(mant.length || gastos.length) ? `<div class="box"><h3>Gastos y mantenimientos del mes</h3>${mant.map(m=>`<div class="li"><div><div style="font-weight:500">${m.tipo}</div><div class="mt">${m.fecha}${m.desc?' - '+m.desc:''} - ${m.resp==='cond'?'Conductor':'Propietario'}</div></div><div style="font-weight:600">${fmt(m.costo)}</div></div>`).join('')}${gastos.map(g=>{const c=S.conductores.find(x=>x.id===g.conductorId);return`<div class="li"><div><div style="font-weight:500">${g.tipo}</div><div class="mt">${g.fecha} - ${c?c.nombre:'--'}${g.detalle?' - '+g.detalle:''}</div></div><div style="font-weight:600">${fmt(g.monto)}</div></div>`;}).join('')}</div>` : ''}`;
   
   // Renderizar iconos nuevamente
   renderIcons();
@@ -1772,16 +1906,33 @@ async function saveAj() {
 window.saveAj = saveAj;
 
 async function clrLiq() {
-  if (!confirm('¿Borrar TODAS las liquidaciones de Firebase?\nLos ahorros de los conductores no se revertirán.')) return;
-  S.liquidaciones = []; await saveAll(); rLH(); rDash(); toast('Liquidaciones borradas');
+  if (!confirm('Borrar TODAS las liquidaciones? Se revertira el ahorro asociado.')) return;
+  S.liquidaciones.forEach(l => {
+    if (!isDiaOperativo(l.tipo)) return;
+    const c = S.conductores.find(x=>x.id===l.conductorId);
+    if (!c) return;
+    c.ahorro = (c.ahorro || 0) - (l.ahorro || 0);
+    c.movimientos = c.movimientos || [];
+    c.movimientos.push({ tipo:'salida', monto:l.ahorro||0, desc:'Reversa masiva liquidaciones', fecha:hoy() });
+  });
+  S.liquidaciones = []; await saveAll(); rLH(); rDash(); rCG(); toast('Liquidaciones borradas');
 }
 async function clrMant() {
   if (!confirm('¿Borrar todos los mantenimientos?')) return;
-  S.mantenimientos = []; await saveAll(); rMH(); rDash(); toast('Mantenimientos borrados');
+  S.mantenimientos.forEach(m => {
+    if (m.resp !== 'cond') return;
+    const c = S.conductores.find(x=>x.id===m.conductorId);
+    if (!c) return;
+    c.ahorro = (c.ahorro || 0) + (m.costo || 0);
+    c.descuentos = Math.max(0, (c.descuentos || 0) - (m.costo || 0));
+    c.movimientos = c.movimientos || [];
+    c.movimientos.push({ tipo:'entrada', monto:m.costo||0, desc:'Reversa masiva mantenimientos', fecha:hoy() });
+  });
+  S.mantenimientos = []; await saveAll(); rMH(); rDash(); rCG(); toast('Mantenimientos borrados');
 }
 async function clrAll() {
-  if (!confirm('¿RESETEAR TODO en Firebase?\nSe borran conductores, liquidaciones y mantenimientos. Irreversible.')) return;
-  S = { conductores:[], liquidaciones:[], mantenimientos:[], ajustes:S.ajustes, selCond:null, nid:1 };
+  if (!confirm('RESETEAR TODO en Firebase? Se borran conductores, liquidaciones, gastos y mantenimientos. Irreversible.')) return;
+  S = { conductores:[], liquidaciones:[], mantenimientos:[], gastos:[], ajustes:S.ajustes, selCond:null, nid:1 };
   await saveAll(); init(); toast('Todo reseteado');
 }
 window.clrLiq = clrLiq; window.clrMant = clrMant; window.clrAll = clrAll;
@@ -1794,23 +1945,36 @@ function toast(msg) {
 }
 
 // ─── MEJORA 1: SINCRONIZACIÓN AUTOMÁTICA EN TIEMPO REAL ─────────────────────
+function renderAll() {
+  fillSels();
+  rDash();
+  rLH();
+  rCG();
+  rMH();
+  if ($('sec-rep')?.classList.contains('on')) genRep();
+}
+
 function setupRealtimeListeners() {
-  onValue(ref(db, 'liquidaciones'), snap => {
-    if (snap.exists()) { S.liquidaciones = Object.values(snap.val()); rDash(); if($('sec-rep')?.classList.contains('on')) genRep(); }
-  });
-  onValue(ref(db, 'cond'), snap => {
-    if (snap.exists()) { S.conductores = Object.values(snap.val()); rCG(); if($('sec-rep')?.classList.contains('on')) genRep(); }
-  });
-  onValue(ref(db, 'gastos'), snap => {
-    S.gastos = snap.exists() ? Object.values(snap.val()) : []; rMH(); if($('sec-rep')?.classList.contains('on')) genRep();
-  });
-  onValue(ref(db, 'mantenimientos'), snap => {
-    if (snap.exists()) { S.mantenimientos = Object.values(snap.val()); rMH(); rMaintVencido(); if($('sec-rep')?.classList.contains('on')) genRep(); }
+  if (setupRealtimeListeners.ready) return;
+  setupRealtimeListeners.ready = true;
+  onValue(ref(db, 'flotaapp'), snap => {
+    if (!snap.exists()) return;
+    const data = snap.val();
+    S.conductores    = asArray(data.conductores);
+    S.liquidaciones  = asArray(data.liquidaciones);
+    S.mantenimientos = asArray(data.mantenimientos);
+    S.gastos         = asArray(data.gastos);
+    S.ajustes        = data.ajustes ? { ...S.ajustes, ...data.ajustes } : S.ajustes;
+    S.nid            = data.nid || S.nid;
+    normalizeState();
+    setSyncState('ok');
+    renderAll();
   });
 }
 
 // ─── MEJORA 2: MODAL CON PREVIEW Y COPIAR ÚLTIMO ──────────────────────────────
 function showLiqModal() {
+  if (!$('liq-modal')) { go('liq'); return; }
   const lastLiq = (S.liquidaciones || []).filter(l => l.fecha === hoy()).pop();
   const cond = S.conductores.find(c => c.id === S.selCond);
   $('ql-preview-cond').textContent = cond?.nombre || '—';
@@ -1821,6 +1985,16 @@ function showLiqModal() {
   $('liq-modal').style.display = 'block';
 }
 function copyLastLiq() {
+  if (!$('ql-plat')) {
+    const last = (S.liquidaciones || []).filter(l => l.fecha === hoy()).pop();
+    if (!last) { toast('No hay registro hoy'); return; }
+    $('l-b').value = last.base || 0;
+    $('l-a').value = last.ahorro || 0;
+    $('l-pl').value = last.plataforma || $('l-pl').value;
+    upPr();
+    toast('Ultimo registro copiado');
+    return;
+  }
   const lastLiq = (S.liquidaciones || []).filter(l => l.fecha === hoy()).pop();
   if (!lastLiq) { toast('❌ No hay registro hoy'); return; }
   $('ql-base').value = lastLiq.base;
@@ -1830,6 +2004,7 @@ function copyLastLiq() {
   toast('✅ Último registro copiado');
 }
 function updatePreview() {
+  if (!$('ql-preview-total')) { upPr(); return; }
   const base = +$('ql-base').value || 0;
   const ahorro = +$('ql-ahorro').value || 0;
   const total = base + ahorro;
@@ -1839,6 +2014,7 @@ function updatePreview() {
 
 // ─── MEJORA 3: VALIDACIÓN DE DATOS ────────────────────────────────────────────
 function validateAndSaveLiq() {
+  if (!$('ql-cd')) { saveLiq(); return; }
   const base = +$('ql-base').value;
   const ahorro = +$('ql-ahorro').value;
   const cid = +$('ql-cd').value;
@@ -1861,9 +2037,9 @@ function validateAndSaveGasto() {
   saveGasto();
 }
 function validateAndSaveMant() {
-  const tipo = $('m-tipo').value;
-  const costo = +$('m-costo').value;
-  const fecha = $('m-fecha').value;
+  const tipo = $('m-tp').value;
+  const costo = +$('m-c').value;
+  const fecha = $('m-f').value;
   if (!tipo) { toast('❌ Tipo requerido'); return; }
   if (!costo || costo <= 0) { toast('❌ Costo debe ser mayor a 0'); return; }
   if (!fecha) { toast('❌ Fecha requerida'); return; }
@@ -1906,24 +2082,72 @@ function rMaintVencidoMejorado() {
   const alertClass = d <= 0 ? 'e' : d <= 7 ? 'w' : 'i';
   const html = `<div class="al ${alertClass}" style="margin-bottom:12px">
     <div style="flex:1"><strong>${pm.tipo}</strong><div class="mt">${d <= 0 ? '¡Vencido hace '+Math.abs(d)+' días!' : 'Vence en '+d+' días'}</div></div>
-    <div style="display:flex;gap:6px"><button class="btn sm" onclick="postponeMaint(${pm.id})">Posponer 7d</button><button class="btn sm p" onclick="$('m-tp').value='${pm.tipo}';openTab('mant')">Registrar</button></div>
+    <div style="display:flex;gap:6px"><button class="btn sm" onclick="postponeMaint(${pm.id})">Posponer 7d</button><button class="btn sm p" onclick="$('m-tp').value='${pm.tipo}';go('mant')">Registrar</button></div>
   </div>`;
   const alDiv = $('d-al');
   alDiv.innerHTML = html + alDiv.innerHTML;
 }
-function postponeMaint(id) {
+async function postponeMaint(id) {
   const m = S.mantenimientos.find(x => x.id === id);
   if (!m) return;
   const newDate = new Date(m.proximaFecha || new Date());
   newDate.setDate(newDate.getDate() + 7);
   m.proximaFecha = newDate.toISOString().split('T')[0];
-  ref(db, 'mantenimientos/' + id).update({ proximaFecha: m.proximaFecha });
+  await saveAll();
+  rMH(); rDash();
   toast('✅ Pospuesto 7 días');
 }
 
 // ─── ARRANCAR TODO ─────────────────────────────────────────────────────────────
-loadFromFirebase();
-setTimeout(() => setupRealtimeListeners(), 1000);
+function runCarroQA() {
+  normalizeState();
+  const fails = [];
+  const warns = [];
+  const ok = [];
+  const idsCond = new Set(S.conductores.map(c => c.id));
+  const dupLiq = new Set();
+  const seenLiq = new Set();
+
+  Array.isArray(S.gastos) ? ok.push('S.gastos existe en estado principal') : fails.push('S.gastos no existe');
+  S.conductores.forEach(c => {
+    if (!c.nombre) warns.push(`Conductor ${c.id} sin nombre`);
+    if (!Array.isArray(c.movimientos)) fails.push(`Conductor ${c.id} sin movimientos[]`);
+    if (!Number.isFinite(c.ahorro)) fails.push(`Conductor ${c.id} con ahorro invalido`);
+  });
+  S.liquidaciones.forEach(l => {
+    if (!idsCond.has(l.conductorId)) fails.push(`Liquidacion ${l.id} referencia conductor inexistente ${l.conductorId}`);
+    if (!l.fecha) fails.push(`Liquidacion ${l.id} sin fecha`);
+    if (isDiaOperativo(l.tipo) && l.base <= 0) fails.push(`Liquidacion ${l.id} operativa sin base positiva`);
+    const key = `${l.conductorId}|${l.fecha}|${isDiaOperativo(l.tipo)}`;
+    if (isDiaOperativo(l.tipo) && seenLiq.has(key)) dupLiq.add(key);
+    seenLiq.add(key);
+  });
+  dupLiq.forEach(k => warns.push(`Duplicado operativo conductor/fecha: ${k}`));
+  S.gastos.forEach(g => {
+    if (!idsCond.has(g.conductorId)) fails.push(`Gasto ${g.id} referencia conductor inexistente ${g.conductorId}`);
+    if (!g.fecha) fails.push(`Gasto ${g.id} sin fecha`);
+    if (g.monto <= 0) fails.push(`Gasto ${g.id} sin monto positivo`);
+  });
+  S.mantenimientos.forEach(m => {
+    if (!m.fecha) fails.push(`Mantenimiento ${m.id} sin fecha`);
+    if (m.costo <= 0) fails.push(`Mantenimiento ${m.id} sin costo positivo`);
+    if (m.resp === 'cond' && !idsCond.has(m.conductorId)) fails.push(`Mantenimiento ${m.id} de conductor sin conductor valido`);
+  });
+  ok.push(`Conductores: ${S.conductores.length}`);
+  ok.push(`Liquidaciones: ${S.liquidaciones.length}`);
+  ok.push(`Gastos: ${S.gastos.length}`);
+  ok.push(`Mantenimientos: ${S.mantenimientos.length}`);
+  return { fails, warns, ok, snapshot: JSON.parse(JSON.stringify({
+    conductores: S.conductores,
+    liquidaciones: S.liquidaciones,
+    gastos: S.gastos,
+    mantenimientos: S.mantenimientos,
+    ajustes: S.ajustes
+  })) };
+}
+window.__carroQA = runCarroQA;
+window.postponeMaint = postponeMaint;
+loadFromFirebase().then(() => setupRealtimeListeners());
 </script>
 </body>
 </html>

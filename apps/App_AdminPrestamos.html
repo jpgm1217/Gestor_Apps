@@ -803,6 +803,19 @@ const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamos
 let db=null,fbOk=false,clientes=[],actividad=[],caja=[],liquidaciones=[],pendingRefin=null,pendingAbono=null,pendingExtension=null;
 // FIX W11: debounce global para evitar doble-click en botones Confirmar (anti-duplicados)
 let _busyConfirm=false;
+function arrFirebase(v){
+  if(Array.isArray(v))return v;
+  if(v&&typeof v==='object')return Object.values(v);
+  return [];
+}
+function normalizarClienteSync(c){
+  if(!c||typeof c!=='object')return c;
+  const out={...c};
+  ['cuotasData','historialNoPago','historialMora','comisionEventos','ciclos','historialPrestamos','historialAjustes','cargosManuales'].forEach(f=>{
+    if(out[f]&&!Array.isArray(out[f]))out[f]=arrFirebase(out[f]);
+  });
+  return out;
+}
 function debounceConfirm(fn){
   return async function(...args){
     if(_busyConfirm){notify('Procesando, espera un momento...','err');return;}
@@ -1082,7 +1095,7 @@ let _migracionCorrida=false; // FIX W13: evita loop save→listener→migrar→s
 let _reconciliacionAutoProgramada=false;
 function escuchar(){
   db.ref('clientes').on('value',s=>{
-    const d=s.val();clientes=d?Object.values(d):[];
+    const d=s.val();clientes=d?Object.values(d).map(normalizarClienteSync):[];
     // FIX W13+HIGH-6: migración solo cuando hay clientes (sino marca corrida con array vacío y nunca migra)
     if(!_migracionCorrida&&clientes.length>0){
       migrarComisionesClientes();
@@ -1496,6 +1509,18 @@ function diasMora(c, refKey){
   if(!fechaBase)return 0;
   return Math.max(0,Math.floor((coUTCDateFromKey(refKey)-coUTCDateFromKey(fechaBase))/DAY_MS));
 }
+function fechaCobroProgramada(c,q,i){
+  if(!q||!q.fechaISO)return null;
+  let fecha=q.fechaISO;
+  if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>fecha)fecha=c.graciaHasta;
+  return fecha;
+}
+function tieneCuotaEnFecha(c,fecha){
+  return !!(c.cuotasData&&c.cuotasData.some((q,i)=>q.num>c.pagadas&&fechaCobroProgramada(c,q,i)===fecha));
+}
+function cuotaPendienteEnFecha(c,fecha){
+  return (c.cuotasData||[]).find((q,i)=>q.num>c.pagadas&&fechaCobroProgramada(c,q,i)===fecha)||null;
+}
 function saldo(c){
   // Cuotas pendientes sumando correctamente la última cuota (puede ser diferente por redondeo)
   if(c.pagadas>=c.numCuotas)return cargosPendientes(c); // FIX F8: cargos extra siguen vivos aunque préstamo pagado
@@ -1578,7 +1603,7 @@ function renderInicio(){
   renderInicioBandeja(h,act);
 
   // — Ruta de hoy —
-  const ruta=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const ruta=clientes.filter(c=>tieneCuotaEnFecha(c,h));
   const re=document.getElementById('ruta-hoy');
   re.innerHTML=!ruta.length
     ?'<div class="empty" style="padding:14px 0"><div class="empty-t">Sin cobros para hoy</div></div>'
@@ -1663,7 +1688,7 @@ function renderAlertas(h, act){
 
   // Sin cobros y ya es tarde
   const horaActual=coHour();
-  const rutaHoy=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
   const cobradosHoy=rutaHoy.filter(c=>sameCoDate(c.ultimoPago,h));
   // Alerta a las 9pm si el día de cobros ya cerró y quedaron pendientes
   if(rutaHoy.length>0&&cobradosHoy.length<rutaHoy.length&&horaActual>=21)
@@ -1686,7 +1711,7 @@ function renderProximos7(h){
   for(let i=1;i<=7;i++){
     const dStr=addDaysToKey(h,i);
     const d=coUTCDateFromKey(dStr);
-    const cobros=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===dStr&&q.num>c.pagadas));
+    const cobros=clientes.filter(c=>tieneCuotaEnFecha(c,dStr));
     const total=cobros.reduce((s,c)=>{
       const m=mora(c);
       return s+c.cuota+(m>0?m:0);
@@ -1817,9 +1842,11 @@ function verCliente(id,soliId=null){
       <button class="btn btn-ghost btn-sm" onclick="perdonarMora('${c.id}')">🤝 Perdonar mora</button>
     </div></div>`:graciaOn?`<div class="ibox blue" style="font-size:12px">🛡️ Sin mora hasta <strong>${graciaTxt}</strong> — gabela activa</div>`:c.graciaHasta?`<div class="ibox amber" style="font-size:12px">🛡️ La gabela terminó el <strong>${graciaTxt}</strong></div>`:'<div class="ibox green" style="font-size:12px">✓ Al día — sin mora</div>';
   const cuotasHTML=c.cuotasData.map((q,i)=>{
-    const p=i<c.pagadas,esH=q.fechaISO===h,v=!p&&q.fechaISO<h;
+    const fechaProg=fechaCobroProgramada(c,q,i)||q.fechaISO;
+    const p=i<c.pagadas,esH=fechaProg===h,v=!p&&fechaProg<h;
     const b=p?'<span class="badge bg" style="font-size:10px">✓</span>':esH?'<span class="badge bgold" style="font-size:10px">Hoy</span>':v?'<span class="badge br" style="font-size:10px">Vencida</span>':'<span class="badge bgray" style="font-size:10px">—</span>';
-    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${q.fecha}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px">${b}</td></tr>`;
+    const fechaTxt=fechaProg&&fechaProg!==q.fechaISO?labelFromUTCDate(coUTCDateFromKey(fechaProg))+' dif.':q.fecha;
+    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px">${b}</td></tr>`;
   }).join('');
   document.getElementById('modal-cli-body').innerHTML=`
     <div class="mtitle">${c.nombre}${c.refinanciado?` <span style="font-size:12px;font-weight:400;color:var(--amber)">🔄 Refinanciado×${c.conteoRefinanciaciones||1}</span>`:''}</div>
@@ -2944,8 +2971,8 @@ function renderFinanzas(){
   let totalProy=0;
   for(let i=1;i<=30;i++){
     const dStr=addDaysToKey(h,i);
-    const cobros=act.filter(c=>c.cuotasData?.some(q=>q.fechaISO===dStr&&q.num>c.pagadas));
-    const tot=cobros.reduce((s,c)=>{const q=c.cuotasData.find(x=>x.fechaISO===dStr&&x.num>c.pagadas);return s+(q?.cuota||0);},0);
+    const cobros=act.filter(c=>tieneCuotaEnFecha(c,dStr));
+    const tot=cobros.reduce((s,c)=>{const q=cuotaPendienteEnFecha(c,dStr);return s+(q?.cuota||0);},0);
     proyeccion.push({dia:i,fecha:dStr,total:tot,count:cobros.length});
     totalProy+=tot;
   }
@@ -2971,7 +2998,7 @@ function renderFinanzas(){
     </div>`;
 
   // — Ruta por zona —
-  const rutaHoy=act.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const rutaHoy=act.filter(c=>tieneCuotaEnFecha(c,h));
   if(!rutaHoy.length){
     document.getElementById('fin-zona').innerHTML='<div style="font-size:12px;color:var(--text3);text-align:center;padding:8px 0">Sin cobros para hoy</div>';
   } else {
@@ -3095,7 +3122,7 @@ function clientesFinalizanEnDias(activos,dias){
 }
 function totalPendienteHoyCliente(c,fecha){
   const f=fecha||hoy();
-  const cuotaHoy=c.cuotasData?.find(q=>q.fechaISO===f&&q.num>c.pagadas);
+  const cuotaHoy=cuotaPendienteEnFecha(c,f);
   if(!cuotaHoy)return 0;
   return Math.max(0,(cuotaHoy.cuota||c.cuota||0)+mora(c)-(c.abonoPendiente||0));
 }
@@ -3106,7 +3133,7 @@ function renderInicioResumen(h,act){
   const solicitudes=solicitudesPendientesLista();
   const finalizan=clientesFinalizanEnDias(act,7);
   const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
-  const rutaHoy=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
   const faltanHoy=rutaHoy.filter(c=>!(sameCoDate(c.ultimoPago,h))&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const items=[
     {lbl:'Disponible para prestar',val:fmt(m.disponibleReal),color:m.disponibleReal<0?'var(--red)':'var(--green)'},
@@ -3123,7 +3150,7 @@ function renderInicioBandeja(h,act){
   if(!el)return;
   const solicitudes=solicitudesPendientesLista();
   const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
-  const rutaHoy=clientes.filter(c=>c.cuotasData?.some(q=>q.fechaISO===h&&q.num>c.pagadas));
+  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
   const faltanHoy=rutaHoy.filter(c=>!(sameCoDate(c.ultimoPago,h))&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const finalizan=clientesFinalizanEnDias(act,7).slice(0,3);
   const items=[];
