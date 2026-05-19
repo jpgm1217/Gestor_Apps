@@ -379,10 +379,10 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div id="panel-comisiones" class="panel">
   <!-- Métricas resumen -->
   <div class="g2">
-    <div class="metric gold"><div class="ml">Comisión pendiente</div><div class="mv" id="com-pendiente">$0</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-pct-lbl">—% del interés+mora</div></div>
-    <div class="metric green"><div class="ml">Ya liquidado</div><div class="mv" id="com-liquidado">$0</div></div>
-    <div class="metric"><div class="ml">Tu ganancia (interés)</div><div class="mv" style="color:var(--green)" id="com-tuya">$0</div></div>
-    <div class="metric"><div class="ml">Mora cobrada</div><div class="mv" style="color:var(--amber)" id="com-mora">$0</div></div>
+    <div class="metric gold"><div class="ml">Comisión pendiente cobrador</div><div class="mv" id="com-pendiente">$0</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-pct-lbl">—% efectivo sobre interés+mora</div></div>
+    <div class="metric green"><div class="ml">Ya liquidado al cobrador</div><div class="mv" id="com-liquidado">$0</div></div>
+    <div class="metric"><div class="ml">Tu ganancia (interés+mora)</div><div class="mv" style="color:var(--green)" id="com-tuya">$0</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-tuya-lbl">—% efectivo retenido</div></div>
+    <div class="metric"><div class="ml">Mora cobrada total</div><div class="mv" style="color:var(--amber)" id="com-mora">$0</div></div>
   </div>
 
   <!-- Configuración % global -->
@@ -4075,14 +4075,23 @@ function renderComisiones(){
     acc.liquidada+=r.liquidada;
     acc.pendiente+=r.pendiente;
     acc.admin+=r.admin;
+    acc.interes+=r.interes;
     acc.mora+=r.mora;
     return acc;
-  },{generada:0,liquidada:0,pendiente:0,admin:0,mora:0});
+  },{generada:0,liquidada:0,pendiente:0,admin:0,interes:0,mora:0});
 
   document.getElementById('com-pendiente').textContent=fmt(resumen.pendiente);
   document.getElementById('com-liquidado').textContent=fmt(resumen.liquidada);
   document.getElementById('com-tuya').textContent=fmt(resumen.admin);
   document.getElementById('com-mora').textContent=fmt(resumen.mora);
+  // Mostrar % efectivo real (puede diferir del global si clientes tienen pct distinto)
+  const totalIntMora=resumen.interes+resumen.mora;
+  const pctEfectivoCobrador=totalIntMora>0?(resumen.generada/totalIntMora*100):pct;
+  const pctEfectivoAdmin=totalIntMora>0?(resumen.admin/totalIntMora*100):(100-pct);
+  const lblPct=document.getElementById('com-pct-lbl');
+  if(lblPct)lblPct.textContent=`${pctEfectivoCobrador.toFixed(1)}% efectivo sobre interés+mora (global: ${pct}%)`;
+  const lblAdmin=document.getElementById('com-tuya-lbl');
+  if(lblAdmin)lblAdmin.textContent=`${pctEfectivoAdmin.toFixed(1)}% efectivo retenido`;
 
   const activos=clientes.filter(c=>!c.esInterno&&(resumenComisionCliente(c).generada>0||c.pagadas>0));
   const internosCount=clientes.filter(c=>c.esInterno&&c.pagadas>0).length;
