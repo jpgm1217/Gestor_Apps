@@ -356,6 +356,12 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="confirm-name" id="confirm-nombre">—</div>
     <div class="confirm-amount" id="confirm-amount">$0</div>
     <div class="confirm-sub" id="confirm-sub">—</div>
+    <div style="width:100%;margin:2px 0 14px">
+      <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:6px">Mora cobrada (editable)</label>
+      <input type="number" id="confirm-mora" step="500" min="0" value="0" inputmode="numeric"
+        style="width:100%;padding:10px;border-radius:10px;border:1.5px solid rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:var(--text);font-size:18px;font-weight:700;text-align:center"
+        oninput="recalcConfirm()">
+    </div>
     <div class="confirm-btns">
       <button class="confirm-no" onclick="cerrarConfirm()">Cancelar</button>
       <button class="confirm-yes" onclick="confirmarPago()">✓ Confirmar</button>
@@ -1027,11 +1033,16 @@ function diasMora(c, refKey){
   if(!fechaBase)return 0;
   return Math.max(0,Math.floor((coUTCDateFromKey(refKey)-coUTCDateFromKey(fechaBase))/DAY_MS));
 }
+// SYNC: cargos manuales pendientes (igual que admin, FIX F8) para que el saldo coincida entre apps
+function cargosPendientes(c){
+  if(!Array.isArray(c.cargosManuales))return 0;
+  return c.cargosManuales.filter(x=>!x.cobrado).reduce((s,x)=>s+(x.monto||0),0);
+}
 function saldo(c){
-  if(c.pagadas>=c.numCuotas)return 0;
+  if(c.pagadas>=c.numCuotas)return cargosPendientes(c);
   const pendientes=c.cuotasData?.slice(c.pagadas)||[];
   const totalPendiente=pendientes.reduce((s,q)=>s+q.cuota,0);
-  return Math.max(0,totalPendiente-(c.abonoPendiente||0));
+  return Math.max(0,totalPendiente-(c.abonoPendiente||0)+cargosPendientes(c));
 }
 
 // ===== PAGO ANTICIPADO (info para cobrador — admin registra) =====
@@ -1090,8 +1101,18 @@ function partesCuotaIndex(c,idx){
   const cuota=Math.max(0,Math.round(parseFloat(q.cuota)||((idx===(c.numCuotas||1)-1&&c.cuotaUltima)?c.cuotaUltima:c.cuota||0)));
   const suma=capital+interes;
   if(cuota>0&&suma!==cuota){
-    const delta=cuota-suma;
-    interes=Math.max(0,interes+delta);
+    // SYNC: mismo reparto proporcional que el admin (consistencia comisión/caja entre apps)
+    const totalRest=capitalRest+interesRest;
+    if(totalRest>0){
+      const ratioCap=capitalRest/totalRest;
+      capital=Math.min(capitalRest,Math.max(0,Math.round(cuota*ratioCap)));
+      interes=Math.min(interesRest,Math.max(0,cuota-capital));
+      const delta=cuota-(capital+interes);
+      if(delta!==0){
+        if(interes+delta>=0&&interes+delta<=interesRest)interes+=delta;
+        else capital=Math.max(0,Math.min(capitalRest,capital+delta));
+      }
+    }
   }
   return {capital,interes,cuota};
 }
@@ -1316,11 +1337,11 @@ function cerrarClienteDetalle(){document.getElementById('cliente-overlay').class
 // ══════════════════════════════════════════════
 const SEGUIMIENTO_DIAS_KEY='cr_seguimiento_dias';
 function getSeguimientoDias(){
-  const v=parseInt(localStorage.getItem(SEGUIMIENTO_DIAS_KEY)||'2',10);
-  return (v>=1&&v<=5)?v:2;
+  const v=parseInt(localStorage.getItem(SEGUIMIENTO_DIAS_KEY)||'5',10);
+  return (v>=1&&v<=5)?v:5;
 }
 function setSeguimientoDias(n){
-  const v=Math.max(1,Math.min(5,parseInt(n,10)||2));
+  const v=Math.max(1,Math.min(5,parseInt(n,10)||5));
   localStorage.setItem(SEGUIMIENTO_DIAS_KEY,String(v));
   notify(`Seguimiento ajustado a ${v} día${v!==1?'s':''} ✓`,'ok');
   renderRuta();
@@ -1341,6 +1362,20 @@ function infoSeguimiento(c,h){
   while(cursor<h&&transcurridos<10){cursor=addDaysToKey(cursor,1);transcurridos++;}
   if(transcurridos>dias)return null; // fuera de ventana
   return {diasDesde:transcurridos,ventana:dias,motivo:ult.motivo||'Sin motivo',fechaOriginal:fechaNoPago};
+}
+// Ventana de ruta por FECHA: el cliente entra el día de su cuota y permanece getSeguimientoDias() días (1-5).
+// Superado ese plazo sale de la ruta del cobrador (queda para decisión del admin).
+function diasAtrasoRuta(c,h){
+  if(c.esInterno||c.pagadas>=c.numCuotas)return null;
+  const q=c.cuotasData&&c.cuotasData[c.pagadas];
+  if(!q)return null;
+  const due=fechaCobroProgramada(c,q,c.pagadas);
+  if(!due)return null;
+  return Math.floor((coUTCDateFromKey(h||hoy())-coUTCDateFromKey(due))/DAY_MS);
+}
+function enRutaCobrador(c,h){
+  const d=diasAtrasoRuta(c,h);
+  return d!==null&&d>=0&&d<=getSeguimientoDias();
 }
 // ¿Tiene cuota programada para hoy?
 function fechaCobroProgramada(c,q,i){
@@ -1418,9 +1453,8 @@ function renderRuta(){
   // Incluir clientes con cuota hoy O en seguimiento por no-pago reciente
   const ruta=clientes.filter(c=>{
     if(c.esInterno)return false;
-    if(tieneCuotaHoy(c,h))return true;
-    if(gestionadoEnFecha(c,h))return true;
-    return !!infoSeguimiento(c,h);
+    if(gestionadoEnFecha(c,h))return true; // pagó o gestionó hoy → visible hoy
+    return enRutaCobrador(c,h); // en ruta desde el día de la cuota y hasta getSeguimientoDias() días de atraso
   });
   let pendiente=0,cobrado=0,countPend=0,countCob=0,countMora=0;
   ruta.forEach(c=>{
@@ -1545,12 +1579,19 @@ function renderTodos(){
 function abrirConfirm(id){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   pendingPago=id;
-  const m=mora(c),total=c.cuota+m;
   document.getElementById('confirm-nombre').textContent=c.nombre;
+  const mi=document.getElementById('confirm-mora');if(mi)mi.value=Math.round(mora(c))||0; // mora sugerida, editable
+  recalcConfirm();
+  document.getElementById('confirm-overlay').classList.add('open');
+}
+function recalcConfirm(){
+  const c=clientes.find(x=>x.id===pendingPago);if(!c)return;
+  const partes=partesCuotaIndex(c,c.pagadas);
+  const m=Math.max(0,parseFloat(document.getElementById('confirm-mora')?.value)||0);
+  const total=partes.capital+partes.interes+m; // monto real de la cuota + mora ingresada
   document.getElementById('confirm-amount').textContent=fmt(total);
   document.getElementById('confirm-amount').style.color=m>0?'var(--red)':'var(--green)';
   document.getElementById('confirm-sub').textContent=m>0?`Cuota ${c.pagadas+1}/${c.numCuotas} + mora ${fmt(m)}`:`Cuota ${c.pagadas+1} de ${c.numCuotas}`;
-  document.getElementById('confirm-overlay').classList.add('open');
 }
 function cerrarConfirm(){document.getElementById('confirm-overlay').classList.remove('open');pendingPago=null;}
 
@@ -1907,8 +1948,9 @@ async function confirmarPago(){
   cerrarConfirm();
   if(!fbOk||!db){notify('Sin conexión Firebase','err');_busyConfirm=false;return;}
   await refreshPctFresh(); // FIX F6: pct comisión actualizado antes registrar evento
-  const m=mora(c),total=c.cuota+m;
+  const m=Math.max(0,parseFloat(document.getElementById('confirm-mora')?.value)||0); // mora editable por el cobrador
   const partes=partesCuotaIndex(c,c.pagadas);
+  const total=partes.capital+partes.interes+m; // monto real de la cuota + mora ingresada — consistente con caja
   // FIX CRIT-3: SNAPSHOT antes mutar para rollback completo (igual que CRIT-2 abono)
   const snap={
     pagadas:c.pagadas,
