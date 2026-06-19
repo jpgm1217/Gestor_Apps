@@ -769,21 +769,22 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div class="modal-overlay" id="modal-liquidar" onclick="if(event.target===this)cerrar('modal-liquidar')">
   <div class="modal">
     <div class="mhandle"></div>
-    <div class="mtitle">Liquidar al cobrador</div>
+    <div class="mtitle">Pagar al cobrador</div>
     <div id="liq-resumen" class="ibox blue" style="margin-bottom:14px"></div>
-    <div class="fg"><label class="fl">Período que liquidas</label>
-      <select id="liq-periodo" onchange="calcLiqPreview()">
-        <option value="semana">Esta semana</option>
-        <option value="quincena">Esta quincena</option>
-        <option value="mes">Este mes</option>
-        <option value="todo">Todo lo pendiente</option>
-      </select>
+    <div class="fg"><label class="fl">¿Cuánto le vas a abonar hoy?</label>
+      <input type="number" id="liq-monto" min="0" step="10000" placeholder="0" oninput="calcLiqPreview()">
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn btn-ghost btn-sm" onclick="setLiqMonto(200000)">$200.000</button>
+      <button class="btn btn-ghost btn-sm" onclick="setLiqMonto(300000)">$300.000</button>
+      <button class="btn btn-ghost btn-sm" onclick="setLiqMonto(500000)">$500.000</button>
+      <button class="btn btn-ghost btn-sm" onclick="setLiqMonto('todo')">Todo lo que debo</button>
     </div>
     <div class="fg"><label class="fl">Nota (opcional)</label>
-      <input type="text" id="liq-nota" placeholder="Ej: Pago semana del 10 al 16 de marzo">
+      <input type="text" id="liq-nota" placeholder="Ej: Abono del 19 de junio">
     </div>
     <div id="liq-preview" class="ibox amber" style="margin-bottom:14px"></div>
-    <button class="btn btn-primary" onclick="confirmarLiquidar()">✓ Confirmar liquidación</button>
+    <button class="btn btn-primary" onclick="confirmarLiquidar()">✓ Confirmar abono</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-liquidar')">Cancelar</button>
   </div>
 </div>
@@ -1202,6 +1203,12 @@ function escuchar(){
     window._dispManual=(v!==null&&v!==undefined)?Math.round(parseFloat(v)||0):null;
     const el=document.getElementById('disp-manual-val');
     if(el)el.textContent=window._dispManual!=null?fmt(window._dispManual):'— (sin definir)';
+  });
+  // Saldo a favor del cobrador: abonos que pagaste por encima de cobros enteros (se descuenta del próximo)
+  db.ref('config/creditoCobrador').on('value',s=>{
+    const v=s.val();
+    window._creditoCobrador=(v!==null&&v!==undefined)?Math.max(0,Math.round(parseFloat(v)||0)):0;
+    if(typeof renderComisiones==='function'&&document.getElementById('com-pendiente'))renderComisiones();
   });
   // Escuchar solicitudes de nuevos clientes
   db.ref('solicitudes').on('value',s=>{
@@ -4350,8 +4357,10 @@ function auditoriaComisiones(){
   const items=eventosComisionTodos('todo');
   const totalEventosLiquidado=items.filter(x=>x.evento.liquidado).reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
   const totalLiquidaciones=liquidaciones.reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
-  if(Math.abs(totalEventosLiquidado-totalLiquidaciones)>1){
-    issues.push({tipo:'red',msg:'Diferencia entre eventos liquidados y historial de liquidaciones',sub:`Eventos: ${fmt(totalEventosLiquidado)} · Historial: ${fmt(totalLiquidaciones)}`});
+  // Lo pagado (historial) = cobros enteros ya marcados + saldo a favor pendiente de aplicar.
+  const creditoCob=Math.max(0,Math.round(window._creditoCobrador||0));
+  if(Math.abs((totalEventosLiquidado+creditoCob)-totalLiquidaciones)>1){
+    issues.push({tipo:'red',msg:'Diferencia entre lo pagado y los cobros marcados como pagados',sub:`Cobros pagados: ${fmt(totalEventosLiquidado)}${creditoCob>0?` + ${fmt(creditoCob)} a favor`:''} · Total abonado: ${fmt(totalLiquidaciones)}`});
   }
   const eventosInvalidos=items.filter(({evento})=>{
     const pct=Math.max(0,Math.round(evento.pct||0));
@@ -4392,7 +4401,7 @@ function renderComisiones(){
     return acc;
   },{generada:0,liquidada:0,pendiente:0,admin:0,interes:0,mora:0});
 
-  document.getElementById('com-pendiente').textContent=fmt(resumen.pendiente);
+  document.getElementById('com-pendiente').textContent=fmt(saldoCobrador());
   document.getElementById('com-liquidado').textContent=fmt(resumen.liquidada);
   document.getElementById('com-tuya').textContent=fmt(resumen.admin);
   document.getElementById('com-mora').textContent=fmt(resumen.mora);
@@ -4541,70 +4550,93 @@ function cambiarPctCliente(id, val){
   renderComisiones();
 }
 
+// Saldo REAL que le debes al cobrador = comisión pendiente − lo que ya le abonaste de más (crédito)
+function saldoCobrador(){
+  const credito=Math.max(0,Math.round(window._creditoCobrador||0));
+  return Math.max(0,totalComisionPendiente()-credito);
+}
 function abrirLiquidar(){
-  const periodo=document.getElementById('liq-periodo').value;
-  const items=eventosPendientesLiquidacion(periodo);
-  const pendExacto=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
-  const pend=comisionPago(pendExacto);
-  const extra=pend-pendExacto;
+  const saldo=saldoCobrador();
+  const credito=Math.max(0,Math.round(window._creditoCobrador||0));
+  const inp=document.getElementById('liq-monto');
+  inp.value=saldo>0?saldo:'';
+  inp.max=saldo;
+  document.getElementById('liq-nota').value='';
   document.getElementById('liq-resumen').innerHTML=
-    `Comisión pendiente total: <strong>${fmt(totalComisionPendiente())}</strong><br><span style="font-size:12px;color:var(--text2)">A pagar para ${etiquetaPeriodo(periodo).toLowerCase()}: <strong>${fmt(pend)}</strong>${extra>0?` <span style="color:var(--text3)">(comisión ${fmt(pendExacto)} + ${fmt(extra)} redondeo)</span>`:''}</span>`;
+    `Le debes al cobrador: <strong style="font-size:17px;color:var(--gold)">${fmt(saldo)}</strong><br><span style="font-size:12px;color:var(--text2)">Págale todo o un abono. El saldo va bajando solo.${credito>0?` <span style="color:var(--text3)">(ya tiene ${fmt(credito)} a favor del abono anterior)</span>`:''}</span>`;
   calcLiqPreview();
   document.getElementById('modal-liquidar').classList.add('open');
 }
-
+function setLiqMonto(v){
+  const saldo=saldoCobrador();
+  const monto=v==='todo'?saldo:Math.min(saldo,Math.round(v)||0);
+  const inp=document.getElementById('liq-monto');
+  inp.value=monto>0?monto:'';
+  calcLiqPreview();
+}
 function calcLiqPreview(){
-  const periodo=document.getElementById('liq-periodo').value;
-  const labels={semana:'esta semana',quincena:'esta quincena',mes:'este mes',todo:'todo lo pendiente'};
-  const items=eventosPendientesLiquidacion(periodo);
-  const montoExacto=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
-  const monto=comisionPago(montoExacto);
-  const extra=monto-montoExacto;
-  const clientesUnicos=new Set(items.map(item=>item.cliente.id)).size;
-  document.getElementById('liq-preview').innerHTML=
-    items.length
-      ? `Vas a pagar <strong>${fmt(monto)}</strong>${extra>0?` (comisión ${fmt(montoExacto)} + ${fmt(extra)} redondeo)`:''} de <strong>${items.length}</strong> evento(s) en <strong>${clientesUnicos}</strong> cliente(s), correspondiente a <strong>${labels[periodo]}</strong>`
-      : `No hay comisión pendiente para <strong>${labels[periodo]}</strong>`;
+  const saldo=saldoCobrador();
+  let monto=Math.max(0,Math.round(parseFloat(document.getElementById('liq-monto').value)||0));
+  const prev=document.getElementById('liq-preview');
+  if(saldo<=0){prev.innerHTML='No le debes nada al cobrador en este momento. ✓';return;}
+  if(monto<=0){prev.innerHTML='Escribe cuánto le vas a abonar (o toca "Todo lo que debo").';return;}
+  let aviso='';
+  if(monto>saldo){aviso=` <span style="color:var(--text3)">(es más de lo que le debes; se ajustará a ${fmt(saldo)})</span>`;monto=saldo;}
+  const queda=saldo-monto;
+  prev.innerHTML=`Vas a pagarle <strong>${fmt(monto)}</strong>${aviso}.<br><span style="font-size:12px;color:var(--text2)">Después le quedarás debiendo <strong>${fmt(queda)}</strong>${queda<=0?' — ¡quedas al día! ✓':''}</span>`;
 }
 
 async function confirmarLiquidar(){
   // FIX MED-2: lock anti doble-click en liquidación
-  if(_busyConfirm){notify('Procesando liquidación, espera...','err');return;}
+  if(_busyConfirm){notify('Procesando abono, espera...','err');return;}
   _busyConfirm=true;
   try{
-  const periodo=document.getElementById('liq-periodo').value;
-  const items=eventosPendientesLiquidacion(periodo);
-  const pendExacto=items.reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
-  if(pendExacto<=0){notify('No hay comisión pendiente en ese período','err');return;}
-  const pend=comisionPago(pendExacto); // pago redondeado HACIA ARRIBA al siguiente $1.000
-  const redondeoExtra=pend-pendExacto;
+  const saldo=saldoCobrador();
+  if(saldo<=0){notify('No le debes nada al cobrador','err');return;}
+  let monto=Math.max(0,Math.round(parseFloat(document.getElementById('liq-monto').value)||0));
+  if(monto<=0){notify('Escribe cuánto le vas a abonar','err');return;}
+  if(monto>saldo)monto=saldo; // nunca pagar más de lo que se debe
   const nota=document.getElementById('liq-nota').value.trim();
-  const labels={semana:'Semana',quincena:'Quincena',mes:'Mes',todo:'Total pendiente'};
-  const liq={id:'l'+Date.now(),monto:pend,montoComision:pendExacto,redondeo:redondeoExtra,periodo:labels[periodo],nota:nota||labels[periodo],ts:Date.now(),eventos:items.length};
-  items.forEach(({evento})=>{
-    evento.liquidado=true;
-    evento.liquidacionId=liq.id;
-    evento.liquidadoTs=liq.ts;
-  });
+  const liq={id:'l'+Date.now(),monto,montoComision:monto,redondeo:0,periodo:'Abono',nota:nota||'Abono al cobrador',ts:Date.now(),eventos:0};
+
+  // FIFO: con el abono + crédito previo, marcar como pagados los cobros más ANTIGUOS primero (cobros enteros).
+  const creditoPrevio=Math.max(0,Math.round(window._creditoCobrador||0));
+  let disponible=monto+creditoPrevio;
+  const items=eventosPendientesLiquidacion('todo')
+    .sort((a,b)=>(parseInt(a.evento.ts||0,10)||0)-(parseInt(b.evento.ts||0,10)||0));
+  const marcados=[];
+  for(const it of items){
+    const c=Math.max(0,Math.round(it.evento.comision||0));
+    if(c===0){ // cobros internos (comisión 0): márcalos para que no queden colgando, no consumen abono
+      it.evento.liquidado=true;it.evento.liquidacionId=liq.id;it.evento.liquidadoTs=liq.ts;marcados.push(it);continue;
+    }
+    if(disponible>=c){
+      it.evento.liquidado=true;it.evento.liquidacionId=liq.id;it.evento.liquidadoTs=liq.ts;
+      disponible-=c;marcados.push(it);
+    } else break; // el resto queda pendiente; el sobrante (disponible) queda como crédito
+  }
+  const nuevoCredito=Math.max(0,disponible);
+  liq.eventos=marcados.filter(m=>Math.round(m.evento.comision||0)>0).length;
+
   try{
-    await Promise.all([...new Map(items.map(({cliente})=>[cliente.id,cliente])).values()].map(c=>saveClienteFields(c,['comisionEventos'])));
+    await Promise.all([...new Map(marcados.map(({cliente})=>[cliente.id,cliente])).values()].map(c=>saveClienteFields(c,['comisionEventos'])));
   }catch(e){
-    items.forEach(({evento})=>{
-      evento.liquidado=false;
-      delete evento.liquidacionId;
-      delete evento.liquidadoTs;
-    });
-    notify('No se pudo marcar comisiones como liquidadas. No se registrÃ³ pago.','err');
+    marcados.forEach(({evento})=>{evento.liquidado=false;delete evento.liquidacionId;delete evento.liquidadoTs;});
+    notify('No se pudo registrar el abono. Intenta de nuevo.','err');
     renderComisiones();
     return;
   }
+  // Persistir crédito (sobrante que pagaste por encima de cobros enteros)
+  window._creditoCobrador=nuevoCredito;
+  if(fbOk&&db)db.ref('config/creditoCobrador').set(nuevoCredito).catch(()=>{});
   liquidaciones.push(liq);
   localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
-  registrarCajaAuto('liquidacion_comision', pend, `Liquidación cobrador · ${liq.periodo}`, `liquidacion:${liq.id}`, {liquidacionId:liq.id, cliente:'Cobrador'});
-  moverPool('salida',pend,`Liquidación comisión cobrador (${liq.periodo})`,'Cobrador'); // FIX NEW-12: pool registra egreso por comisión pagada
-  if(fbOk&&db)db.ref('liquidaciones/'+liq.id).set(liq).catch(e=>notify('Liquidación solo local — error sync: '+e.message,'err'));
-  log({tipo:'liquidacion',cliente:'Cobrador',monto:pend,ts:Date.now(),autor:'Admin',nota:liq.nota});
-  notify(`Liquidación de ${fmt(pend)} registrada ✓`,'ok');
+  registrarCajaAuto('liquidacion_comision', monto, `Abono cobrador${nota?' · '+nota:''}`, `liquidacion:${liq.id}`, {liquidacionId:liq.id, cliente:'Cobrador'});
+  moverPool('salida',monto,'Abono comisión cobrador','Cobrador'); // FIX NEW-12: pool registra egreso por comisión pagada
+  if(fbOk&&db)db.ref('liquidaciones/'+liq.id).set(liq).catch(e=>notify('Abono solo local — error sync: '+e.message,'err'));
+  log({tipo:'liquidacion',cliente:'Cobrador',monto,ts:Date.now(),autor:'Admin',nota:liq.nota});
+  const saldoNuevo=saldoCobrador();
+  notify(`Abono de ${fmt(monto)} registrado ✓${saldoNuevo<=0?' — al día':` · queda ${fmt(saldoNuevo)}`}`,'ok');
   cerrar('modal-liquidar');
   renderComisiones();
   renderCaja();
