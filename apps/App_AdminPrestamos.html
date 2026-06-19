@@ -1512,14 +1512,9 @@ function crearPrestamo(){
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
   moverPool('salida', capital, `Desembolso: ${nombre}`, nombre);
   log({tipo:'nuevo',cliente:nombre,monto:capital,ts:Date.now(),autor:'Admin'});
-  // Si viene de una solicitud aprobada, marcarla en Firebase
-  if(window._soliPendienteAprobacion&&fbOk&&db){
-    db.ref('solicitudes/'+window._soliPendienteAprobacion).update({
-      estado:'aprobado',
-      accionAdmin:'prestamo_creado',
-      notaAdmin:'Préstamo creado',
-      fechaRespuesta:coDateTimeISO()
-    });
+  // Si viene de una solicitud aprobada, resolverla (local + Firebase, con manejo de error)
+  if(window._soliPendienteAprobacion){
+    resolverSolicitudAdmin(window._soliPendienteAprobacion,'aprobado','prestamo_creado','Préstamo creado');
     window._soliPendienteAprobacion=null;
   }
   notify(`Préstamo creado para ${nombre} ✓`,'ok');
@@ -1987,13 +1982,21 @@ function infoSolicitudAdmin(s){
   }[tipo]||{label:tipo||'Solicitud',icon:'📩',color:'var(--text2)'};
 }
 function resolverSolicitudAdmin(soliId,estado='aprobado',accionAdmin='',notaAdmin=''){
-  if(!soliId||!fbOk||!db)return;
-  db.ref('solicitudes/'+soliId).update({
-    estado,
-    accionAdmin:accionAdmin||'',
-    notaAdmin:notaAdmin||accionAdmin||'',
-    fechaRespuesta:coDateTimeISO()
-  });
+  if(!soliId)return;
+  // FIX: actualizar el estado LOCAL de inmediato para que la UI responda ya (no esperar al
+  // listener de Firebase). Antes la solicitud se quedaba "pegada" en pendiente aunque el
+  // préstamo/ciclo sí se hubiera creado.
+  const s=(window._solicitudes||[]).find(x=>x.id===soliId);
+  if(s){s.estado=estado;s.accionAdmin=accionAdmin||'';s.notaAdmin=notaAdmin||accionAdmin||'';s.fechaRespuesta=coDateTimeISO();}
+  if(typeof renderSolicitudesAdmin==='function')renderSolicitudesAdmin();
+  if(fbOk&&db){
+    db.ref('solicitudes/'+soliId).update({
+      estado,
+      accionAdmin:accionAdmin||'',
+      notaAdmin:notaAdmin||accionAdmin||'',
+      fechaRespuesta:coDateTimeISO()
+    }).catch(e=>notify('Solicitud actualizada local — error sync: '+e.message,'err'));
+  }
 }
 function resolverSolicitudActiva(accionAdmin='',notaAdmin='',estado='aprobado'){
   if(!window._soliContextoActiva)return;
@@ -4671,6 +4674,7 @@ let _clienteCicloActivo=null;
 function abrirNuevoCiclo(clienteId){
   const c=clientes.find(x=>x.id===clienteId);
   if(!c)return;
+  window._soliPendienteRenovacion=null; // ciclo normal (no desde solicitud): evita resolver una solicitud vieja por error
   _clienteCicloActivo=clienteId;
   document.getElementById('nuevo-ciclo-info').textContent=`Cliente: ${c.nombre} · Ciclo ${((c.ciclos||[]).length)+2}`;
   document.getElementById('nc-fecha').value=hoy();
@@ -4756,6 +4760,7 @@ function confirmarNuevoCiclo(){
   registrarCajaAuto('desembolso_prestamo',capital,`Nuevo ciclo: ${c.nombre}`,`prestamo:${c.id}:ciclo${c.ciclos.length}`,{clienteId:c.id,cliente:c.nombre});
   cerrar('modal-nuevo-ciclo');
   notify(`Ciclo ${c.ciclos.length+1} creado para ${c.nombre} ✓`,'ok');
+  marcarSoliRenovacionAprobada(); // FIX: resolver la solicitud de renovación (antes se quedaba pegada en pendiente)
   renderInicio();renderClientes();
 }
 
@@ -4852,10 +4857,8 @@ function procesarSolicitudRenovacion(soliId){
 const _confirmarNuevoCicloOrig=confirmarNuevoCiclo;
 // (ya integrado arriba, solo marcar soli si existe)
 function marcarSoliRenovacionAprobada(){
-  if(window._soliPendienteRenovacion&&fbOk&&db){
-    db.ref('solicitudes/'+window._soliPendienteRenovacion).update({
-      estado:'aprobado',accionAdmin:'ciclo_creado',fechaRespuesta:coDateTimeISO()
-    });
+  if(window._soliPendienteRenovacion){
+    resolverSolicitudAdmin(window._soliPendienteRenovacion,'aprobado','ciclo_creado','Ciclo creado');
     window._soliPendienteRenovacion=null;
   }
 }
