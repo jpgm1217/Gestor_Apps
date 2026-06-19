@@ -189,23 +189,17 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div class="scroll">
 
 <div id="panel-inicio" class="panel active">
-  <!-- Métricas principales -->
+  <!-- 4 números clave (mismos valores que Caja) -->
   <div class="g2">
-    <div class="metric gold"><div class="ml">Capital en calle</div><div class="mv" id="m-capital">$0</div></div>
-    <div class="metric green"><div class="ml">Por cobrar hoy</div><div class="mv" id="m-hoy">$0</div></div>
-    <div class="metric"><div class="ml">Clientes activos</div><div class="mv" id="m-activos">0</div></div>
-    <div class="metric"><div class="ml">Cobrado hoy</div><div class="mv" style="color:var(--green)" id="m-cobrado">$0</div></div>
+    <div class="metric gold"><div class="ml">Disponible p/ prestar</div><div class="mv" id="m-disp">$0</div></div>
+    <div class="metric"><div class="ml">Capital en calle</div><div class="mv" style="color:var(--amber)" id="m-capital">$0</div></div>
+    <div class="metric green"><div class="ml">Cobrado hoy</div><div class="mv" id="m-cobrado">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-cobrado-sub">de $0 esperado</div></div>
+    <div class="metric"><div class="ml">Mora total</div><div class="mv" id="m-mora-total">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-mora-sub">—% del capital</div></div>
   </div>
   <!-- Alertas inteligentes -->
   <div id="panel-alertas"></div>
-  <div class="card"><div class="ct">Resumen ejecutivo</div><div id="inicio-resumen"></div></div>
-  <div class="card"><div class="ct">Bandeja rápida</div><div id="inicio-bandeja"></div></div>
-  <!-- Ruta de hoy -->
-  <div class="card"><div class="ct">Ruta de hoy</div><div id="ruta-hoy"></div></div>
-  <!-- Próximos 7 días -->
-  <div class="card"><div class="ct">Próximos 7 días</div><div id="proximos-7"></div></div>
-  <!-- Clientes en mora -->
-  <div class="card"><div class="ct">Clientes en mora</div><div id="mora-lista"></div></div>
+  <!-- Pendientes (un solo bloque, sin duplicar) -->
+  <div class="card"><div class="ct">📥 Pendientes</div><div id="inicio-pendientes"></div></div>
   <!-- Candidatos a renovar -->
   <div id="panel-renovar"></div>
 </div>
@@ -435,7 +429,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 
 <!-- ── PANEL POOL ── -->
 <div id="panel-pool" class="panel">
-  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Capital disponible para reinvertir. Se alimenta automáticamente con cada pago recibido.</div>
+  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Capital disponible para reinvertir. El "Disponible" es el mismo de Caja (sincronizado). Para cuadrarlo usa el <strong>Corte de caja</strong> en la pestaña Caja.</div>
 
   <!-- Métricas -->
   <div class="g2" id="pool-metricas"></div>
@@ -1643,63 +1637,45 @@ function renderInicio(){
   const h=hoy();
   const act=clientes.filter(c=>c.pagadas<c.numCuotas);
 
-  // — Métricas principales —
-  document.getElementById('m-capital').textContent=fmt(act.reduce((s,c)=>s+capitalPendiente(c),0));
-  document.getElementById('m-hoy').textContent=fmt(clientes.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0));
-  document.getElementById('m-activos').textContent=act.length;
-  document.getElementById('m-cobrado').textContent=fmt(totalCobradoHoyCaja(h));
+  const m=metricasCaja();
 
-  // — Alertas inteligentes —
+  // — 4 números clave (mismos valores que Caja) —
+  const elDisp=document.getElementById('m-disp');
+  if(elDisp){elDisp.textContent=fmt(m.disponibleReal);elDisp.style.color=m.disponibleReal<0?'var(--red)':'var(--green)';}
+  const elCap=document.getElementById('m-capital');if(elCap)elCap.textContent=fmt(m.principalCalle);
+  const elCob=document.getElementById('m-cobrado');if(elCob)elCob.textContent=fmt(totalCobradoHoyCaja(h));
+  const espHoy=clientes.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0);
+  const elCobSub=document.getElementById('m-cobrado-sub');if(elCobSub)elCobSub.textContent='de '+fmt(espHoy)+' esperado';
+  const moraTotal=act.reduce((s,c)=>s+mora(c),0);
+  const carteraTotal=act.reduce((s,c)=>s+saldo(c),0);
+  const elMora=document.getElementById('m-mora-total');
+  if(elMora){elMora.textContent=fmt(moraTotal);elMora.style.color=moraTotal>0?'var(--red)':'var(--green)';}
+  const elMoraSub=document.getElementById('m-mora-sub');if(elMoraSub)elMoraSub.textContent=(carteraTotal>0?Math.round(moraTotal/carteraTotal*100):0)+'% del capital activo';
+
+  // — Alertas + pendientes + renovar —
   renderAlertas(h, act);
-  renderInicioResumen(h,act);
-  renderInicioBandeja(h,act);
-
-  // — Ruta de hoy —
-  const ruta=clientes.filter(c=>tieneCuotaEnFecha(c,h));
-  const re=document.getElementById('ruta-hoy');
-  re.innerHTML=!ruta.length
-    ?'<div class="empty" style="padding:14px 0"><div class="empty-t">Sin cobros para hoy</div></div>'
-    :ruta.map((c,i)=>{
-      const p=sameCoDate(c.ultimoPago,h),m=mora(c);
-      const noPagoHoy=sameCoDate(c.historialNoPago?.slice(-1)[0]?.fecha,h);
-      const sem=semaforo(c);
-      return`<div class="ri" onclick="verCliente('${c.id}')" style="cursor:pointer">
-        <div class="ri-n">${i+1}</div>
-        <div class="ri-info">
-          <div class="ri-name">${c.nombre} <span style="font-size:11px">${sem.dot}</span></div>
-          <div class="ri-det">${c.zona||c.tipo} · cuota ${c.pagadas+1}/${c.numCuotas}${m>0?' · mora '+fmt(m):''}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;${m>0?'color:var(--red)':''}">${fmt(totalPendienteHoyCliente(c,h)||0)}</div>
-          <div style="margin-top:3px">${p?'<span class="badge bg">✓ Pagó</span>':noPagoHoy?'<span class="badge br">❌ No pagó</span>':'<span class="badge ba">Pendiente</span>'}</div>
-        </div>
-      </div>`;
-    }).join('');
-
-  // — Próximos 7 días —
-  renderProximos7(h);
-
-  // — Mora —
-  const enMora=clientes.filter(c=>diasMora(c)>0&&c.pagadas<c.numCuotas)
-    .sort((a,b)=>diasMora(b)-diasMora(a));
-  document.getElementById('mora-lista').innerHTML=!enMora.length
-    ?'<div class="ibox green" style="font-size:12px">✓ Ningún cliente en mora</div>'
-    :enMora.map(c=>{
-      const d=diasMora(c),m=mora(c),sem=semaforo(c);
-      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="verCliente('${c.id}')">
-        <div>
-          <div style="font-size:13px;font-weight:500">${c.nombre} ${sem.dot}${requiereDecision(c)?' <span class="badge br" style="font-size:9px">🧭 decisión</span>':''}</div>
-          <div style="font-size:11px;color:var(--text3)">${d} día${d!==1?'s':''} en mora${c.telefono?' · '+c.telefono:''}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--red)">${fmt(m)}</div>
-          <div style="font-size:10px;color:var(--text3)">mora</div>
-        </div>
-      </div>`;
-    }).join('');
-
-  // — Candidatos a renovar —
+  renderInicioPendientes(h, act);
   renderCandidatosRenovar(act);
+}
+
+// Bandeja única de pendientes (fusiona el viejo "Resumen ejecutivo" + "Bandeja rápida")
+function renderInicioPendientes(h, act){
+  const el=document.getElementById('inicio-pendientes');
+  if(!el)return;
+  const solicitudes=solicitudesPendientesLista();
+  const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
+  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
+  const faltanHoy=rutaHoy.filter(c=>!sameCoDate(c.ultimoPago,h)&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
+  const finalizan=clientesFinalizanEnDias(act,7);
+  const comPend=totalComisionPendiente();
+  const items=[];
+  if(solicitudes.length)items.push({tit:`${solicitudes.length} solicitud(es) por aprobar`,sub:`Primera: ${solicitudes[0].nombre||solicitudes[0].clienteNombre||'Cliente'}`,badge:'Solicitudes',color:'var(--amber)'});
+  if(faltanHoy.length)items.push({tit:`${faltanHoy.length} cobro(s) faltan hoy`,sub:`Pendiente por cobrar: ${fmt(faltanHoy.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0))}`,badge:'Cobranza',color:'var(--gold)'});
+  if(noPagoHoy.length)items.push({tit:`${noPagoHoy.length} no pagaron hoy`,sub:noPagoHoy.slice(0,3).map(c=>c.nombre).join(', '),badge:'Seguimiento',color:'var(--red)'});
+  if(comPend>0)items.push({tit:`Comisión pendiente al cobrador`,sub:fmt(comPend),badge:'Comisión',color:'var(--gold)'});
+  if(finalizan.length)items.push({tit:`${finalizan.length} préstamo(s) finalizan en 7 días`,sub:finalizan.slice(0,3).map(c=>c.nombre).join(', '),badge:'Renovar',color:'var(--blue)'});
+  if(!items.length){el.innerHTML='<div class="ibox green" style="font-size:12px">✓ Todo al día — nada pendiente</div>';return;}
+  el.innerHTML=items.map(it=>`<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:13px;font-weight:600">${it.tit}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">${it.sub||'—'}</div></div><div class="badge" style="background:rgba(255,255,255,.04);color:${it.color};border:1px solid var(--border)">${it.badge}</div></div>`).join('');
 }
 
 function renderAlertas(h, act){
@@ -3004,27 +2980,25 @@ function renderFinanzas(){
   const act=clientes.filter(c=>c.pagadas<c.numCuotas);
   const terminados=clientes.filter(c=>c.pagadas>=c.numCuotas);
 
-  // — Métricas rentabilidad —
+  // — Métricas rentabilidad (las cifras de plata salen de metricasCaja → iguales en todas las pestañas) —
+  const mc=metricasCaja();
   const capitalActivo=act.reduce((s,c)=>s+saldo(c),0);
   const capitalTotal=clientes.reduce((s,c)=>s+c.capital,0);
   const interesEsperado=clientes.reduce((s,c)=>s+c.interes,0);
   const interesCobrado=clientes.reduce((s,c)=>s+c.pagadas*(c.interes/c.numCuotas),0);
-  const moraCobrada=clientes.reduce((s,c)=>s+(c.moraCobradaTotal||0)+(c.moraHistoricaAcumulada||0),0);
-  const gananciaTotal=interesCobrado+moraCobrada;
-  const moraActual=act.reduce((s,c)=>s+mora(c),0);
   const enMora=act.filter(c=>mora(c)>0);
   const efectividad=interesEsperado>0?Math.round(interesCobrado/interesEsperado*100):0;
-  // ROI mensual: interés / capital / meses promedio del portafolio
+  // ROI mensual estimado: interés esperado / capital / meses promedio del portafolio
   const mesesProm=act.length>0?act.reduce((s,c)=>s+(c.numCuotas*(DIAS[c.tipo]||1)/30),0)/act.length:1;
-  const roiMensual=capitalActivo>0?((interesEsperado/capitalTotal)/Math.max(mesesProm,1)*100):0;
+  const roiMensual=capitalTotal>0?((interesEsperado/capitalTotal)/Math.max(mesesProm,1)*100):0;
 
   document.getElementById('fin-metricas').innerHTML=`
-    <div class="metric gold"><div class="ml">Ganancia cobrada</div><div class="mv">${fmt(gananciaTotal)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">intereses + mora</div></div>
-    <div class="metric green"><div class="ml">ROI mensual est.</div><div class="mv">${roiMensual.toFixed(1)}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">sobre capital activo</div></div>
-    <div class="metric"><div class="ml">Efectividad cobro</div><div class="mv" style="color:${efectividad>=70?'var(--green)':efectividad>=40?'var(--amber)':'var(--red)'}">${efectividad}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">interés cobrado vs esperado</div></div>
-    <div class="metric"><div class="ml">Mora pendiente</div><div class="mv" style="color:${moraActual>0?'var(--red)':'var(--green)'}">${fmt(moraActual)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">${enMora.length} cliente${enMora.length!==1?'s':''}</div></div>
-    <div class="metric"><div class="ml">Interés pendiente</div><div class="mv" style="color:var(--amber)">${fmt(interesEsperado-interesCobrado)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">por cobrar</div></div>
-    <div class="metric"><div class="ml">Préstamos cerrados</div><div class="mv">${terminados.length}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">de ${clientes.length} totales</div></div>`;
+    <div class="metric gold"><div class="ml">Ganancia neta</div><div class="mv" style="color:${mc.utilidadNeta<0?'var(--red)':'var(--gold)'}">${fmt(mc.utilidadNeta)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">interés+mora − comisiones − gastos</div></div>
+    <div class="metric green"><div class="ml">Disponible p/ prestar</div><div class="mv" style="color:${mc.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(mc.disponibleReal)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">igual que Caja</div></div>
+    <div class="metric"><div class="ml">Mora pendiente</div><div class="mv" style="color:${mc.moraActiva>0?'var(--red)':'var(--green)'}">${fmt(mc.moraActiva)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">${enMora.length} cliente${enMora.length!==1?'s':''}</div></div>
+    <div class="metric"><div class="ml">Interés pendiente</div><div class="mv" style="color:var(--amber)">${fmt(mc.interesPendiente)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">por cobrar</div></div>
+    <div class="metric"><div class="ml">Efectividad cobro</div><div class="mv" style="color:${efectividad>=70?'var(--green)':efectividad>=40?'var(--amber)':'var(--red)'}">${efectividad}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">estimado · interés cobrado vs esperado</div></div>
+    <div class="metric"><div class="ml">ROI mensual est.</div><div class="mv">${roiMensual.toFixed(1)}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">estimado</div></div>`;
 
   // — Proyección 30 días —
   const proyeccion=[];
@@ -4493,8 +4467,10 @@ function agregarMovimientoPool(){
 function renderPool(){
   const el=document.getElementById('pool-metricas');
   if(!el)return;
+  // Disponible = el mismo "Disponible real" de Caja (una sola fuente de verdad, evita descuadres)
+  const disp=(typeof metricasCaja==='function')?metricasCaja().disponibleReal:(pool.saldo||0);
   el.innerHTML=`
-    <div class="metric green"><div class="ml">Disponible</div><div class="mv">${fmt(pool.saldo)}</div></div>
+    <div class="metric green"><div class="ml">Disponible (= Caja)</div><div class="mv" style="color:${disp<0?'var(--red)':'var(--green)'}">${fmt(disp)}</div></div>
     <div class="metric gold"><div class="ml">Total entrado</div><div class="mv">${fmt(pool.totalEntradas)}</div></div>
     <div class="metric"><div class="ml">Total prestado</div><div class="mv" style="color:var(--amber)">${fmt(pool.totalSalidas)}</div></div>
     <div class="metric"><div class="ml">Ciclos</div><div class="mv" style="color:var(--blue)">${pool.totalEntradas>0?Math.round(pool.totalSalidas/pool.totalEntradas*100):0}%</div></div>`;

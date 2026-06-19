@@ -548,7 +548,18 @@ async function registrarCajaCobrador(subtipo,monto,desc,refKey,extra={}){
   const mov={id:'m'+Date.now()+Math.floor(Math.random()*1000),tipo:'ingreso',monto,desc,subtipo,auto:true,refKey:refKey||null,ts:Date.now(),...extra};
   caja.push(mov);
   if(fbOk&&db){
-    try{await db.ref('caja/'+mov.id).set(mov);}catch(e){console.error('Error registrando caja:',e);}
+    try{
+      await db.ref('caja/'+mov.id).set(mov);
+    }catch(e){
+      console.error('Error registrando caja:',e);
+      // Reintento + aviso (antes fallaba en silencio: el cliente quedaba pagado pero la plata no entraba a caja → admin la veía de menos)
+      try{
+        await db.ref('caja/'+mov.id).set(mov);
+      }catch(e2){
+        console.error('Reintento caja falló:',e2);
+        if(typeof notify==='function')notify('⚠ No se pudo guardar el cobro en caja. Revisa tu internet y vuelve a marcar el pago.','err');
+      }
+    }
   }
   return mov;
 }
@@ -1456,14 +1467,17 @@ function renderRuta(){
     if(gestionadoEnFecha(c,h))return true; // pagó o gestionó hoy → visible hoy
     return enRutaCobrador(c,h); // en ruta desde el día de la cuota y hasta getSeguimientoDias() días de atraso
   });
-  let pendiente=0,cobrado=0,countPend=0,countCob=0,countMora=0;
+  let pendiente=0,countPend=0,countCob=0,countMora=0;
   ruta.forEach(c=>{
     const p=sameCoDate(c.ultimoPago,h);
     const m=mora(c);
-    if(p){cobrado+=c.cuota;countCob++;}
+    if(p){countCob++;}
     else{pendiente+=c.cuota+m;countPend++;}
     if(m>0&&!p)countMora++;
   });
+  // "Cobrado hoy" = plata realmente registrada hoy en caja (capital+interés+mora, del cobrador Y de ajustes del admin).
+  // MISMO criterio que usa el admin → ambas apps muestran el mismo número.
+  const cobrado=movimientosCobroFecha(h).reduce((s,mv)=>s+Math.max(0,Math.round(mv.monto||0)),0);
   document.getElementById('r-pendiente').textContent=fmt(pendiente);
   document.getElementById('r-cobrado').textContent=fmt(cobrado);
   // Nuevas métricas
