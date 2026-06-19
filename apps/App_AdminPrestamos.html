@@ -3552,15 +3552,29 @@ function calcularReconciliacion(){
     const sumIntCuota=intMovs.filter(m=>!m.refKey||(!m.refKey.startsWith('ext:')&&!m.refKey.startsWith('ext_cob:'))).reduce((s,m)=>s+(m.monto||0),0);
     const sumInt=sumIntCuota+sumIntExt;
     const sumMora=movs.filter(m=>m.subtipo==='mora_cobrada').reduce((s,m)=>s+(m.monto||0),0);
-    if(sumCap>(c.capital||0)+10)fails.push(`${tag} capital caja inflado: ${sumCap.toLocaleString('es-CO')} > ${(c.capital||0).toLocaleString('es-CO')}`);
-    if(sumIntCuota>(c.interes||0)+10)fails.push(`${tag} interes cuota inflado: ${sumIntCuota.toLocaleString('es-CO')} > ${(c.interes||0).toLocaleString('es-CO')} (extensiones aparte: ${sumIntExt.toLocaleString('es-CO')})`);
-    const moraTotal=Math.round(c.moraCobradaTotal||0);
-    if(Math.abs(sumMora-moraTotal)>1)fails.push(`${tag} mora descuadra: caja=${sumMora.toLocaleString('es-CO')} vs cliente=${moraTotal.toLocaleString('es-CO')}`);
+    // FIX: techos acumulados por ciclos/refinanciaciones. La caja acumula TODO el historial del
+    // cliente, pero c.capital/c.interes solo son el ciclo ACTUAL. Sin esto, los clientes renovados
+    // salían "inflado" como falso positivo. Sumamos los ciclos archivados (ciclos + historialPrestamos).
+    const ciclosCap=(c.ciclos||[]).reduce((s,cy)=>s+(cy.capital||0),0)+(c.historialPrestamos||[]).reduce((s,h)=>s+(h.capital||0),0);
+    // Interés del ciclo archivado: usamos el MAYOR entre lo archivado y el interés real del préstamo
+    // (capital×tasa). Así un ciclo viejo con interés mal archivado (ej. Laura: archivó 10k pero cobró 20k
+    // sobre 100k al 20%) no genera un falso "interes inflado".
+    const intCiclo=o=>Math.max(o.interes!=null?Math.round(o.interes):0, Math.round((o.capital||0)*(o.tasa||0)/100));
+    const ciclosInt=(c.ciclos||[]).reduce((s,cy)=>s+intCiclo(cy),0)+(c.historialPrestamos||[]).reduce((s,h)=>s+intCiclo(h),0);
+    const capTecho=(c.capital||0)+ciclosCap;
+    const intTecho=(c.interes||0)+ciclosInt;
+    if(sumCap>capTecho+10)fails.push(`${tag} capital caja inflado: ${sumCap.toLocaleString('es-CO')} > ${capTecho.toLocaleString('es-CO')}`);
+    if(sumIntCuota>intTecho+10)fails.push(`${tag} interes cuota inflado: ${sumIntCuota.toLocaleString('es-CO')} > ${intTecho.toLocaleString('es-CO')} (extensiones aparte: ${sumIntExt.toLocaleString('es-CO')})`);
+    // Mora: la VERDAD financiera son la caja (plata cobrada) y los eventos de comisión (base de pago al
+    // cobrador). FAIL solo si esas dos NO concuerdan. El total mostrado del cliente (moraCobradaTotal +
+    // histórica) es un campo derivado que puede quedar desactualizado → solo WARN, no fail.
+    const evMora=Array.isArray(c.comisionEventos)?c.comisionEventos.reduce((s,e)=>s+Math.round(e.mora||0),0):0;
+    const moraMostrada=Math.round((c.moraCobradaTotal||0)+(c.moraHistoricaAcumulada||0));
+    if(Math.abs(sumMora-evMora)>2)fails.push(`${tag} mora descuadra: caja=${sumMora.toLocaleString('es-CO')} vs comisión=${evMora.toLocaleString('es-CO')}`);
+    if(Math.abs(sumMora-moraMostrada)>2)warns.push(`${tag} mora total mostrado ${moraMostrada.toLocaleString('es-CO')} vs caja ${sumMora.toLocaleString('es-CO')} (campo a corregir)`);
     if(Array.isArray(c.comisionEventos)){
       const sumIntEv=c.comisionEventos.reduce((s,e)=>s+(e.interes||0),0);
-      const sumMoraEv=c.comisionEventos.reduce((s,e)=>s+(e.mora||0),0);
       if(Math.abs(sumIntEv-sumInt)>2)warns.push(`${tag} comision interes vs caja: ${sumIntEv.toLocaleString('es-CO')} != ${sumInt.toLocaleString('es-CO')}`);
-      if(Math.abs(sumMoraEv-sumMora)>2)warns.push(`${tag} comision mora vs caja: ${sumMoraEv.toLocaleString('es-CO')} != ${sumMora.toLocaleString('es-CO')}`);
       if(!c.esInterno){
         c.comisionEventos.forEach((e,i)=>{
           const pct=e.pct||PCT_DEFAULT;
