@@ -175,6 +175,14 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 
 <div id="panel-ruta" class="panel active">
   <div id="banner-offline" style="display:none;background:rgba(255,107,107,.15);border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--red);font-weight:600">📵 Sin conexión — un cobro que registres ahora puede no guardarse. Verifica tu internet antes de cobrar.</div>
+  <!-- Disponible para prestar (lo define el admin) -->
+  <div class="card" style="border-color:var(--goldb);display:flex;justify-content:space-between;align-items:center;padding:12px 14px;margin-bottom:10px">
+    <div>
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">💵 Disponible para prestar</div>
+      <div style="font-size:10px;color:var(--text3)">lo define el admin</div>
+    </div>
+    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--gold)" id="cob-disponible-val">—</div>
+  </div>
   <!-- Resumen de inicio -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
     <div class="metric green"><div class="ml">Por cobrar hoy</div><div class="mv" id="r-pendiente">$0</div></div>
@@ -358,10 +366,16 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="confirm-amount" id="confirm-amount">$0</div>
     <div class="confirm-sub" id="confirm-sub">—</div>
     <div style="width:100%;margin:2px 0 14px">
-      <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:6px">Mora cobrada (editable)</label>
+      <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:6px">💢 Mora a cobrar — toca para sumar o escríbela</label>
       <input type="number" id="confirm-mora" step="500" min="0" value="0" inputmode="numeric"
         style="width:100%;padding:10px;border-radius:10px;border:1.5px solid rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:var(--text);font-size:18px;font-weight:700;text-align:center"
         oninput="recalcConfirm()">
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button type="button" onclick="addMoraRapida(1000)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--red);background:transparent;color:var(--red);font-size:12px;font-weight:600;cursor:pointer">+1.000</button>
+        <button type="button" onclick="addMoraRapida(2000)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--red);background:transparent;color:var(--red);font-size:12px;font-weight:600;cursor:pointer">+2.000</button>
+        <button type="button" onclick="addMoraRapida(5000)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--red);background:transparent;color:var(--red);font-size:12px;font-weight:600;cursor:pointer">+5.000</button>
+        <button type="button" onclick="addMoraRapida(0)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:12px;font-weight:600;cursor:pointer">Limpiar</button>
+      </div>
     </div>
     <div class="confirm-btns">
       <button class="confirm-no" onclick="cerrarConfirm()">Cancelar</button>
@@ -814,6 +828,13 @@ function escuchar(){
       localStorage.setItem('cr_com_pct_cobrador',String(v));
       renderGanancias();
     }
+  });
+  // Disponible para prestar — lo define el admin, el cobrador solo lo ve
+  db.ref('config/disponibleManual').on('value',s=>{
+    const v=s.val();
+    window._dispManual=(v!==null&&v!==undefined)?Math.round(parseFloat(v)||0):null;
+    const el=document.getElementById('cob-disponible-val');
+    if(el)el.textContent=window._dispManual!=null?fmtMil(window._dispManual):'—';
   });
 }
 
@@ -1619,6 +1640,12 @@ function recalcConfirm(){
   document.getElementById('confirm-amount').textContent=fmt(total);
   document.getElementById('confirm-amount').style.color=m>0?'var(--red)':'var(--green)';
   document.getElementById('confirm-sub').textContent=m>0?`Cuota ${c.pagadas+1}/${c.numCuotas} + mora ${fmt(m)}`:`Cuota ${c.pagadas+1} de ${c.numCuotas}`;
+}
+function addMoraRapida(n){
+  const inp=document.getElementById('confirm-mora');if(!inp)return;
+  const cur=Math.max(0,parseFloat(inp.value)||0);
+  inp.value=(n===0)?0:cur+n; // 0 = limpiar
+  recalcConfirm();
 }
 function cerrarConfirm(){document.getElementById('confirm-overlay').classList.remove('open');pendingPago=null;}
 

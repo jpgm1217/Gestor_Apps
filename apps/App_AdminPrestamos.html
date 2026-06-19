@@ -196,6 +196,17 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="metric green"><div class="ml">Cobrado hoy</div><div class="mv" id="m-cobrado">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-cobrado-sub">de $0 esperado</div></div>
     <div class="metric"><div class="ml">Mora total</div><div class="mv" id="m-mora-total">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-mora-sub">—% del capital</div></div>
   </div>
+  <!-- Disponible para prestar (manual — lo ve el cobrador) -->
+  <div class="card" style="border-color:var(--goldb);display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div class="ct" style="margin-bottom:2px">💵 Para prestar (lo defines tú)</div>
+      <div style="font-size:11px;color:var(--text3)">El cobrador ve este número en su inicio</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--gold)" id="disp-manual-val">—</div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="editarDisponibleManual()">✏️ Editar</button>
+    </div>
+  </div>
   <!-- Alertas inteligentes -->
   <div id="panel-alertas"></div>
   <!-- Pendientes (un solo bloque, sin duplicar) -->
@@ -1184,6 +1195,13 @@ function escuchar(){
       const sl=document.getElementById('com-pct-slider');
       if(sl)sl.value=v;
     }
+  });
+  // Disponible para prestar manual — el admin lo define, el cobrador lo ve
+  db.ref('config/disponibleManual').on('value',s=>{
+    const v=s.val();
+    window._dispManual=(v!==null&&v!==undefined)?Math.round(parseFloat(v)||0):null;
+    const el=document.getElementById('disp-manual-val');
+    if(el)el.textContent=window._dispManual!=null?fmt(window._dispManual):'— (sin definir)';
   });
   // Escuchar solicitudes de nuevos clientes
   db.ref('solicitudes').on('value',s=>{
@@ -3419,6 +3437,16 @@ function eventosPendientesLiquidacion(periodo='todo'){
 }
 function totalLiquidacionesComision(){
   return (liquidaciones||[]).reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
+}
+function editarDisponibleManual(){
+  const actual=(window._dispManual!=null)?window._dispManual:'';
+  const v=prompt('¿Cuánto tienes disponible para prestar ahora?\n(Este número lo verá el cobrador en su inicio)',String(actual));
+  if(v===null)return;
+  const n=Math.max(0,Math.round(parseFloat(String(v).replace(/[^\d.]/g,''))||0));
+  window._dispManual=n;
+  const el=document.getElementById('disp-manual-val');if(el)el.textContent=fmt(n);
+  if(fbOk&&db)db.ref('config/disponibleManual').set(n).catch(e=>notify('Error guardando: '+e.message,'err'));
+  notify('Disponible actualizado — el cobrador ya lo ve ✓','ok');
 }
 function metricasCaja(){
   const ingresosCapital=caja.filter(m=>!m.auto&&m.tipo==='ingreso').reduce((s,m)=>s+(m.monto||0),0);
