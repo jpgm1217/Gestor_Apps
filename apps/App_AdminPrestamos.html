@@ -356,6 +356,11 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div id="cj-resumen"></div>
   </div>
   <div class="card">
+    <div class="ct">📊 Corte de caja — cuadrar sin recordar el capital inicial</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.6">¿No recuerdas cuánto capital metiste porque se mezcló con las ganancias? No importa. Cuenta el efectivo que tienes HOY en la mano y la app calcula el capital base para dejar la caja cuadrada con la realidad.</div>
+    <button class="btn btn-primary btn-full" onclick="abrirCorteCaja()">Hacer corte de caja</button>
+  </div>
+  <div class="card">
     <div class="ct">Registrar movimiento manual</div>
     <div class="fr">
       <div class="fg"><label class="fl">Tipo</label>
@@ -516,6 +521,24 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <button class="btn btn-ghost btn-full" onclick="cargarDatosDemo()" style="border-color:var(--goldb);color:var(--gold)">🧪 Cargar datos de prueba</button>
       <button class="btn btn-red btn-full" onclick="borrarTodo()">🗑 Borrar todos los datos</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL CORTE DE CAJA -->
+<div class="modal-overlay" id="modal-corte" onclick="if(event.target===this)cerrar('modal-corte')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">📊 Corte de caja</div>
+    <div class="ibox blue" style="margin-bottom:12px;font-size:12px;line-height:1.6">Cuenta el <strong>efectivo que tienes físicamente hoy</strong> (la plata libre, sin contar lo que está prestado en la calle). Con eso cuadramos tu capital base automáticamente, aunque no recuerdes cuánto metiste.</div>
+    <div id="corte-contexto" style="font-size:12px;color:var(--text3);line-height:1.9;margin-bottom:12px"></div>
+    <div class="fg"><label class="fl">💵 Efectivo en mano hoy ($)</label><input type="number" id="corte-efectivo" min="0" step="1000" placeholder="0" oninput="prevCorte()"></div>
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);margin:6px 0 12px">
+      <input type="checkbox" id="corte-pool" checked style="width:18px;height:18px;accent-color:var(--gold)">
+      <div style="font-size:12px">También dejar el <strong>Pool disponible</strong> en este mismo efectivo</div>
+    </label>
+    <div id="corte-prev" class="ibox" style="margin-bottom:12px;display:none"></div>
+    <button class="btn btn-primary btn-full" onclick="aplicarCorteCaja()">Aplicar corte</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-corte')">Cancelar</button>
   </div>
 </div>
 
@@ -3485,6 +3508,58 @@ function registrarMovimiento(){
   persistCaja();
   document.getElementById('cj-monto').value='';document.getElementById('cj-desc').value='';
   renderCaja();notify('Registrado ✓','ok');
+}
+
+// ── CORTE DE CAJA ──────────────────────────────────────────────
+// Cuadra el capital base partiendo de la REALIDAD de hoy (efectivo en mano),
+// sin necesidad de recordar cuánto capital se metió (se mezcló con ganancias).
+// Identidad de la caja:
+//   disponibleReal = capitalBase − enCalle + interesRealizado + moraReal − comisiones − gastos
+// Queremos que disponibleReal = efectivo contado (D), entonces:
+//   capitalBase_objetivo = D + enCalle − interesRealizado − moraReal + comisiones + gastos
+function capitalBaseObjetivo(D,m){
+  return Math.round(D + m.principalCalle - m.interesRealizado - m.moraReal + m.comisionesPagadas + m.gastos);
+}
+function abrirCorteCaja(){
+  const m=metricasCaja();
+  const ctx=document.getElementById('corte-contexto');
+  if(ctx)ctx.innerHTML=`Hoy la app ya sabe:<br>• Prestado en la calle (capital): <strong>${fmt(m.principalCalle)}</strong><br>• Capital base registrado: <strong>${fmt(m.capitalBase)}</strong><br>• Disponible que muestra ahora: <strong style="color:${m.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(m.disponibleReal)}</strong>`;
+  const inp=document.getElementById('corte-efectivo');if(inp)inp.value='';
+  const pv=document.getElementById('corte-prev');if(pv)pv.style.display='none';
+  document.getElementById('modal-corte').classList.add('open');
+}
+function prevCorte(){
+  const pv=document.getElementById('corte-prev');if(!pv)return;
+  const D=Math.round(parseFloat(document.getElementById('corte-efectivo').value)||0);
+  if(D<=0){pv.style.display='none';return;}
+  const m=metricasCaja();
+  const objetivo=capitalBaseObjetivo(D,m);
+  const adj=objetivo-Math.round(m.capitalBase);
+  pv.style.display='block';
+  pv.className='ibox '+(Math.abs(adj)<1?'green':(adj>=0?'green':'amber'));
+  if(Math.abs(adj)<1){pv.innerHTML='✓ Tu caja ya está cuadrada con ese efectivo. No se registrará nada.';return;}
+  pv.innerHTML=`Para cuadrar se registrará un <strong>${adj>=0?'ingreso':'retiro'} de ${fmt(Math.abs(adj))}</strong> (corte de caja).<br>Tu capital base quedará en <strong>${fmt(objetivo)}</strong> y el <strong>Disponible real</strong> mostrará <strong>${fmt(D)}</strong>.`;
+}
+function aplicarCorteCaja(){
+  const D=Math.round(parseFloat(document.getElementById('corte-efectivo').value)||0);
+  if(D<0){notify('Monto inválido','err');return;}
+  const m=metricasCaja();
+  const objetivo=capitalBaseObjetivo(D,m);
+  const adj=objetivo-Math.round(m.capitalBase);
+  if(Math.abs(adj)<1){notify('La caja ya estaba cuadrada con ese efectivo ✓','ok');cerrar('modal-corte');return;}
+  if(!confirm(`Se registrará un ${adj>=0?'ingreso':'retiro'} de ${fmt(Math.abs(adj))} como "Corte de caja" para cuadrar tu capital base.\n\nDespués el "Disponible real" mostrará ${fmt(D)} (lo que contaste).\n\n¿Continuar?`))return;
+  caja.push({id:'m'+Date.now(),tipo:adj>=0?'ingreso':'egreso',monto:Math.abs(adj),desc:`Corte de caja ${coDateLabel()} — ajuste capital base`,ts:Date.now(),auto:false});
+  persistCaja();
+  // Pool opcional: dejar el disponible del pool igual al efectivo contado
+  if(document.getElementById('corte-pool')?.checked && typeof pool==='object' && pool){
+    const before=pool.saldo||0;
+    if(!Array.isArray(pool.movimientos))pool.movimientos=[];
+    pool.saldo=D;
+    pool.movimientos.unshift({fecha:coDateTimeISO(),fechaLocal:coDateLabel(),tipo:'ajuste',monto:Math.abs(D-before),concepto:`Corte de caja ${coDateLabel()}`,cliente:'',saldoAntes:before,saldoDespues:D});
+    savePool();if(typeof renderPool==='function')renderPool();
+  }
+  cerrar('modal-corte');renderCaja();
+  notify('Corte aplicado — caja cuadrada ✓','ok');
 }
 
 function calcularReconciliacion(){
