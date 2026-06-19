@@ -1841,6 +1841,12 @@ function renderClientes(){
     if(filtro==='pagado'&&!p)return false;
     return true;
   });
+  const arrKey=c=>parseInt(String(c.id).replace(/\D/g,''))||0; // id = momento de creación → orden de llegada
+  lista.sort((a,b)=>{
+    const pa=a.pagadas>=a.numCuotas?1:0,pb=b.pagadas>=b.numCuotas?1:0;
+    if(pa!==pb)return pa-pb;       // pagados al final, para que no estorben
+    return arrKey(a)-arrKey(b);     // el resto por orden de llegada (más antiguo primero)
+  });
   const el=document.getElementById('lista-clientes');
   if(!lista.length){el.innerHTML='<div class="empty"><div class="empty-i">👥</div><div class="empty-t">Sin clientes</div></div>';return;}
   el.innerHTML=lista.map(c=>{
