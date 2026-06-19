@@ -3390,6 +3390,36 @@ function resumenComisionCliente(c){
     return acc;
   },{generada:0,liquidada:0,pendiente:0,admin:0,interes:0,mora:0,eventos:0});
 }
+// Junta TODOS los eventos de comisión del cliente: ciclos archivados + ciclo actual.
+// Deduplica por id (un evento pendiente al renovar queda tanto en el ciclo archivado
+// como en el activo) y conserva el número de ciclo en que se generó.
+function eventosHistoricosCliente(c){
+  const map=new Map();
+  const keyOf=(e,fb)=>e&&e.id?e.id:`${(e&&e.ts)||0}_${(e&&e.nota)||''}_${fb}`;
+  (c.ciclos||[]).forEach((cy,ci)=>{
+    (cy.comisionEventos||[]).filter(Boolean).forEach((e,i)=>{
+      map.set(keyOf(e,`c${ci}_${i}`),Object.assign({},e,{_ciclo:cy.cicloNum||(ci+1)}));
+    });
+  });
+  const cicloActual=((c.ciclos||[]).length)+1;
+  comisionEventosCliente(c).forEach((e,i)=>{
+    const k=keyOf(e,`a${i}`);
+    const prev=map.get(k);
+    map.set(k,Object.assign({},e,{_ciclo:(prev&&prev._ciclo)||cicloActual}));
+  });
+  return Array.from(map.values()).sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
+// Resumen acumulado de TODOS los ciclos (para mostrar "todo el interés generado").
+function resumenHistoricoCliente(c){
+  return eventosHistoricosCliente(c).reduce((a,e)=>{
+    const ei=Math.max(0,Math.round(e.interes||0));
+    const em=Math.max(0,Math.round(e.mora||0));
+    const ecob=Math.max(0,Math.round(e.comision||0));
+    const eadm=(e.admin===undefined||e.admin===null)?Math.max(0,(ei+em)-ecob):Math.max(0,Math.round(e.admin));
+    a.interes+=ei;a.mora+=em;a.cobrador+=ecob;a.admin+=eadm;a.ciclos=Math.max(a.ciclos,e._ciclo||1);
+    return a;
+  },{interes:0,mora:0,cobrador:0,admin:0,ciclos:1});
+}
 function registrarComisionEventoCliente(c,{interes=0,mora=0,autor='Admin',nota='',ts=null}={}){
   const interesVal=Math.max(0,Math.round(interes||0));
   const moraVal=Math.max(0,Math.round(mora||0));
@@ -4405,6 +4435,46 @@ function renderComisiones(){
           <div class="cs"><div class="csl">Interés cobrado</div><div class="csv" style="font-size:12px">${fmt(r.interes)}</div></div>
           <div class="cs"><div class="csl">Mora cobrada</div><div class="csv" style="font-size:12px">${fmt(r.mora)}</div></div>
         </div>
+        ${(()=>{
+          const hist=eventosHistoricosCliente(c);
+          if(!hist.length)return'';
+          const H=resumenHistoricoCliente(c);
+          const multiCiclo=H.ciclos>1;
+          const filas=hist.map(e=>{
+            const ei=Math.max(0,Math.round(e.interes||0));
+            const em=Math.max(0,Math.round(e.mora||0));
+            const ecob=Math.max(0,Math.round(e.comision||0));
+            const eadm=(e.admin===undefined||e.admin===null)?Math.max(0,(ei+em)-ecob):Math.max(0,Math.round(e.admin));
+            const fch=e.ts?new Date(e.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
+            const liq=e.liquidado?'<span style="color:var(--green)">✓ pagada al cobrador</span>':'<span style="color:var(--gold)">pendiente</span>';
+            const cicloTag=multiCiclo?`<span style="background:var(--bg4);border-radius:5px;padding:1px 5px;font-size:9px;color:var(--text2);margin-right:4px">Ciclo ${e._ciclo}</span>`:'';
+            return`<div style="padding:6px 0;border-bottom:1px dashed var(--border)">
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px">
+                <span style="color:var(--text2)">${cicloTag}${e.nota||e.origen||'Cobro'}</span>
+                <span style="color:var(--text3);font-size:10px">${fch} · ${liq}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:10px">
+                <div><div style="color:var(--text3)">Interés</div><div style="font-weight:600">${fmt(ei)}</div></div>
+                <div><div style="color:var(--text3)">Mora</div><div style="font-weight:600">${fmt(em)}</div></div>
+                <div><div style="color:var(--text3)">Cobrador</div><div style="font-weight:600;color:var(--gold)">${fmt(ecob)}</div></div>
+                <div><div style="color:var(--text3)">Admin</div><div style="font-weight:600;color:var(--green)">${fmt(eadm)}</div></div>
+              </div>
+            </div>`;
+          }).join('');
+          return`<details style="margin-top:8px">
+            <summary style="font-size:11px;color:var(--gold);cursor:pointer;list-style:none">📋 Ver desglose completo (${hist.length} cobro${hist.length>1?'s':''}${multiCiclo?` · ${H.ciclos} ciclos`:''})</summary>
+            <div style="margin-top:6px;background:var(--bg3);border-radius:8px;padding:8px 10px">
+              ${filas}
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:10px;padding-top:8px;margin-top:2px;border-top:1px solid var(--border2)">
+                <div><div style="color:var(--text3)">Interés total</div><div style="font-weight:700">${fmt(H.interes)}</div></div>
+                <div><div style="color:var(--text3)">Mora total</div><div style="font-weight:700">${fmt(H.mora)}</div></div>
+                <div><div style="color:var(--text3)">Cobrador</div><div style="font-weight:700;color:var(--gold)">${fmt(H.cobrador)}</div></div>
+                <div><div style="color:var(--text3)">Admin</div><div style="font-weight:700;color:var(--green)">${fmt(H.admin)}</div></div>
+              </div>
+              <div style="font-size:9.5px;color:var(--text3);margin-top:6px;text-align:center">La comisión se reparte sobre interés + mora · Cobrador ${pCli}% / Admin ${100-pCli}%</div>
+            </div>
+          </details>`;
+        })()}
         <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
           <span style="font-size:11px;color:var(--text3)">% de este préstamo:</span>
           <input type="number" value="${pCli}" min="0" max="100" step="5"
