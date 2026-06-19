@@ -179,7 +179,6 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <div class="card" style="border-color:var(--goldb);display:flex;justify-content:space-between;align-items:center;padding:12px 14px;margin-bottom:10px">
     <div>
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">💵 Disponible para prestar</div>
-      <div style="font-size:10px;color:var(--text3)">lo define el admin</div>
     </div>
     <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--gold)" id="cob-disponible-val">—</div>
   </div>
@@ -243,16 +242,11 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="metric" style="grid-column:1/-1;border-color:var(--greenb)">
       <div class="ml">Pendiente por cobrar</div>
       <div class="mv" style="color:var(--green)" id="g-pendiente">$0</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:3px" id="g-pct-info">—</div>
     </div>
   </div>
   <div class="card">
     <div class="ct">Resumen por período</div>
     <div id="g-periodos"></div>
-  </div>
-  <div class="card">
-    <div class="ct">Alertas de ganancias</div>
-    <div id="g-alertas"></div>
   </div>
   <div class="card">
     <div class="ct">Desglose por cliente</div>
@@ -970,7 +964,6 @@ function renderGanancias(){
   document.getElementById('g-total').textContent=fmtMil(resumen.total);
   document.getElementById('g-liquidado').textContent=fmtMil(resumen.liquidado);
   document.getElementById('g-pendiente').textContent=fmtMil(resumen.pendiente);
-  document.getElementById('g-pct-info').textContent=`${pctGlob}% actual para próximos cobros`;
 
   const periodos=['semana','quincena','mes'];
   const periodEl=document.getElementById('g-periodos');
@@ -998,7 +991,7 @@ function renderGanancias(){
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-size:13px;font-weight:500">${c.nombre}</div>
-            <div style="font-size:11px;color:var(--text3)">${pCli}% actual · ${c.pagadas}/${c.numCuotas} cuotas · aplica a próximos cobros</div>
+            <div style="font-size:11px;color:var(--text3)">${c.pagadas}/${c.numCuotas} cuotas</div>
           </div>
           <div style="text-align:right">
             <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--green)">${fmtMil(r.pendiente)}</div>
@@ -2340,7 +2333,7 @@ function renderDia(){
   if(!lista.length){hEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin cobros hoy</div>';return;}
   hEl.innerHTML=lista.map(c=>{
     const waLink=c.telefono?'<a href="https://wa.me/57'+c.telefono.replace(/\D/g,'')+'?text='+encodeURIComponent('Hola '+c.nombre+', recibo: '+fmt(c.monto))+'" target="_blank" style="font-size:11px;color:#128C7E;text-decoration:none">💬 Reenviar</a>':'';
-    const detalle=c.tipo==='caja'?'caja Firebase':'cuota '+c.cuota+(c.tipo==='abono'?' · abono':'');
+    const detalle=c.tipo==='caja'?'cobro':'cuota '+c.cuota+(c.tipo==='abono'?' · abono':'');
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">'+
       '<div>'+
       '<div style="font-size:13px;font-weight:500">'+c.nombre+'</div>'+
