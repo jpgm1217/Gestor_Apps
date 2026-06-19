@@ -943,18 +943,18 @@ function renderGanancias(){
     });
   }
 
-  document.getElementById('g-total').textContent=fmt(resumen.total);
-  document.getElementById('g-liquidado').textContent=fmt(resumen.liquidado);
-  document.getElementById('g-pendiente').textContent=fmt(resumen.pendiente);
+  document.getElementById('g-total').textContent=fmtMil(resumen.total);
+  document.getElementById('g-liquidado').textContent=fmtMil(resumen.liquidado);
+  document.getElementById('g-pendiente').textContent=fmtMil(resumen.pendiente);
   document.getElementById('g-pct-info').textContent=`${pctGlob}% actual para próximos cobros`;
 
   const periodos=['semana','quincena','mes'];
   const periodEl=document.getElementById('g-periodos');
   if(periodEl){
     const tops=topClientesGanancia('mes',3);
-    periodEl.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${periodos.map(p=>{const r=resumenPeriodoGanancias(p);return `<div class="cs"><div class="csl">${etiquetaPeriodo(p)}</div><div class="csv" style="color:var(--green)">${fmt(r.generada)}</div><div style="font-size:10px;color:var(--text3);margin-top:4px">Pendiente: ${fmt(r.pendiente)} · ${r.eventos} evento(s)</div></div>`;}).join('')}</div>`+
+    periodEl.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${periodos.map(p=>{const r=resumenPeriodoGanancias(p);return `<div class="cs"><div class="csl">${etiquetaPeriodo(p)}</div><div class="csv" style="color:var(--green)">${fmtMil(r.generada)}</div><div style="font-size:10px;color:var(--text3);margin-top:4px">Pendiente: ${fmtMil(r.pendiente)} · ${r.eventos} evento(s)</div></div>`;}).join('')}</div>`+
       `<div style="margin-top:10px">`+
-      (tops.length?`<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Clientes que más te generan este mes</div>`+tops.map((t,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px">${i+1}. ${t.nombre}</div><div style="font-size:12px;font-weight:700;color:var(--green)">${fmt(t.total)}</div></div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Sin comisión generada en el mes.</div>`)+`</div>`;
+      (tops.length?`<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Clientes que más te generan este mes</div>`+tops.map((t,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px">${i+1}. ${t.nombre}</div><div style="font-size:12px;font-weight:700;color:var(--green)">${fmtMil(t.total)}</div></div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Sin comisión generada en el mes.</div>`)+`</div>`;
   }
   const alertEl=document.getElementById('g-alertas');
   if(alertEl){
@@ -977,18 +977,18 @@ function renderGanancias(){
             <div style="font-size:11px;color:var(--text3)">${pCli}% actual · ${c.pagadas}/${c.numCuotas} cuotas · aplica a próximos cobros</div>
           </div>
           <div style="text-align:right">
-            <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--green)">${fmt(r.pendiente)}</div>
+            <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--green)">${fmtMil(r.pendiente)}</div>
             <div style="font-size:10px;color:var(--text3)">pendiente</div>
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:6px">
-          <div class="cs"><div class="csl">Generada</div><div class="csv" style="font-size:12px">${fmt(r.generada)}</div></div>
-          <div class="cs"><div class="csl">Liquidada</div><div class="csv" style="font-size:12px">${fmt(r.liquidada)}</div></div>
-          <div class="cs"><div class="csl">Interés cobrado</div><div class="csv" style="font-size:12px">${fmt(r.interes)}</div></div>
+          <div class="cs"><div class="csl">Generada</div><div class="csv" style="font-size:12px">${fmtMil(r.generada)}</div></div>
+          <div class="cs"><div class="csl">Liquidada</div><div class="csv" style="font-size:12px">${fmtMil(r.liquidada)}</div></div>
+          <div class="cs"><div class="csl">Interés cobrado</div><div class="csv" style="font-size:12px">${fmtMil(r.interes)}</div></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px">
-          <div class="cs"><div class="csl">Mora cobrada</div><div class="csv" style="font-size:12px">${fmt(r.mora)}</div></div>
-          <div class="cs"><div class="csl">Total comisión</div><div class="csv" style="font-size:12px;color:var(--green)">${fmt(r.generada)}</div></div>
+          <div class="cs"><div class="csl">Mora cobrada</div><div class="csv" style="font-size:12px">${fmtMil(r.mora)}</div></div>
+          <div class="cs"><div class="csl">Total comisión</div><div class="csv" style="font-size:12px;color:var(--green)">${fmtMil(r.generada)}</div></div>
         </div>
       </div>`;
     }).join('');
@@ -1317,7 +1317,7 @@ function abrirDetalleClienteCobrador(id){
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">${c.negocio||'—'}${c.zona?' · '+c.zona:''}${c.telefono?' · '+c.telefono:''}</div>
     ${accesosDirectos}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-      <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
+      <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmtMil(sd)}</div></div>
       <div class="cs"><div class="csl">Cuota actual</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
       <div class="cs"><div class="csl">Progreso</div><div class="csv">${c.pagadas}/${c.numCuotas}</div></div>
       <div class="cs"><div class="csl">Mora</div><div class="csv" style="color:${m>0?'var(--red)':'var(--text2)'}">${m>0?fmt(m):'$0'}</div></div>
@@ -1576,7 +1576,7 @@ function renderTodos(){
         <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">${badge}${badgeSoli}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:9px">
-        <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
+        <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmtMil(sd)}</div></div>
         <div class="cs"><div class="csl">Cuota</div><div class="csv" style="color:var(--green)">${fmt(c.cuota)}</div></div>
       </div>
       <div class="prog"><div class="prog-f" style="width:${pct}%"></div></div>
