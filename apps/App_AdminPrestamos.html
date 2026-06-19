@@ -602,6 +602,24 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
 </div>
 
+<!-- MODAL MORA MANUAL (registrar mora cobrada aparte, sin avanzar cuota) -->
+<div class="modal-overlay" id="modal-mora-manual" onclick="if(event.target===this)cerrar('modal-mora-manual')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">🧾 Registrar mora cobrada</div>
+    <div id="mora-manual-info" class="ibox blue" style="font-size:12px;margin-bottom:10px"></div>
+    <div class="fg"><label class="fl">Monto de mora cobrada ($)</label>
+      <input type="number" id="mora-manual-monto" step="500" min="0" placeholder="Ej: 8000"></div>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text2);margin:4px 0 10px">
+      <input type="checkbox" id="mora-manual-cuadre" style="margin-top:2px">
+      <span>Ya estaba sumada al total del cliente — <strong>solo cuadrar</strong> comisión y caja (no volver a sumarla)</span>
+    </label>
+    <div style="font-size:11px;color:var(--text3);margin:0 0 12px">No avanza la cuota.</div>
+    <button class="btn btn-primary btn-full" onclick="confirmarMoraManual()">✅ Registrar mora</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-mora-manual')">Cancelar</button>
+  </div>
+</div>
+
 <!-- MODAL CICLO DETALLE -->
 <div class="modal-overlay" id="modal-ciclo" onclick="if(event.target===this)cerrar('modal-ciclo')">
   <div class="modal">
@@ -1904,7 +1922,7 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
-    <button class="btn btn-green btn-full btn-sm" style="margin-bottom:8px" onclick="cobrarConMora('${c.id}')">💰 Cobrar cuota + mora (editable)</button>
+    <button class="btn btn-amber btn-full btn-sm" style="margin-bottom:8px" onclick="abrirMoraManual('${c.id}')">🧾 Registrar mora cobrada (aparte · no avanza cuota)</button>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
       <button class="btn btn-blue btn-sm" style="font-size:11px" onclick="abrirExtensionInteres('${c.id}')">💳 Solo interés</button>
       <button class="btn btn-blue btn-sm" onclick="abrirRefin('${c.id}')">🔄 Refinanciar</button>
@@ -3102,6 +3120,41 @@ function registrarCajaAuto(subtipo,monto,desc,refKey,extra={}){
     db.ref('caja/'+mov.id).set(mov).catch(e=>notify('Mov caja solo guardado local — error sync: '+e.message,'err'));
   }
   return mov;
+}
+// ===== REGISTRAR MORA COBRADA (aparte, NO avanza cuota) → entra a comisión y a caja =====
+let _pendingMoraManual=null;
+function abrirMoraManual(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  _pendingMoraManual=id;
+  const sug=mora(c),d=diasMora(c);
+  document.getElementById('mora-manual-info').innerHTML=`<strong>${c.nombre}</strong><br>Mora corrida hoy: <strong>${fmt(sug)}</strong>${d>0?` · ${d} día${d!==1?'s':''} vencido${d!==1?'s':''}`:''}`;
+  document.getElementById('mora-manual-monto').value=sug>0?Math.round(sug):'';
+  const ck=document.getElementById('mora-manual-cuadre');if(ck)ck.checked=false;
+  cerrar('modal-cli');
+  document.getElementById('modal-mora-manual').classList.add('open');
+}
+function confirmarMoraManual(){
+  const c=clientes.find(x=>x.id===_pendingMoraManual);if(!c)return;
+  const monto=Math.max(0,parseFloat(document.getElementById('mora-manual-monto').value)||0);
+  if(monto<=0){notify('Ingresa un monto de mora','err');return;}
+  const cuadre=!!document.getElementById('mora-manual-cuadre')?.checked;
+  const sug=mora(c);
+  // Siempre: la mora entra a comisión y a caja
+  registrarComisionEventoCliente(c,{interes:0,mora:monto,autor:'Admin',nota:cuadre?'Cuadre de mora (ya estaba en total)':'Mora cobrada (registro manual)'});
+  registrarCajaAuto('mora_cobrada',monto,`Mora cobrada ${c.nombre}${cuadre?' (cuadre)':' (manual)'}`,`moramanual:${c.id}:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+  const campos=['comisionEventos'];
+  if(!cuadre){
+    // Mora nueva: además súmala al total del cliente y registra el evento de historial
+    registrarEventoMora(c,'cobrada',monto,'Mora cobrada (registro manual)','Admin');
+    c.moraCobradaTotal=(c.moraCobradaTotal||0)+monto;
+    if(sug>0&&monto>=sug)c.moraBaseDate=hoy(); // cubrió la mora corrida → reinicia el conteo
+    campos.push('moraCobradaTotal','moraBaseDate','historialMora');
+  }
+  log({tipo:'mora_cobrada',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:cuadre?'cuadre':'manual'});
+  saveClienteFields(c,campos);
+  cerrar('modal-mora-manual');
+  notify(`Mora ${fmt(monto)} ${cuadre?'cuadrada':'registrada'} — ya aparece en comisiones y caja ✓`,'ok');
+  renderClientes();renderInicio();renderCaja();renderComisiones();
 }
 function syncCajaConLiquidaciones(){
   if(!Array.isArray(liquidaciones)||!liquidaciones.length)return;
