@@ -500,6 +500,11 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <button class="btn btn-primary btn-full" onclick="ejecutarReconciliacionUI()">Reconciliar ahora</button>
   </div>
   <div class="card" style="margin-top:12px">
+    <div class="ct">🔧 Cuadre automático de caja</div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Recupera en la caja los cobros que sí quedaron en la comisión pero se perdieron al guardar (fallos de conexión). Es seguro: solo confía en la comisión, no inventa nada, y te muestra qué va a agregar antes de aplicar.</div>
+    <button class="btn btn-primary btn-full" onclick="abrirCuadreCaja()">Revisar y cuadrar caja</button>
+  </div>
+  <div class="card" style="margin-top:12px">
     <div class="ct">Notificaciones</div>
     <div id="notif-admin-status" style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:10px">Desactivadas.</div>
     <button class="btn btn-primary" id="notif-admin-btn" onclick="activarNotificacionesAdmin()">🔔 Activar notificaciones</button>
@@ -515,6 +520,17 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <button class="btn btn-ghost btn-full" onclick="cargarDatosDemo()" style="border-color:var(--goldb);color:var(--gold)">🧪 Cargar datos de prueba</button>
       <button class="btn btn-red btn-full" onclick="borrarTodo()">🗑 Borrar todos los datos</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL CUADRE DE CAJA -->
+<div class="modal-overlay" id="modal-cuadre" onclick="if(event.target===this)cerrar('modal-cuadre')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔧 Cuadre de caja</div>
+    <div id="cuadre-body"></div>
+    <button class="btn btn-primary btn-full" id="cuadre-aplicar" style="margin-top:12px" onclick="aplicarCuadreCaja()">Aplicar cuadre</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cuadre')">Cerrar</button>
   </div>
 </div>
 
@@ -3534,6 +3550,73 @@ function aplicarCorteCaja(){
   }
   cerrar('modal-corte');renderCaja();
   notify('Corte aplicado — caja cuadrada ✓','ok');
+}
+
+// ── AUTO-CUADRE DE CAJA ────────────────────────────────────────
+// Recupera en la caja los cobros que SÍ están en los eventos de comisión (fuente confiable y validada)
+// pero que se perdieron al guardar en caja (fallos de conexión). Conservador: solo confía en la comisión,
+// nunca inventa. Idempotente: una vez cuadrado, no agrega nada (el gap queda en 0).
+function detectarCuadreCaja(){
+  const res=[];
+  (clientes||[]).forEach(c=>{
+    const evs=Array.isArray(c.comisionEventos)?c.comisionEventos.filter(Boolean):[];
+    if(!evs.length)return;
+    const evInt=evs.reduce((s,e)=>s+Math.round(e.interes||0),0);
+    const evMora=evs.reduce((s,e)=>s+Math.round(e.mora||0),0);
+    const movs=(caja||[]).filter(m=>m.clienteId===c.id&&m.tipo==='ingreso');
+    const cajaInt=movs.filter(m=>m.subtipo==='interes_cobrado').reduce((s,m)=>s+(m.monto||0),0);
+    const cajaMora=movs.filter(m=>m.subtipo==='mora_cobrada').reduce((s,m)=>s+(m.monto||0),0);
+    const cajaCap=movs.filter(m=>m.subtipo==='recuperacion_capital').reduce((s,m)=>s+(m.monto||0),0);
+    const gapInt=evInt-cajaInt, gapMora=evMora-cajaMora;
+    let addInt=0,addMora=0,addCap=0;
+    // Techo de capital por ciclos: nunca recuperar por encima del total prestado (evita inflar)
+    const ciclosCap=(c.ciclos||[]).reduce((s,cy)=>s+(cy.capital||0),0)+(c.historialPrestamos||[]).reduce((s,h)=>s+(h.capital||0),0);
+    const capTecho=(c.capital||0)+ciclosCap;
+    if(gapInt>1000){
+      addInt=gapInt;
+      const ratio=(c.interes>0)?(c.capital/c.interes):0; // capital por peso de interés del ciclo actual
+      addCap=Math.min(Math.round(gapInt*ratio), Math.max(0,capTecho-cajaCap));
+    }
+    if(gapMora>1000)addMora=gapMora;
+    if(addInt||addMora||addCap){
+      // fecha aproximada del cobro: el evento de comisión con interés más reciente
+      const ts=evs.filter(e=>(e.interes||0)>0).reduce((mx,e)=>Math.max(mx,e.ts||0),0)||evs.reduce((mx,e)=>Math.max(mx,e.ts||0),0)||Date.now();
+      res.push({c,addCap,addInt,addMora,ts});
+    }
+  });
+  return res;
+}
+function abrirCuadreCaja(){
+  const items=detectarCuadreCaja();
+  const body=document.getElementById('cuadre-body');
+  const btn=document.getElementById('cuadre-aplicar');
+  if(!items.length){
+    if(body)body.innerHTML='<div class="ibox green" style="font-size:13px">✓ La caja ya está cuadrada con las comisiones. No hay cobros perdidos por recuperar.</div>';
+    if(btn)btn.style.display='none';
+  } else {
+    let totC=0,totI=0,totM=0;
+    const filas=items.map(it=>{
+      totC+=it.addCap;totI+=it.addInt;totM+=it.addMora;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px"><div style="font-weight:600">${it.c.nombre}</div><div style="text-align:right;color:var(--green)">+cap ${fmt(it.addCap)}${it.addInt?' · +int '+fmt(it.addInt):''}${it.addMora?' · +mora '+fmt(it.addMora):''}</div></div>`;
+    }).join('');
+    if(body)body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Estos cobros están en la comisión (confiable) pero faltan en la caja. Se agregarán para que la caja cuadre con lo realmente cobrado:</div>${filas}<div style="margin-top:12px;font-weight:700;font-size:13px">Total a recuperar: ${fmt(totC+totI+totM)}</div>`;
+    if(btn)btn.style.display='';
+  }
+  document.getElementById('modal-cuadre').classList.add('open');
+}
+function aplicarCuadreCaja(){
+  const items=detectarCuadreCaja();
+  if(!items.length){cerrar('modal-cuadre');return;}
+  if(!confirm(`Se recuperarán ${items.length} cobro(s) en la caja por un total de ${fmt(items.reduce((s,it)=>s+it.addCap+it.addInt+it.addMora,0))}.\n\n¿Continuar?`))return;
+  let n=0;
+  items.forEach(it=>{
+    const stamp=Date.now()+'_'+(n++);
+    if(it.addCap>0)registrarCajaAuto('recuperacion_capital',it.addCap,`Cuadre: capital recuperado ${it.c.nombre}`,`cuadre:${it.c.id}:cap:${stamp}`,{clienteId:it.c.id,cliente:it.c.nombre,ts:it.ts});
+    if(it.addInt>0)registrarCajaAuto('interes_cobrado',it.addInt,`Cuadre: interés recuperado ${it.c.nombre}`,`cuadre:${it.c.id}:int:${stamp}`,{clienteId:it.c.id,cliente:it.c.nombre,ts:it.ts});
+    if(it.addMora>0)registrarCajaAuto('mora_cobrada',it.addMora,`Cuadre: mora recuperada ${it.c.nombre}`,`cuadre:${it.c.id}:mora:${stamp}`,{clienteId:it.c.id,cliente:it.c.nombre,ts:it.ts});
+  });
+  cerrar('modal-cuadre');renderCaja();renderInicio();if(typeof renderComisiones==='function')renderComisiones();
+  notify(`Caja cuadrada: ${items.length} cobro(s) recuperado(s) ✓`,'ok');
 }
 
 function calcularReconciliacion(){
