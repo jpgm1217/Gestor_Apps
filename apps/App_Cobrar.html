@@ -174,6 +174,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div class="scroll">
 
 <div id="panel-ruta" class="panel active">
+  <div id="banner-offline" style="display:none;background:rgba(255,107,107,.15);border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--red);font-weight:600">📵 Sin conexión — un cobro que registres ahora puede no guardarse. Verifica tu internet antes de cobrar.</div>
   <!-- Resumen de inicio -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
     <div class="metric green"><div class="ml">Por cobrar hoy</div><div class="mv" id="r-pendiente">$0</div></div>
@@ -678,6 +679,8 @@ function setConn(ok){
   document.getElementById('dot').style.background=ok?'var(--green)':'var(--red)';
   document.getElementById('cfg-estado').textContent=ok?'Conectado ✓':'Sin conexión';
   document.getElementById('cfg-estado').style.color=ok?'var(--green)':'var(--red)';
+  const banner=document.getElementById('banner-offline');
+  if(banner)banner.style.display=ok?'none':'block';
 }
 // ── SIMULADOR ──
 const SIM_DIAS={diario:1,semanal:7,quincenal:15,mensual:30};
@@ -1486,7 +1489,8 @@ function renderRuta(){
   document.getElementById('r-count-pend').textContent=countPend;
   document.getElementById('r-count-cob').textContent=countCob;
   document.getElementById('r-count-mora').textContent=countMora;
-  document.getElementById('r-pct-label').textContent='Progreso '+pct+'%';
+  const esperado=cobrado+pendiente; // lo recogido hoy + lo que falta por recoger
+  document.getElementById('r-pct-label').textContent='Progreso '+pct+'% · recogido '+fmtMil(cobrado)+' de '+fmtMil(esperado);
   document.getElementById('r-prog-bar').style.width=pct+'%';
   // Badge tab
   const badge=document.getElementById('badge-ruta');
@@ -1497,7 +1501,15 @@ function renderRuta(){
   renderRutaProximosDias();
   const el=document.getElementById('lista-ruta');
   if(!ruta.length){el.innerHTML='<div class="empty"><div class="empty-i">🎉</div><div class="empty-t">Sin cobros para hoy</div></div>';return;}
-  const ord=[...ruta].sort((a,b)=>(sameCoDate(a.ultimoPago,h)?1:0)-(sameCoDate(b.ultimoPago,h)?1:0));
+  // Orden inteligente: primero lo urgente. Pagados de hoy al fondo; entre los pendientes,
+  // mayor mora primero y luego más días de atraso (lo más riesgoso de cobrar va arriba).
+  const ord=[...ruta].sort((a,b)=>{
+    const pa=sameCoDate(a.ultimoPago,h)?1:0, pb=sameCoDate(b.ultimoPago,h)?1:0;
+    if(pa!==pb)return pa-pb;
+    const ma=mora(a), mb=mora(b);
+    if(mb!==ma)return mb-ma;
+    return (diasMora(b)||0)-(diasMora(a)||0);
+  });
   el.innerHTML=ord.map(c=>{
     const yp=sameCoDate(c.ultimoPago,h);
     const noPagoHoy=!yp&&!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,h)));
