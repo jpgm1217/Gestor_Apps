@@ -4823,7 +4823,11 @@ function confirmarNuevoCiclo(){
   // Archivar ciclo actual en historial
   if(!c.ciclos)c.ciclos=[];
   const rd=c.redondeo||1000;
-  const diasCustom=c.diasCuota||null;
+  // FIX: el espaciado de cuotas debe salir de la FRECUENCIA (tipo) elegida en este modal,
+  // NO heredar c.diasCuota del ciclo anterior. Antes, un cliente que venía quincenal (15d)
+  // y se renovaba a "semanal" quedaba con cuotas cada 15 días (caso Andrés Cartagena).
+  // Este modal no ofrece "personalizado", así que DIAS[tipo] define el espaciado en genCuotas.
+  const diasCustom=null;
   c.ciclos.push({
     cicloNum:(c.ciclos.length)+1,
     capital:c.capital,tasa:c.tasa,tipo:c.tipo,plazo:c.numCuotas,
