@@ -256,6 +256,10 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="ct">Liquidaciones recibidas</div>
     <div id="g-liquidaciones"></div>
   </div>
+  <div class="card">
+    <div class="ct">🛡️ Aporte de seguridad</div>
+    <div id="g-seguridad"></div>
+  </div>
 </div>
 
 <div id="panel-nuevo" class="panel">
@@ -518,6 +522,9 @@ function sameCoDate(value,refKey){
 function hoy(){return coDateKey();}
 function graciaLabel(c){return c&&c.graciaHasta?labelFromUTCDate(coUTCDateFromKey(c.graciaHasta)):'';}
 function graciaActiva(c,refKey){refKey=refKey||hoy();return !!(c&&c.graciaHasta)&&refKey<=c.graciaHasta;}
+// Ciclo activo del cliente. Se mete en el refKey de caja para que la cuota N de un ciclo nuevo
+// no choque con la cuota N de un ciclo anterior (antes el dedup bloqueaba el cobro en silencio).
+function cicloDe(c){return ((c&&c.ciclos&&c.ciclos.length)||0)+1;}
 
 const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
 let db=null,fbOk=false,clientes=[],cobrosHoy=[],pendingPago=null,liquidaciones=[],caja=[];
@@ -782,7 +789,10 @@ function escuchar(){
   db.ref('caja').on('value',s=>{
     const d=s.val();
     caja=d?Object.values(d):[];
-    renderDia();
+    // FIX: "Cobrado hoy" del inicio vive en renderRuta(). Antes solo se llamaba renderDia(),
+    // así que si la caja llegaba de Firebase DESPUÉS del primer render, el inicio se quedaba
+    // en $0 aunque la plata ya estuviera en caja (bug del cobrador mostrando $0).
+    renderRuta();renderDia();
   });
   db.ref('liquidaciones').on('value',s=>{
     const d=s.val();
@@ -1012,10 +1022,11 @@ function renderGanancias(){
   }
 
   const lEl=document.getElementById('g-liquidaciones');
-  if(!liquidaciones.length){
+  const liqCash=(liquidaciones||[]).filter(l=>!l.esSeguridad);
+  if(!liqCash.length){
     lEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin liquidaciones recibidas aún</div>';
   } else {
-    lEl.innerHTML=liquidaciones.slice().reverse().map(l=>{
+    lEl.innerHTML=liqCash.slice().reverse().map(l=>{
       const ts=new Date(l.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
       return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
         <div>
@@ -1025,6 +1036,25 @@ function renderGanancias(){
         <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--green)">${fmt(l.monto)}</div>
       </div>`;
     }).join('');
+  }
+
+  const segEl=document.getElementById('g-seguridad');
+  if(segEl){
+    const segs=(liquidaciones||[]).filter(l=>l.esSeguridad).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
+    if(!segs.length){
+      segEl.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin aportes de seguridad registrados</div>';
+    } else {
+      segEl.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Tu mitad del aporte de seguridad se descuenta de tu comisión (el admin paga el total; tú y él ponen mitad y mitad).</div>'+segs.map(l=>{
+        const ts=new Date(l.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'});
+        return`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:13px;font-weight:500">${l.mes||l.nota||'Aporte'}</div>
+            <div style="font-size:11px;color:var(--text3)">${ts} · total del mes ${fmtMil(l.segTotal||0)}</div>
+          </div>
+          <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--amber)">−${fmtMil(l.segCobrador||0)}</div>
+        </div>`;
+      }).join('');
+    }
   }
 }
 
@@ -1891,10 +1921,10 @@ async function _confirmarAbonoCobradorImpl(){
       },['historialMora','comisionEventos']);
       // BUGFIX: registrar en caja
       const cuotaNo=c.pagadas;
-      await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
-      await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
-      if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
-      if(sobrante>0)await registrarCajaCobrador('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono_cob:${c.id}:${cuotaNo}:sobr`, {clienteId:c.id, cliente:c.nombre});
+      await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
+      await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
+      if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
+      if(sobrante>0)await registrarCajaCobrador('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:sobr`, {clienteId:c.id, cliente:c.nombre});
       await db.ref('actividad').push({tipo:'pago',cliente:c.nombre,monto:v,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',nota:m>0?`abono completo + mora ${fmt(m)}`:'abono completo'});
       const cobro={id:c.id,nombre:c.nombre,monto:v,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||''};
       cobrosHoy.push(cobro);
@@ -2029,9 +2059,9 @@ async function confirmarPago(){
     await updateClienteCobrador(c,{pagadas:c.pagadas,ultimoPago:c.ultimoPago,moraPerdonada:c.moraPerdonada||0,moraCobradaTotal:c.moraCobradaTotal||0,historialMora:c.historialMora||[],moraBaseDate:null,graciaHasta:null,abonoPendiente:0,comisionEventos:c.comisionEventos||[]},['historialMora','comisionEventos']);
     // BUGFIX: registrar en caja para que admin vea el cobro en "cobrado hoy" y métricas de caja
     const cuotaNo=c.pagadas;
-    await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
-    await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
-    if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
+    await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre});
+    await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre});
+    if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
     await db.ref('actividad').push({tipo:'pago',cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',nota:m>0?`mora ${fmt(m)}`:''});
     // Guardar cobro local
     const h=hoy();
