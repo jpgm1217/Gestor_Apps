@@ -1718,8 +1718,13 @@ function renderInicio(){
   const elDisp=document.getElementById('m-disp');
   if(elDisp){elDisp.textContent=fmt(m.disponibleReal);elDisp.style.color=m.disponibleReal<0?'var(--red)':'var(--green)';}
   const elCap=document.getElementById('m-capital');if(elCap)elCap.textContent=fmt(m.principalCalle);
-  const elCob=document.getElementById('m-cobrado');if(elCob)elCob.textContent=fmt(totalCobradoHoyCaja(h));
-  const espHoy=clientes.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0);
+  const cobradoHoy=totalCobradoHoyCaja(h);
+  const elCob=document.getElementById('m-cobrado');if(elCob)elCob.textContent=fmt(cobradoHoy);
+  // Esperado hoy = lo ya cobrado hoy + lo que falta por cobrar de la RUTA de hoy.
+  // La ruta incluye a quien no pagó en días previos y sigue dentro de la ventana de seguimiento
+  // (mismo criterio que la app del cobrador), para que ambas apps muestren el mismo total.
+  const pendienteRutaHoy=clientes.reduce((s,c)=>s+pendienteRutaHoyCliente(c,h),0);
+  const espHoy=cobradoHoy+pendienteRutaHoy;
   const elCobSub=document.getElementById('m-cobrado-sub');if(elCobSub)elCobSub.textContent='de '+fmt(espHoy)+' esperado';
   const moraTotal=act.reduce((s,c)=>s+mora(c),0);
   const carteraTotal=act.reduce((s,c)=>s+saldo(c),0);
@@ -3286,6 +3291,22 @@ function totalPendienteHoyCliente(c,fecha){
   const cuotaHoy=cuotaPendienteEnFecha(c,f);
   if(!cuotaHoy)return 0;
   return Math.max(0,(cuotaHoy.cuota||c.cuota||0)+mora(c)-(c.abonoPendiente||0));
+}
+// Monto que FALTA por cobrar hoy de un cliente que está en la ruta del cobrador.
+// A diferencia de totalPendienteHoyCliente (cuota programada EXACTAMENTE hoy), esto también
+// cuenta a quien no pagó en días previos y sigue dentro de la ventana de ruta (DIAS_RUTA_MAX),
+// igual que la app del cobrador. Devuelve 0 si es interno, si ya pagó hoy o si no está en ruta.
+function pendienteRutaHoyCliente(c,fecha){
+  const f=fecha||hoy();
+  if(c.esInterno||c.pagadas>=c.numCuotas)return 0;
+  if(sameCoDate(c.ultimoPago,f))return 0; // ya pagó hoy → su plata ya está sumada en 'cobrado hoy'
+  const q=c.cuotasData&&c.cuotasData[c.pagadas];
+  if(!q)return 0;
+  const due=fechaCobroProgramada(c,q,c.pagadas);
+  if(!due)return 0;
+  const d=Math.floor((coUTCDateFromKey(f)-coUTCDateFromKey(due))/DAY_MS);
+  if(d<0||d>DIAS_RUTA_MAX)return 0; // aún no vence, o ya salió de la ventana de ruta (queda a decisión del admin)
+  return (c.cuota||0)+mora(c); // mismo criterio que la ruta del cobrador (cuota + mora)
 }
 function renderInicioResumen(h,act){
   const el=document.getElementById('inicio-resumen');
