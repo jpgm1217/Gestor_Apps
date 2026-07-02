@@ -609,6 +609,25 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       </div>
       <div class="fg" style="margin-top:10px"><label class="fl">🛡️ No cobrar mora hasta <span style="color:var(--text3);font-weight:400;text-transform:none">(opcional)</span></label><input type="date" id="edit-gracia"><div style="font-size:11px;color:var(--text3);margin-top:4px">Hasta esa fecha la mora queda en cero aunque existan cuotas vencidas. Deja vacío para desactivar.</div></div>
     </div>
+    <div id="edit-cuotas-wrap" style="margin-top:4px;margin-bottom:12px">
+      <div class="sl" style="margin-bottom:6px">📅 Plazo del préstamo</div>
+      <div id="edit-cuotas-lock" style="display:none;font-size:12px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px">Ya hay cuotas pagadas — para cambiar el número de cuotas usa <strong>Refinanciar</strong> o crea un <strong>nuevo ciclo</strong>.</div>
+      <div id="edit-cuotas-edit">
+        <div class="fr">
+          <div class="fg"><label class="fl">Frecuencia</label>
+            <select id="edit-tipo" onchange="prevEditCuotas()">
+              <option value="diario">Diario</option>
+              <option value="semanal">Semanal</option>
+              <option value="quincenal">Quincenal</option>
+              <option value="mensual">Mensual</option>
+            </select>
+          </div>
+          <div class="fg"><label class="fl">Número de cuotas</label><input type="number" id="edit-plazo" min="1" step="1" oninput="prevEditCuotas()"></div>
+        </div>
+        <div class="fg" style="margin-top:10px"><label class="fl">Fecha de inicio</label><input type="date" id="edit-fecha-inicio" onchange="prevEditCuotas()"></div>
+        <div id="edit-cuotas-prev" style="font-size:12px;color:var(--text3);margin-top:8px"></div>
+      </div>
+    </div>
     <button class="btn btn-primary" onclick="guardarEdicionCliente()">💾 Guardar cambios</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-edit')">Cancelar</button>
   </div>
@@ -4165,8 +4184,40 @@ function abrirEditarCliente(id){
   document.getElementById('edit-comision').value=c.comisionPct!==null&&c.comisionPct!==undefined?c.comisionPct:'';
   const editIntEl=document.getElementById('edit-interno');if(editIntEl)editIntEl.checked=!!c.esInterno;
   const gEl=document.getElementById('edit-gracia');if(gEl)gEl.value=c.graciaHasta||'';
+  // Editor de plazo/cuotas — solo disponible si aún no hay cuotas pagadas
+  const tipoEl=document.getElementById('edit-tipo');
+  const yaPago=(c.pagadas||0)>0;
+  if(tipoEl){
+    // Si el tipo actual no está en el select (ej. personalizado), agregarlo para no perderlo
+    if(!Array.from(tipoEl.options).some(o=>o.value===c.tipo)&&c.tipo){
+      tipoEl.add(new Option(c.tipo,c.tipo));
+    }
+    tipoEl.value=c.tipo||'quincenal';
+  }
+  const plazoEl=document.getElementById('edit-plazo');if(plazoEl)plazoEl.value=c.numCuotas||c.plazo||1;
+  const fiEl=document.getElementById('edit-fecha-inicio');if(fiEl)fiEl.value=c.fechaInicio||hoy();
+  const lockEl=document.getElementById('edit-cuotas-lock'),editEl=document.getElementById('edit-cuotas-edit');
+  if(lockEl)lockEl.style.display=yaPago?'block':'none';
+  if(editEl)editEl.style.display=yaPago?'none':'block';
+  editCuotasBloqueado=yaPago;
+  prevEditCuotas();
   cerrar('modal-cli');
   document.getElementById('modal-edit').classList.add('open');
+}
+
+let editCuotasBloqueado=false;
+function prevEditCuotas(){
+  const prev=document.getElementById('edit-cuotas-prev');if(!prev)return;
+  const c=clientes.find(x=>x.id===editandoClienteId);if(!c){prev.innerHTML='';return;}
+  if(editCuotasBloqueado){prev.innerHTML='';return;}
+  const tipo=document.getElementById('edit-tipo').value;
+  const plazo=sanitizarCuotas(document.getElementById('edit-plazo').value,c.numCuotas||1);
+  const fecha=document.getElementById('edit-fecha-inicio').value||c.fechaInicio||hoy();
+  const rd=c.redondeo||1000;
+  const {cuota,cuotaUltima,total,arr}=genCuotas(c.capital||0,c.tasa||20,plazo,tipo,fecha,rd);
+  const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:'cuota'}[tipo]||'cuota';
+  const dif=Math.abs(cuotaUltima-cuota)>0;
+  prev.innerHTML=`${plazo} cuota${plazo>1?'s':''} de <strong style="color:var(--gold)">${fmt(cuota)}</strong>/${tl}${dif?` (última ${fmt(cuotaUltima)})`:''} · Total ${fmt(total)} · 1ª vence ${arr[0]?.fecha||'—'}`;
 }
 
 function guardarEdicionCliente(){
@@ -4185,9 +4236,29 @@ function guardarEdicionCliente(){
   c.comisionPct=c.esInterno?0:(comVal!==''?parseFloat(comVal):null);
   const graciaVal=(document.getElementById('edit-gracia')?.value||'').trim();
   c.graciaHasta=graciaVal||null;
-  saveClienteFields(c,['nombre','cedula','telefono','zona','negocio','notas','moraDia','esInterno','comisionPct','graciaHasta']);
-  log({tipo:'edicion',cliente:c.nombre,ts:Date.now(),autor:'Admin'});
-  notify(`${c.nombre} actualizado ✓`,'ok');
+  // Cambio de plazo / frecuencia / fecha inicio — solo si aún no hay cuotas pagadas
+  let cuotasCambiadas=false;
+  if((c.pagadas||0)===0){
+    const tipoNuevo=document.getElementById('edit-tipo')?.value||c.tipo;
+    const plazoNuevo=sanitizarCuotas(document.getElementById('edit-plazo')?.value,c.numCuotas||1);
+    const fechaNueva=document.getElementById('edit-fecha-inicio')?.value||c.fechaInicio;
+    if(tipoNuevo!==c.tipo||plazoNuevo!==(c.numCuotas||c.plazo)||fechaNueva!==c.fechaInicio){
+      const rd=c.redondeo||1000;
+      const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(c.capital||0,c.tasa||20,plazoNuevo,tipoNuevo,fechaNueva,rd);
+      const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipoNuevo]||'cuota';
+      c.tipo=tipoNuevo;c.plazo=plazoNuevo;c.numCuotas=plazoNuevo;c.tipoLabel=tl;
+      c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
+      c.cuotasData=arr;c.fechaInicio=fechaNueva;c.diasCuota=diasCuota||DIAS[tipoNuevo]||1;
+      cuotasCambiadas=true;
+    }
+  }
+  if(cuotasCambiadas){
+    saveCliente(c);
+  }else{
+    saveClienteFields(c,['nombre','cedula','telefono','zona','negocio','notas','moraDia','esInterno','comisionPct','graciaHasta']);
+  }
+  log({tipo:'edicion',cliente:c.nombre,ts:Date.now(),autor:'Admin',nota:cuotasCambiadas?`plazo→${c.numCuotas} cuotas · ${c.tipo}`:''});
+  notify(cuotasCambiadas?`${c.nombre}: ${c.numCuotas} cuotas de ${fmt(c.cuota)} ✓`:`${c.nombre} actualizado ✓`,'ok');
   cerrar('modal-edit');
   renderClientes();renderInicio();
 }
