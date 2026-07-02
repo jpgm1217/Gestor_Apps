@@ -1,4 +1,4 @@
-const CACHE = 'gomez-hub-v23';
+const CACHE = 'gomez-hub-v24';
 
 self.addEventListener('install', () => self.skipWaiting());
 

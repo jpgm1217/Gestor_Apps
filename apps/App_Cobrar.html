@@ -1456,7 +1456,12 @@ function montoCobradoClienteFecha(c,fecha){
 }
 function movimientosCobroFecha(fecha){
   const subt=['recuperacion_capital','interes_cobrado','mora_cobrada','abono_adelantado'];
-  return (caja||[]).filter(m=>m&&m.tipo==='ingreso'&&subt.includes(m.subtipo)&&sameCoDate(m.ts,fecha));
+  // Excluir clientes internos: su plata es solo del admin. No debe mostrarse ni sumársele al cobrador.
+  const internosId=new Set(clientes.filter(c=>c.esInterno).map(c=>c.id));
+  const internosNom=new Set(clientes.filter(c=>c.esInterno).map(c=>c.nombre));
+  return (caja||[]).filter(m=>m&&m.tipo==='ingreso'&&subt.includes(m.subtipo)&&sameCoDate(m.ts,fecha)
+    &&!(m.clienteId&&internosId.has(m.clienteId))
+    &&!(m.cliente&&internosNom.has(m.cliente)));
 }
 function tieneCuotaHoy(c,h){
   return tieneCuotaEnFecha(c,h);
