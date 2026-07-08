@@ -732,6 +732,15 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <div class="fg"><label class="fl">Fecha inicio</label><input type="date" id="nc-fecha"></div>
       <div class="fg"><label class="fl">Mora/día ($)</label><input type="number" id="nc-mora" value="3000" step="1000" min="0"></div>
     </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Cuota 1 ($)</label><input type="number" id="nc-cuota-1" step="1000" min="0" oninput="previewNuevoCiclo()" placeholder="Ej: 120000"></div>
+      <div class="fg"><label class="fl">Cuota 2 ($)</label><input type="number" id="nc-cuota-2" step="1000" min="0" oninput="previewNuevoCiclo()" placeholder="Ej: 120000"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Fecha cuota 1</label><input type="date" id="nc-fecha-1"></div>
+      <div class="fg"><label class="fl">Fecha cuota 2</label><input type="date" id="nc-fecha-2"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Si llenas Cuota 1/Cuota 2 y sus fechas, el ciclo se crea con esas cuotas exactas (útil para casos como Lina con 2 cuotas de 120).</div>
     <div id="nc-preview" class="ibox amber" style="margin-bottom:12px"></div>
     <button class="btn btn-primary" onclick="confirmarNuevoCiclo()">🔄 Crear ciclo</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-nuevo-ciclo')">Cancelar</button>
@@ -5005,6 +5014,21 @@ function previewNuevoCiclo(){
   const capital=parseFloat(document.getElementById('nc-capital').value)||0;
   const tasa=parseFloat(document.getElementById('nc-tasa').value)||20;
   const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
+  const cuota1=parseFloat(document.getElementById('nc-cuota-1').value)||0;
+  const cuota2=parseFloat(document.getElementById('nc-cuota-2').value)||0;
+  const fecha1=(document.getElementById('nc-fecha-1').value||'').trim();
+  const fecha2=(document.getElementById('nc-fecha-2').value||'').trim();
+  if(cuota1>0||cuota2>0){
+    const totalManual=cuota1+cuota2;
+    const info=[];
+    if(cuota1>0)info.push(`1: ${fmt(cuota1)}`);
+    if(cuota2>0)info.push(`2: ${fmt(cuota2)}`);
+    const fechas=[];
+    if(fecha1)fechas.push(fecha1);
+    if(fecha2)fechas.push(fecha2);
+    document.getElementById('nc-preview').textContent=`Cuotas manuales — ${info.join(' · ')} · Total: ${fmt(totalManual)}${fechas.length?` · Fechas: ${fechas.join(' / ')}`:''}`;
+    return;
+  }
   if(!capital||!plazo){document.getElementById('nc-preview').textContent='';return;}
   const interes=capital*(tasa/100);
   const total=capital+interes;
@@ -5023,7 +5047,16 @@ function confirmarNuevoCiclo(){
   const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
   const fechaStr=document.getElementById('nc-fecha').value;
   const moraDia=parseFloat(document.getElementById('nc-mora').value)||0;
+  const cuota1=parseFloat(document.getElementById('nc-cuota-1').value)||0;
+  const cuota2=parseFloat(document.getElementById('nc-cuota-2').value)||0;
+  const fecha1=(document.getElementById('nc-fecha-1').value||'').trim();
+  const fecha2=(document.getElementById('nc-fecha-2').value||'').trim();
+  const usaCuotasManuales=cuota1>0||cuota2>0;
   if(!capital||capital<=0){notify('Capital inválido','err');return;}
+  if(usaCuotasManuales){
+    if(!fecha1||!fecha2){notify('Selecciona las dos fechas de las cuotas manuales','err');return;}
+    if(cuota1<=0||cuota2<=0){notify('Ingresa los dos montos de las cuotas manuales','err');return;}
+  }
 
   // Archivar ciclo actual en historial
   if(!c.ciclos)c.ciclos=[];
@@ -5050,8 +5083,18 @@ function confirmarNuevoCiclo(){
   const moraPrevia=c.moraCobradaTotal||0;
 
   // Aplicar nuevo ciclo sobre el mismo cliente
-  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
-  const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  let arr=[]; let total=capital; let cuota=capital; let cuotaUltima=capital; let interes=0; let diasCuota=DIAS[tipo]||1; let tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  if(usaCuotasManuales){
+    const manualTotal=cuota1+cuota2;
+    arr=[
+      {num:1,fecha:fecha1,fechaISO:fecha1,cuota:cuota1,capital:0,interes:0,saldo:Math.max(0,manualTotal-cuota1)},
+      {num:2,fecha:fecha2,fechaISO:fecha2,cuota:cuota2,capital:0,interes:0,saldo:0}
+    ];
+    total=manualTotal; cuota=cuota1; cuotaUltima=cuota2; interes=0; tl='manual';
+  } else {
+    ({arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom));
+    tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  }
   c.capital=capital;c.tasa=tasa;c.tipo=tipo;c.plazo=plazo;c.numCuotas=plazo;
   c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
   c.tipoLabel=tl;c.cuotasData=arr;c.fechaInicio=fechaStr;c.moraDia=moraDia;
