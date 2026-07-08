@@ -5052,7 +5052,9 @@ function confirmarCuotaExtra(){
   if(!c.historialAjustes)c.historialAjustes=[];
   c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'cuota_extra',tipoLabel:'Cuota extra',monto,motivo:nota||'Cuota extra manual',autor:'Admin'});
   c.total=(c.total||0)+monto;
-  saveClienteFields(c,['cuotasData','historialAjustes','total']);
+  c.numCuotas=Math.max(c.numCuotas||0, c.cuotasData.length);
+  c.plazo=c.numCuotas;
+  saveClienteFields(c,['cuotasData','historialAjustes','total','numCuotas','plazo']);
   log({tipo:'cuota_extra',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:nota||'Cuota extra manual'});
   cerrar('modal-cuota-extra');
   notify(`Cuota extra de ${fmt(monto)} agregada a ${c.nombre} ✓`,'ok');
