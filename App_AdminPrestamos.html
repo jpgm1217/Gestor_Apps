@@ -664,6 +664,23 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
 </div>
 
+<!-- MODAL CUOTA EXTRA -->
+<div class="modal-overlay" id="modal-cuota-extra" onclick="if(event.target===this)cerrar('modal-cuota-extra')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">➕ Agregar cuota extra</div>
+    <div id="cuota-extra-info" class="ibox blue" style="margin-bottom:12px"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="cuota-extra-monto" step="5000" min="0" placeholder="Ej: 120000"></div>
+      <div class="fg"><label class="fl">Fecha</label><input type="date" id="cuota-extra-fecha"></div>
+    </div>
+    <div class="fg"><label class="fl">Nota (opcional)</label><input type="text" id="cuota-extra-nota" placeholder="Ej: Cuota extra para el 30"></div>
+    <div style="font-size:11px;color:var(--text3);margin:10px 0 8px">Se agrega como una cuota adicional al ciclo actual sin tocar la lógica de intereses ni la cuota normal.</div>
+    <button class="btn btn-primary btn-full" onclick="confirmarCuotaExtra()">✅ Agregar cuota extra</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cuota-extra')">Cancelar</button>
+  </div>
+</div>
+
 <!-- MODAL CLIENTE -->
 <div class="modal-overlay" id="modal-cli" onclick="if(event.target===this)cerrar('modal-cli')">
   <div class="modal"><div class="mhandle"></div><div id="modal-cli-body"></div></div>
@@ -732,6 +749,15 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <div class="fg"><label class="fl">Fecha inicio</label><input type="date" id="nc-fecha"></div>
       <div class="fg"><label class="fl">Mora/día ($)</label><input type="number" id="nc-mora" value="3000" step="1000" min="0"></div>
     </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Cuota 1 ($)</label><input type="number" id="nc-cuota-1" step="1000" min="0" oninput="previewNuevoCiclo()" placeholder="Ej: 120000"></div>
+      <div class="fg"><label class="fl">Cuota 2 ($)</label><input type="number" id="nc-cuota-2" step="1000" min="0" oninput="previewNuevoCiclo()" placeholder="Ej: 120000"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Fecha cuota 1</label><input type="date" id="nc-fecha-1"></div>
+      <div class="fg"><label class="fl">Fecha cuota 2</label><input type="date" id="nc-fecha-2"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Si llenas Cuota 1/Cuota 2 y sus fechas, el ciclo se crea con esas cuotas exactas (útil para casos como Lina con 2 cuotas de 120).</div>
     <div id="nc-preview" class="ibox amber" style="margin-bottom:12px"></div>
     <button class="btn btn-primary" onclick="confirmarNuevoCiclo()">🔄 Crear ciclo</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-nuevo-ciclo')">Cancelar</button>
@@ -1718,8 +1744,13 @@ function renderInicio(){
   const elDisp=document.getElementById('m-disp');
   if(elDisp){elDisp.textContent=fmt(m.disponibleReal);elDisp.style.color=m.disponibleReal<0?'var(--red)':'var(--green)';}
   const elCap=document.getElementById('m-capital');if(elCap)elCap.textContent=fmt(m.principalCalle);
-  const elCob=document.getElementById('m-cobrado');if(elCob)elCob.textContent=fmt(totalCobradoHoyCaja(h));
-  const espHoy=clientes.reduce((s,c)=>s+totalPendienteHoyCliente(c,h),0);
+  const cobradoHoy=totalCobradoHoyCaja(h);
+  const elCob=document.getElementById('m-cobrado');if(elCob)elCob.textContent=fmt(cobradoHoy);
+  // Esperado hoy = lo ya cobrado hoy + lo que falta por cobrar de la RUTA de hoy.
+  // La ruta incluye a quien no pagó en días previos y sigue dentro de la ventana de seguimiento
+  // (mismo criterio que la app del cobrador), para que ambas apps muestren el mismo total.
+  const pendienteRutaHoy=clientes.reduce((s,c)=>s+pendienteRutaHoyCliente(c,h),0);
+  const espHoy=cobradoHoy+pendienteRutaHoy;
   const elCobSub=document.getElementById('m-cobrado-sub');if(elCobSub)elCobSub.textContent='de '+fmt(espHoy)+' esperado';
   const moraTotal=act.reduce((s,c)=>s+mora(c),0);
   const carteraTotal=act.reduce((s,c)=>s+saldo(c),0);
@@ -1957,7 +1988,8 @@ function verCliente(id,soliId=null){
     const p=i<c.pagadas,esH=fechaProg===h,v=!p&&fechaProg<h;
     const b=p?'<span class="badge bg" style="font-size:10px">✓</span>':esH?'<span class="badge bgold" style="font-size:10px">Hoy</span>':v?'<span class="badge br" style="font-size:10px">Vencida</span>':'<span class="badge bgray" style="font-size:10px">—</span>';
     const fechaTxt=fechaProg&&fechaProg!==q.fechaISO?labelFromUTCDate(coUTCDateFromKey(fechaProg))+' dif.':q.fecha;
-    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px">${b}</td></tr>`;
+    const extraBadge=q.extra?'<span class="badge bgold" style="font-size:10px;margin-left:4px">Extra</span>':'';
+    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}${extraBadge}</td><td style="padding:5px 3px">${b}</td></tr>`;
   }).join('');
   document.getElementById('modal-cli-body').innerHTML=`
     <div class="mtitle">${c.nombre}${c.refinanciado?` <span style="font-size:12px;font-weight:400;color:var(--amber)">🔄 Refinanciado×${c.conteoRefinanciaciones||1}</span>`:''}</div>
@@ -2002,6 +2034,7 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
+    <button class="btn btn-blue btn-full btn-sm" style="margin-bottom:8px" onclick="abrirCuotaExtra('${c.id}')">➕ Cuota extra manual</button>
     <button class="btn btn-amber btn-full btn-sm" style="margin-bottom:8px" onclick="abrirMoraManual('${c.id}')">🧾 Registrar mora cobrada (aparte · no avanza cuota)</button>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
       <button class="btn btn-blue btn-sm" style="font-size:11px" onclick="abrirExtensionInteres('${c.id}')">💳 Solo interés</button>
@@ -3286,6 +3319,22 @@ function totalPendienteHoyCliente(c,fecha){
   const cuotaHoy=cuotaPendienteEnFecha(c,f);
   if(!cuotaHoy)return 0;
   return Math.max(0,(cuotaHoy.cuota||c.cuota||0)+mora(c)-(c.abonoPendiente||0));
+}
+// Monto que FALTA por cobrar hoy de un cliente que está en la ruta del cobrador.
+// A diferencia de totalPendienteHoyCliente (cuota programada EXACTAMENTE hoy), esto también
+// cuenta a quien no pagó en días previos y sigue dentro de la ventana de ruta (DIAS_RUTA_MAX),
+// igual que la app del cobrador. Devuelve 0 si es interno, si ya pagó hoy o si no está en ruta.
+function pendienteRutaHoyCliente(c,fecha){
+  const f=fecha||hoy();
+  if(c.esInterno||c.pagadas>=c.numCuotas)return 0;
+  if(sameCoDate(c.ultimoPago,f))return 0; // ya pagó hoy → su plata ya está sumada en 'cobrado hoy'
+  const q=c.cuotasData&&c.cuotasData[c.pagadas];
+  if(!q)return 0;
+  const due=fechaCobroProgramada(c,q,c.pagadas);
+  if(!due)return 0;
+  const d=Math.floor((coUTCDateFromKey(f)-coUTCDateFromKey(due))/DAY_MS);
+  if(d<0||d>DIAS_RUTA_MAX)return 0; // aún no vence, o ya salió de la ventana de ruta (queda a decisión del admin)
+  return (c.cuota||0)+mora(c); // mismo criterio que la ruta del cobrador (cuota + mora)
 }
 function renderInicioResumen(h,act){
   const el=document.getElementById('inicio-resumen');
@@ -4962,6 +5011,53 @@ function autoAlimentarPoolDesdeCaja(){
 // BLOQUE 2 — CICLOS EN FICHA DE CLIENTE
 // ══════════════════════════════════════════════
 let _clienteCicloActivo=null;
+let pendingCuotaExtra=null;
+
+function abrirCuotaExtra(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);
+  if(!c)return;
+  pendingCuotaExtra=clienteId;
+  document.getElementById('cuota-extra-info').textContent=`Cliente: ${c.nombre} · Se agregará al ciclo activo sin tocar intereses`;
+  document.getElementById('cuota-extra-monto').value=c.cuota||0;
+  document.getElementById('cuota-extra-fecha').value=hoy();
+  document.getElementById('cuota-extra-nota').value='';
+  cerrar('modal-cli');
+  document.getElementById('modal-cuota-extra').classList.add('open');
+}
+
+function confirmarCuotaExtra(){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===pendingCuotaExtra);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  const monto=parseFloat(document.getElementById('cuota-extra-monto').value)||0;
+  const fechaStr=(document.getElementById('cuota-extra-fecha').value||'').trim();
+  const nota=(document.getElementById('cuota-extra-nota').value||'').trim();
+  if(!monto||monto<=0){notify('Ingresa un monto válido','err');return;}
+  if(!fechaStr){notify('Selecciona una fecha','err');return;}
+  if(!Array.isArray(c.cuotasData))c.cuotasData=[];
+  c.cuotasData.push({
+    num:c.cuotasData.length+1,
+    fecha:labelFromUTCDate(coUTCDateFromKey(fechaStr)),
+    fechaISO:fechaStr,
+    cuota:monto,
+    capital:0,
+    interes:0,
+    saldo:0,
+    extra:true,
+    manual:true,
+    nota,
+    fechaCreacion:coDateTimeISO()
+  });
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'cuota_extra',tipoLabel:'Cuota extra',monto,motivo:nota||'Cuota extra manual',autor:'Admin'});
+  c.total=(c.total||0)+monto;
+  saveClienteFields(c,['cuotasData','historialAjustes','total']);
+  log({tipo:'cuota_extra',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:nota||'Cuota extra manual'});
+  cerrar('modal-cuota-extra');
+  notify(`Cuota extra de ${fmt(monto)} agregada a ${c.nombre} ✓`,'ok');
+  renderInicio();renderClientes();verCliente(c.id);
+}
 
 function abrirNuevoCiclo(clienteId){
   const c=clientes.find(x=>x.id===clienteId);
@@ -4984,6 +5080,21 @@ function previewNuevoCiclo(){
   const capital=parseFloat(document.getElementById('nc-capital').value)||0;
   const tasa=parseFloat(document.getElementById('nc-tasa').value)||20;
   const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
+  const cuota1=parseFloat(document.getElementById('nc-cuota-1').value)||0;
+  const cuota2=parseFloat(document.getElementById('nc-cuota-2').value)||0;
+  const fecha1=(document.getElementById('nc-fecha-1').value||'').trim();
+  const fecha2=(document.getElementById('nc-fecha-2').value||'').trim();
+  if(cuota1>0||cuota2>0){
+    const totalManual=cuota1+cuota2;
+    const info=[];
+    if(cuota1>0)info.push(`1: ${fmt(cuota1)}`);
+    if(cuota2>0)info.push(`2: ${fmt(cuota2)}`);
+    const fechas=[];
+    if(fecha1)fechas.push(fecha1);
+    if(fecha2)fechas.push(fecha2);
+    document.getElementById('nc-preview').textContent=`Cuotas manuales — ${info.join(' · ')} · Total: ${fmt(totalManual)}${fechas.length?` · Fechas: ${fechas.join(' / ')}`:''}`;
+    return;
+  }
   if(!capital||!plazo){document.getElementById('nc-preview').textContent='';return;}
   const interes=capital*(tasa/100);
   const total=capital+interes;
@@ -5002,7 +5113,16 @@ function confirmarNuevoCiclo(){
   const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
   const fechaStr=document.getElementById('nc-fecha').value;
   const moraDia=parseFloat(document.getElementById('nc-mora').value)||0;
+  const cuota1=parseFloat(document.getElementById('nc-cuota-1').value)||0;
+  const cuota2=parseFloat(document.getElementById('nc-cuota-2').value)||0;
+  const fecha1=(document.getElementById('nc-fecha-1').value||'').trim();
+  const fecha2=(document.getElementById('nc-fecha-2').value||'').trim();
+  const usaCuotasManuales=cuota1>0||cuota2>0;
   if(!capital||capital<=0){notify('Capital inválido','err');return;}
+  if(usaCuotasManuales){
+    if(!fecha1||!fecha2){notify('Selecciona las dos fechas de las cuotas manuales','err');return;}
+    if(cuota1<=0||cuota2<=0){notify('Ingresa los dos montos de las cuotas manuales','err');return;}
+  }
 
   // Archivar ciclo actual en historial
   if(!c.ciclos)c.ciclos=[];
@@ -5029,8 +5149,18 @@ function confirmarNuevoCiclo(){
   const moraPrevia=c.moraCobradaTotal||0;
 
   // Aplicar nuevo ciclo sobre el mismo cliente
-  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
-  const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  let arr=[]; let total=capital; let cuota=capital; let cuotaUltima=capital; let interes=0; let diasCuota=DIAS[tipo]||1; let tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  if(usaCuotasManuales){
+    const manualTotal=cuota1+cuota2;
+    arr=[
+      {num:1,fecha:fecha1,fechaISO:fecha1,cuota:cuota1,capital:0,interes:0,saldo:Math.max(0,manualTotal-cuota1)},
+      {num:2,fecha:fecha2,fechaISO:fecha2,cuota:cuota2,capital:0,interes:0,saldo:0}
+    ];
+    total=manualTotal; cuota=cuota1; cuotaUltima=cuota2; interes=0; tl='manual';
+  } else {
+    ({arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom));
+    tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
+  }
   c.capital=capital;c.tasa=tasa;c.tipo=tipo;c.plazo=plazo;c.numCuotas=plazo;
   c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
   c.tipoLabel=tl;c.cuotasData=arr;c.fechaInicio=fechaStr;c.moraDia=moraDia;
