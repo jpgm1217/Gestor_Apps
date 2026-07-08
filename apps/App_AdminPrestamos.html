@@ -664,6 +664,23 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
 </div>
 
+<!-- MODAL CUOTA EXTRA -->
+<div class="modal-overlay" id="modal-cuota-extra" onclick="if(event.target===this)cerrar('modal-cuota-extra')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">➕ Agregar cuota extra</div>
+    <div id="cuota-extra-info" class="ibox blue" style="margin-bottom:12px"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="cuota-extra-monto" step="5000" min="0" placeholder="Ej: 120000"></div>
+      <div class="fg"><label class="fl">Fecha</label><input type="date" id="cuota-extra-fecha"></div>
+    </div>
+    <div class="fg"><label class="fl">Nota (opcional)</label><input type="text" id="cuota-extra-nota" placeholder="Ej: Cuota extra para el 30"></div>
+    <div style="font-size:11px;color:var(--text3);margin:10px 0 8px">Se agrega como una cuota adicional al ciclo actual sin tocar la lógica de intereses ni la cuota normal.</div>
+    <button class="btn btn-primary btn-full" onclick="confirmarCuotaExtra()">✅ Agregar cuota extra</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cuota-extra')">Cancelar</button>
+  </div>
+</div>
+
 <!-- MODAL CLIENTE -->
 <div class="modal-overlay" id="modal-cli" onclick="if(event.target===this)cerrar('modal-cli')">
   <div class="modal"><div class="mhandle"></div><div id="modal-cli-body"></div></div>
@@ -1971,7 +1988,8 @@ function verCliente(id,soliId=null){
     const p=i<c.pagadas,esH=fechaProg===h,v=!p&&fechaProg<h;
     const b=p?'<span class="badge bg" style="font-size:10px">✓</span>':esH?'<span class="badge bgold" style="font-size:10px">Hoy</span>':v?'<span class="badge br" style="font-size:10px">Vencida</span>':'<span class="badge bgray" style="font-size:10px">—</span>';
     const fechaTxt=fechaProg&&fechaProg!==q.fechaISO?labelFromUTCDate(coUTCDateFromKey(fechaProg))+' dif.':q.fecha;
-    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px">${b}</td></tr>`;
+    const extraBadge=q.extra?'<span class="badge bgold" style="font-size:10px;margin-left:4px">Extra</span>':'';
+    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}${extraBadge}</td><td style="padding:5px 3px">${b}</td></tr>`;
   }).join('');
   document.getElementById('modal-cli-body').innerHTML=`
     <div class="mtitle">${c.nombre}${c.refinanciado?` <span style="font-size:12px;font-weight:400;color:var(--amber)">🔄 Refinanciado×${c.conteoRefinanciaciones||1}</span>`:''}</div>
@@ -2016,6 +2034,7 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
+    <button class="btn btn-blue btn-full btn-sm" style="margin-bottom:8px" onclick="abrirCuotaExtra('${c.id}')">➕ Cuota extra manual</button>
     <button class="btn btn-amber btn-full btn-sm" style="margin-bottom:8px" onclick="abrirMoraManual('${c.id}')">🧾 Registrar mora cobrada (aparte · no avanza cuota)</button>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
       <button class="btn btn-blue btn-sm" style="font-size:11px" onclick="abrirExtensionInteres('${c.id}')">💳 Solo interés</button>
@@ -4992,6 +5011,53 @@ function autoAlimentarPoolDesdeCaja(){
 // BLOQUE 2 — CICLOS EN FICHA DE CLIENTE
 // ══════════════════════════════════════════════
 let _clienteCicloActivo=null;
+let pendingCuotaExtra=null;
+
+function abrirCuotaExtra(clienteId){
+  const c=clientes.find(x=>x.id===clienteId);
+  if(!c)return;
+  pendingCuotaExtra=clienteId;
+  document.getElementById('cuota-extra-info').textContent=`Cliente: ${c.nombre} · Se agregará al ciclo activo sin tocar intereses`;
+  document.getElementById('cuota-extra-monto').value=c.cuota||0;
+  document.getElementById('cuota-extra-fecha').value=hoy();
+  document.getElementById('cuota-extra-nota').value='';
+  cerrar('modal-cli');
+  document.getElementById('modal-cuota-extra').classList.add('open');
+}
+
+function confirmarCuotaExtra(){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===pendingCuotaExtra);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  const monto=parseFloat(document.getElementById('cuota-extra-monto').value)||0;
+  const fechaStr=(document.getElementById('cuota-extra-fecha').value||'').trim();
+  const nota=(document.getElementById('cuota-extra-nota').value||'').trim();
+  if(!monto||monto<=0){notify('Ingresa un monto válido','err');return;}
+  if(!fechaStr){notify('Selecciona una fecha','err');return;}
+  if(!Array.isArray(c.cuotasData))c.cuotasData=[];
+  c.cuotasData.push({
+    num:c.cuotasData.length+1,
+    fecha:labelFromUTCDate(coUTCDateFromKey(fechaStr)),
+    fechaISO:fechaStr,
+    cuota:monto,
+    capital:0,
+    interes:0,
+    saldo:0,
+    extra:true,
+    manual:true,
+    nota,
+    fechaCreacion:coDateTimeISO()
+  });
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'cuota_extra',tipoLabel:'Cuota extra',monto,motivo:nota||'Cuota extra manual',autor:'Admin'});
+  c.total=(c.total||0)+monto;
+  saveClienteFields(c,['cuotasData','historialAjustes','total']);
+  log({tipo:'cuota_extra',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:nota||'Cuota extra manual'});
+  cerrar('modal-cuota-extra');
+  notify(`Cuota extra de ${fmt(monto)} agregada a ${c.nombre} ✓`,'ok');
+  renderInicio();renderClientes();verCliente(c.id);
+}
 
 function abrirNuevoCiclo(clienteId){
   const c=clientes.find(x=>x.id===clienteId);
