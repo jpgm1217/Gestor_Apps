@@ -3937,27 +3937,93 @@ function renderReconciliacionResumen(r){
   el.innerHTML=`<strong style="color:${color}">${r.fails.length} fail(s), ${r.warns.length} warn(s)</strong><br><span style="color:var(--text3)">Ultima ejecucion: ${new Date(r.ts).toLocaleString('es-CO')}</span>`;
 }
 
+let _revisionActual=null;
+
 function ejecutarReconciliacionUI(){
   const r=calcularReconciliacion();
   renderReconciliacionResumen(r);
+  const rev=revisionCompleta();
+  _revisionActual=rev;
   const body=document.getElementById('recon-body');
   if(body){
     const item=(m,color)=>`<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;color:${color}">${htmlSafe(m)}</div>`;
     const bloque=(titulo,arr,color)=>arr.length?`<div class="ibox ${color==='var(--red)'?'red':color==='var(--amber)'?'amber':'green'}" style="margin-bottom:10px"><div style="font-weight:700;margin-bottom:6px">${titulo} (${arr.length})</div>${arr.map(x=>item(x,color)).join('')}</div>`:'';
+
+    const chk=(g,i,x,marcado)=>`
+      <label style="display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer">
+        <input type="checkbox" data-grupo="${g}" data-idx="${i}" ${marcado?'checked':''} style="margin-top:2px;width:17px;height:17px;flex-shrink:0">
+        <span style="flex:1">
+          <span style="font-size:12px;font-weight:700;display:block">${htmlSafe(x.titulo)}${x.monto?` — <span style="color:${x.direccion==='admin'?'var(--green)':'var(--gold)'}">${fmt(x.monto)}${x.direccion==='admin'?' a tu favor':' al cobrador'}</span>`:''}</span>
+          <span style="font-size:11px;color:var(--text3);display:block;margin-top:2px">${htmlSafe(x.detalle||'')}</span>
+        </span>
+      </label>`;
+
+    const hayAcciones=rev.automaticos.length||rev.decisiones.length;
     body.innerHTML=`
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
         <div class="cs"><div class="csl">Clientes</div><div class="csv">${r.resumen.clientes||0}</div></div>
         <div class="cs"><div class="csl">Caja</div><div class="csv">${r.resumen.caja||0}</div></div>
         <div class="cs"><div class="csl">Desembolsos</div><div class="csv">${fmt(r.resumen.sumDesemb)}</div></div>
         <div class="cs"><div class="csl">Comision pendiente</div><div class="csv">${fmt(r.resumen.comPendiente)}</div></div>
       </div>
+
+      ${rev.automaticos.length?`<div class="ibox green" style="margin-bottom:10px">
+        <div style="font-weight:700;margin-bottom:2px">Se arreglan solos</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Tienen una única respuesta correcta. No hay plata de por medio.</div>
+        ${rev.automaticos.map((x,i)=>chk('auto',i,x,true)).join('')}
+      </div>`:''}
+
+      ${rev.decisiones.length?`<div class="ibox amber" style="margin-bottom:10px">
+        <div style="font-weight:700;margin-bottom:2px">Decisiones de plata — marca lo que apruebes</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Van sin marcar a propósito: mueven dinero real y solo tú sabes qué pasó.</div>
+        ${rev.decisiones.map((x,i)=>chk('dec',i,x,false)).join('')}
+      </div>`:''}
+
+      ${rev.informativos.length?`<div class="ibox blue" style="margin-bottom:10px">
+        <div style="font-weight:700;margin-bottom:4px">Para que lo sepas</div>
+        ${rev.informativos.map(i=>`<div style="padding:5px 0;font-size:11px"><strong style="color:${i.tipo==='red'?'var(--red)':i.tipo==='amber'?'var(--amber)':'#6EB3FF'}">${htmlSafe(i.msg)}</strong>${i.sub?`<div style="color:var(--text3);margin-top:1px">${htmlSafe(i.sub)}</div>`:''}</div>`).join('')}
+      </div>`:''}
+
+      ${hayAcciones?`<button class="btn btn-primary btn-full" id="btn-aplicar-revision" onclick="aplicarRevision()">Aplicar lo marcado</button>`:
+        '<div class="ibox green" style="margin-bottom:10px">Nada que reparar ✓</div>'}
+
       ${bloque('FAILS',r.fails,'var(--red)')}
       ${bloque('WARNINGS',r.warns,'var(--amber)')}
-      ${!r.fails.length?'<div class="ibox green">Sin fails. Contabilidad consistente segun checks automaticos.</div>':''}
     `;
   }
   document.getElementById('modal-reconciliacion').classList.add('open');
   return r;
+}
+
+async function aplicarRevision(){
+  if(!_revisionActual){notify('Vuelve a correr la revisión','err');return;}
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  const marcados=[];
+  document.querySelectorAll('#recon-body input[type=checkbox]:checked').forEach(el=>{
+    const g=el.getAttribute('data-grupo'),i=parseInt(el.getAttribute('data-idx'),10);
+    const x=(g==='auto'?_revisionActual.automaticos:_revisionActual.decisiones)[i];
+    if(x)marcados.push(x);
+  });
+  if(!marcados.length){notify('No marcaste nada','err');return;}
+  const conPlata=marcados.filter(x=>x.monto>0);
+  const resumen=marcados.map(x=>`• ${x.titulo}${x.monto?` (${fmt(x.monto)})`:''}`).join('\n');
+  if(!confirm(`Se va a aplicar:\n\n${resumen}\n\n${conPlata.length?'Esto mueve plata y queda registrado en el log.\n\n':''}¿Continuar?`))return;
+  _busyConfirm=true;
+  const btn=document.getElementById('btn-aplicar-revision');
+  if(btn){btn.disabled=true;btn.textContent='Aplicando...';}
+  const hechos=[],fallidos=[];
+  try{
+    for(const x of marcados){
+      try{ hechos.push(`${x.titulo}: ${await x.aplicar()}`); }
+      catch(e){ fallidos.push(`${x.titulo}: ${e&&e.message||e}`); }
+    }
+  }finally{
+    _busyConfirm=false;
+  }
+  notify(fallidos.length?`${hechos.length} aplicado(s), ${fallidos.length} con error`:`${hechos.length} reparación(es) aplicadas ✓`,fallidos.length?'err':'ok');
+  if(fallidos.length)console.warn('Reparaciones fallidas:',fallidos);
+  renderInicio();renderClientes();renderComisiones();renderCaja();renderActividad();
+  ejecutarReconciliacionUI(); // recalcular: lo aplicado debe desaparecer de la lista
 }
 
 function programarReconciliacionAuto(){
@@ -4576,6 +4642,7 @@ function topClientesComision(periodo='todo',limit=3){
 function duplicadosComision(){
   const porCliente=new Map();
   eventosComisionTodos('todo').forEach(({cliente,evento})=>{
+    if(evento&&evento.duplicadoAnulado)return; // ya lo revisaste y lo anulaste: no volver a gritar
     const dia=new Date(Number(evento.ts)||0).toISOString().slice(0,10);
     const k=[cliente.id,dia,String(evento.nota||'').trim(),Math.round(evento.interes||0),Math.round(evento.mora||0)].join('¦');
     if(!porCliente.has(k))porCliente.set(k,{cliente,dia,eventos:[]});
@@ -4662,7 +4729,14 @@ function eventosArchivadosPerdidos(){
   (Array.isArray(clientes)?clientes:[]).forEach(c=>{
     const ciclos=Array.isArray(c.ciclos)?c.ciclos:[];
     if(!ciclos.length)return;
-    const vivos=new Set(comisionEventosCliente(c).map(_claveEvento).filter(Boolean));
+    // Un evento rescatado guarda la clave que tenía en el archivo (claveOriginal): al rescatarlo
+    // se le asigna un id si no tenía, y sin ese rastro dejaría de reconocer a su propio original
+    // y se reportaría enterrado para siempre.
+    const vivos=new Set();
+    comisionEventosCliente(c).forEach(e=>{
+      const k=_claveEvento(e); if(k)vivos.add(k);
+      if(e&&e.claveOriginal)vivos.add(e.claveOriginal);
+    });
     ciclos.forEach((ci,idx)=>{
       const evs=(ci&&Array.isArray(ci.comisionEventos))?ci.comisionEventos:[];
       evs.forEach(ev=>{
@@ -4869,6 +4943,147 @@ function auditoriaComisiones(){
 // Reporte de comisiones para el Inicio: responde de un vistazo "¿estoy perdiendo plata?".
 // Se corre solo al abrir la app. Si todo está sano muestra una línea verde y no estorba;
 // si hay plata en juego (duplicados, descuadres) lo pone arriba y en rojo.
+// ══════════════════════════════════════════════
+// REVISIÓN Y REPARACIÓN — el botón único de Config
+//
+// Separa a propósito dos cosas que NO son iguales:
+//   · automáticos → tienen UNA respuesta correcta (numCuotas debe cubrir a cuotasData). Sin
+//     decisión humana de por medio. Van pre-marcados.
+//   · decisiones  → mueven PLATA. Dependen de qué pasó en la vida real, no de lo que deduzca
+//     el código. Van sin marcar: las marca el usuario o no pasan.
+// Nada se escribe sin que el usuario apruebe y vea el monto exacto. Todo queda en el log.
+// ══════════════════════════════════════════════
+
+// Rescata a la lista viva los cobros que quedaron enterrados en c.ciclos al cerrar un ciclo.
+// Resuelve de una tres síntomas: la comisión que el cobrador nunca vería, el "interés sin
+// comisión" en el cruce con caja, y el conteo de eventos de la liquidación que no cuadraba.
+async function repararCobrosEnterrados(){
+  const perdidos=eventosArchivadosPerdidos();
+  if(!perdidos.length)return {clientes:0,eventos:0,pendiente:0};
+  const tocados=new Map();
+  let pendiente=0;
+  perdidos.forEach(p=>{
+    const c=p.cliente;
+    if(!Array.isArray(c.comisionEventos))c.comisionEventos=[];
+    // Un id estable es obligatorio: sin él, el merge con Firebase lo indexa por contenido y
+    // podría duplicarlo en el próximo sync (el de Laura usma venía sin id).
+    const id=p.evento.id||`rescat_${c.id}_${Number(p.evento.ts)||Date.now()}_${Math.floor(Math.random()*1000)}`;
+    c.comisionEventos.push({...p.evento,id,claveOriginal:_claveEvento(p.evento),rescatadoDeCiclo:p.ciclo,rescatadoTs:Date.now()});
+    if(!p.evento.liquidado)pendiente+=p.comision;
+    tocados.set(c.id,c);
+  });
+  for(const c of tocados.values()) await saveClienteFields(c,['comisionEventos']);
+  log({tipo:'reparacion_cobros_enterrados',cliente:'Sistema',monto:pendiente,ts:Date.now(),autor:'Admin',
+       nota:`${perdidos.length} cobro(s) rescatados de ciclos archivados en ${tocados.size} cliente(s). Pendiente de liquidar: ${fmt(pendiente)}`});
+  return {clientes:tocados.size,eventos:perdidos.length,pendiente};
+}
+
+// Anula los cobros repetidos. Si el repetido ya se había liquidado, esa plata ya salió: se
+// devuelve como crédito a tu favor, que se descuenta del próximo abono al cobrador.
+async function repararDuplicadosComision(){
+  const dups=duplicadosComision();
+  if(!dups.length)return {grupos:0,anulados:0,credito:0};
+  const tocados=new Map();
+  let credito=0,anulados=0;
+  dups.forEach(d=>{
+    d.eventos.slice(1).forEach(ev=>{ // el primero es el bueno
+      ev.duplicadoAnulado=true;
+      ev.anuladoTs=Date.now();
+      ev.anuladoNota=`Duplicado de ${d.dia} (${d.autores.join(' + ')})`;
+      if(ev.liquidado)credito+=Math.max(0,Math.round(ev.comision||0)); // ya se le pagó: te lo debe
+      anulados++;
+      tocados.set(d.cliente.id,d.cliente);
+    });
+  });
+  for(const c of tocados.values()) await saveClienteFields(c,['comisionEventos']);
+  if(credito>0){
+    const nuevo=Math.max(0,Math.round(window._creditoCobrador||0))+credito;
+    window._creditoCobrador=nuevo;
+    if(fbOk&&db)await db.ref('config/creditoCobrador').set(nuevo).catch(()=>{});
+  }
+  log({tipo:'reparacion_duplicados',cliente:'Sistema',monto:credito,ts:Date.now(),autor:'Admin',
+       nota:`${anulados} cobro(s) duplicados anulados. Crédito a tu favor: ${fmt(credito)}`});
+  return {grupos:dups.length,anulados,credito};
+}
+
+function revisionCompleta(){
+  const automaticos=[],decisiones=[],informativos=[];
+
+  // ── Automático: numCuotas (una sola respuesta correcta) ──
+  const rotos=(Array.isArray(clientes)?clientes:[]).filter(c=>
+    Array.isArray(c.cuotasData)&&c.cuotasData.length>(c.numCuotas||0));
+  if(rotos.length){
+    automaticos.push({
+      id:'numcuotas',
+      titulo:`Reparar numCuotas de ${rotos.length} cliente(s)`,
+      detalle:rotos.map(c=>`${c.nombre}: ${c.numCuotas}→${c.cuotasData.length}`).join(' · ')+
+              '. Sin esto salen como pagados debiendo plata.',
+      aplicar:async()=>{
+        for(const c of rotos){
+          c.numCuotas=c.cuotasData.length;c.plazo=c.numCuotas;
+          await saveClienteFields(c,['numCuotas','plazo']);
+        }
+        return `${rotos.length} cliente(s) reparados`;
+      }
+    });
+  }
+
+  // ── Decisión: cobros enterrados ──
+  const enterrados=eventosArchivadosPerdidos();
+  if(enterrados.length){
+    const pend=enterrados.filter(p=>p.pendiente&&p.comision>0);
+    const monto=pend.reduce((s,p)=>s+p.comision,0);
+    decisiones.push({
+      id:'enterrados',
+      titulo:`Rescatar ${enterrados.length} cobro(s) enterrados al cerrar ciclo`,
+      monto,
+      direccion:'cobrador',
+      detalle:(monto>0?`Le quedarás debiendo ${fmt(monto)} al cobrador, que podrás liquidarle normal. `:'')+
+              `Los otros ya estaban pagados: solo dejan de descuadrar. `+
+              pend.slice(0,3).map(p=>`${p.cliente.nombre} ${fmt(p.comision)}`).join(' · '),
+      aplicar:async()=>{
+        const r=await repararCobrosEnterrados();
+        return `${r.eventos} cobro(s) rescatados · ${fmt(r.pendiente)} por liquidar`;
+      }
+    });
+  }
+
+  // ── Decisión: duplicados ──
+  const dups=duplicadosComision();
+  if(dups.length){
+    const exceso=dups.reduce((s,d)=>s+d.exceso,0);
+    decisiones.push({
+      id:'duplicados',
+      titulo:`Anular ${dups.length} cobro(s) de comisión duplicados`,
+      monto:exceso,
+      direccion:'admin',
+      detalle:`Vuelve ${fmt(exceso)} como crédito a tu favor, que se descuenta del próximo abono. `+
+              dups.slice(0,3).map(d=>`${d.cliente.nombre} ${d.dia} (${d.autores.join(' + ')})`).join(' · '),
+      aplicar:async()=>{
+        const r=await repararDuplicadosComision();
+        return `${r.anulados} anulado(s) · ${fmt(r.credito)} de crédito a tu favor`;
+      }
+    });
+  }
+
+  // ── Informativo (no se toca solo) ──
+  try{
+    auditoriaComisiones().forEach(i=>{
+      if(/duplicado|enterrados/i.test(i.msg))return; // ya están arriba como acción
+      informativos.push(i);
+    });
+  }catch(e){}
+  const faltaCaja=(()=>{try{return balanceComisionCaja().filter(x=>x.dif>0);}catch(e){return [];}})();
+  if(faltaCaja.length){
+    informativos.push({
+      tipo:'red',
+      msg:`Faltan ${fmt(faltaCaja.reduce((s,x)=>s+x.dif,0))} de interés en caja (${faltaCaja.length} clientes)`,
+      sub:'Son movimientos históricos: se revisan aparte, uno por uno. No se reconstruyen solos.'
+    });
+  }
+  return {automaticos,decisiones,informativos};
+}
+
 function renderAuditoriaInicio(){
   const el=document.getElementById('inicio-auditoria');
   if(!el)return;
