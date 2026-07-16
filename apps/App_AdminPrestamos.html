@@ -249,8 +249,27 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <div class="fg"><label class="fl">Negocio</label><input type="text" id="n-negocio" placeholder="Ej: Tienda de ropa"></div>
       <div class="fg"><label class="fl">Zona / Barrio</label><input type="text" id="n-zona" placeholder="Ej: Centro"></div>
     </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Banco / Billetera</label>
+        <input type="text" id="n-banco" placeholder="Ej: Nequi" list="bancos-sugeridos">
+      </div>
+      <div class="fg"><label class="fl">Tipo de cuenta</label>
+        <select id="n-tipo-cuenta">
+          <option value="">—</option>
+          <option value="Ahorros">Ahorros</option>
+          <option value="Corriente">Corriente</option>
+          <option value="Billetera">Billetera digital</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label class="fl">Número de cuenta</label><input type="text" id="n-cuenta" placeholder="Ej: 300 000 0000" inputmode="numeric"></div>
     <div class="fg"><label class="fl">Notas</label><textarea id="n-notas" placeholder="Ej: Solo paga después de las 10am, local azul..."></textarea></div>
   </div>
+  <datalist id="bancos-sugeridos">
+    <option value="Nequi"><option value="Daviplata"><option value="Bancolombia"><option value="Davivienda">
+    <option value="Banco de Bogotá"><option value="BBVA"><option value="Banco Agrario"><option value="Colpatria">
+    <option value="Banco Caja Social"><option value="Banco Popular"><option value="Bancoomeva"><option value="Efectivo">
+  </datalist>
   <div class="card">
     <div class="ct">Condiciones del préstamo</div>
     <div class="fr">
@@ -602,6 +621,18 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <div class="fg"><label class="fl">Zona</label><input type="text" id="edit-zona" placeholder="Zona / barrio"></div>
     </div>
     <div class="fg"><label class="fl">Negocio</label><input type="text" id="edit-negocio" placeholder="Nombre del negocio"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Banco / Billetera</label><input type="text" id="edit-banco" placeholder="Ej: Nequi" list="bancos-sugeridos"></div>
+      <div class="fg"><label class="fl">Tipo de cuenta</label>
+        <select id="edit-tipo-cuenta">
+          <option value="">—</option>
+          <option value="Ahorros">Ahorros</option>
+          <option value="Corriente">Corriente</option>
+          <option value="Billetera">Billetera digital</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label class="fl">Número de cuenta</label><input type="text" id="edit-cuenta" placeholder="Ej: 300 000 0000" inputmode="numeric"></div>
     <div class="fg"><label class="fl">Notas</label><textarea id="edit-notas" rows="2" placeholder="Observaciones..." style="resize:vertical"></textarea></div>
     <div style="margin-top:4px;margin-bottom:12px">
       <div class="sl" style="margin-bottom:6px">Condiciones del préstamo</div>
@@ -1615,7 +1646,7 @@ function crearPrestamo(){
   const graciaHasta=graciaHastaRaw||null;
   const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
-  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],cargosManuales:[],creado:coDateTimeISO()}; // FIX NEW-13: init cargosManuales
+  const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),banco:document.getElementById('n-banco').value.trim(),tipoCuenta:document.getElementById('n-tipo-cuenta').value,numeroCuenta:document.getElementById('n-cuenta').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],cargosManuales:[],creado:coDateTimeISO()}; // FIX NEW-13: init cargosManuales
   clientes.push(c);save();
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
   moverPool('salida', capital, `Desembolso: ${nombre}`, nombre);
@@ -1627,7 +1658,7 @@ function crearPrestamo(){
   }
   notify(`Préstamo creado para ${nombre} ✓`,'ok');
   renderCaja();
-  ['n-nombre','n-cedula','n-telefono','n-negocio','n-zona','n-notas','n-gracia'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['n-nombre','n-cedula','n-telefono','n-negocio','n-zona','n-notas','n-gracia','n-banco','n-tipo-cuenta','n-cuenta'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   const niEl=document.getElementById('n-interno');if(niEl){niEl.checked=false;toggleInterno();}
   renderInicio();
 }
@@ -1740,6 +1771,47 @@ function pagoAnticipadoElegible(c){
   if(decisionCuotaNormalHoy(c))return false;
   const d=diasDesdeCreacion(c);
   return d!==null&&d>=0&&d<PAGO_ANTICIPADO_DIAS;
+}
+
+// ===== CUENTA BANCARIA DEL CLIENTE =====
+// Dónde consignarle / recibirle la plata. Se define al crear el cliente y se puede editar
+// después. Vive en el cliente, no en el ciclo: al abrir un ciclo nuevo se conserva.
+function tieneCuenta(c){return !!(c&&(String(c.banco||'').trim()||String(c.numeroCuenta||'').trim()));}
+function cuentaTexto(c){
+  if(!tieneCuenta(c))return '';
+  const b=String(c.banco||'').trim();
+  const t=String(c.tipoCuenta||'').trim();
+  const n=String(c.numeroCuenta||'').trim();
+  return [b,t&&t!=='Billetera'?t:'',n].filter(Boolean).join(' · ');
+}
+// Bloque para las fichas de cliente. Copiar la cuenta a mano es como se equivoca uno al
+// consignar, así que se ofrece el botón de copiar.
+function cuentaHTML(c){
+  if(!tieneCuenta(c))return '';
+  const n=String(c.numeroCuenta||'').trim();
+  return `<div class="ibox blue" style="font-size:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <span>🏦 ${htmlSafe(cuentaTexto(c))}</span>
+    ${n?`<button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();copiarCuenta('${htmlSafe(c.id)}')">Copiar</button>`:''}
+  </div>`;
+}
+function copiarCuenta(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const n=String(c.numeroCuenta||'').trim();
+  if(!n){notify('Este cliente no tiene número de cuenta','err');return;}
+  const done=()=>notify(`Cuenta de ${c.nombre} copiada ✓`,'ok');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(n).then(done).catch(()=>_copiarFallback(n,done));
+  }else _copiarFallback(n,done);
+}
+function _copiarFallback(txt,done){
+  // navigator.clipboard no existe fuera de https/localhost — en el celular pasa.
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    document.execCommand('copy');document.body.removeChild(ta);
+    done();
+  }catch(e){notify('No se pudo copiar: '+txt,'err');}
 }
 
 // Lo que se le cobra HOY a un cliente: la cuota que sigue + la mora, menos lo ya abonado.
@@ -1991,7 +2063,7 @@ function renderClientes(){
     const sem=semaforo(c);
     const tel=c.telefono?`<a href="tel:${c.telefono}" style="text-decoration:none;font-size:14px" onclick="event.stopPropagation()">📞</a> <a href="https://wa.me/57${c.telefono.replace(/\D/g,'')}" target="_blank" style="text-decoration:none;font-size:14px" onclick="event.stopPropagation()">💬</a>`:'';
     return`<div class="cc ${p?'pagado':d>0?'mora':''}" onclick="verCliente('${c.id}')">
-      <div class="cc-top"><div><div class="cc-name">${c.nombre} <span style="font-size:12px">${sem.dot}</span></div><div class="cc-sub">${c.negocio||'—'}${c.zona?' · '+c.zona:''}</div></div>
+      <div class="cc-top"><div><div class="cc-name">${c.nombre} <span style="font-size:12px">${sem.dot}</span></div><div class="cc-sub">${c.negocio||'—'}${c.zona?' · '+c.zona:''}</div>${tieneCuenta(c)?`<div class="cc-sub" style="color:#6EB3FF">🏦 ${htmlSafe(cuentaTexto(c))}</div>`:''}</div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">${badge}${refinBadge}${internoBadge}<div style="display:flex;gap:6px">${tel}</div></div></div>
       <div class="cc-stats">
         <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmt(sd)}</div></div>
@@ -2062,6 +2134,7 @@ function verCliente(id,soliId=null){
     ${c.esInterno?`<div class="ibox amber" style="font-size:12px">🔒 <strong>Préstamo interno</strong> — no aparece al cobrador, sin comisión</div>`:''}
     ${c.refinanciado&&c.dineroExtra>0?`<div class="ibox amber" style="font-size:12px">💵 Incluye <strong>${fmt(c.dineroExtra)}</strong> de dinero adicional en última refinanciación</div>`:''}
     ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];if(!ult||!sameCoDate(ult.fecha,h))return '';const mora_acum=mora(c);return`<div style="background:rgba(255,107,107,.12);border:1.5px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px">❌ No pagó hoy${ult.motivo&&ult.motivo!=='Sin motivo'?' — '+ult.motivo:''}</div><div style="font-size:12px;color:var(--text2)">El cobrador ya realizó la visita. Mañana debe cobrar:</div><div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div><div class="cs"><div class="csl">Mora acumulada</div><div class="csv" style="color:var(--red)">${fmt(mora_acum)}</div></div><div class="cs" style="grid-column:span 2"><div class="csl">Total a cobrar mañana</div><div class="csv" style="color:var(--red);font-size:16px">${fmt(c.cuota+mora_acum)}</div></div></div></div>`;})()}
+    ${cuentaHTML(c)}
     ${c.notas?`<div class="ibox blue" style="font-size:12px">📝 ${c.notas}</div>`:''}
     <div style="font-size:11px;color:var(--text3);margin-top:-10px;margin-bottom:12px">${c.cedula?'CC '+c.cedula:''}${c.telefono?' · 📞 '+c.telefono:''}${c.zona?' · 📍 '+c.zona:''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:11px">
@@ -4150,10 +4223,12 @@ function restaurarBackupJSON(input){
 }
 
 function exportarCSV(){
-  const rows=[['Nombre','Cédula','Teléfono','Negocio','Zona','Capital','Tasa','Total','Saldo','Cuota','Pagadas','Mora/día','Mora actual','Estado']];
+  const rows=[['Nombre','Cédula','Teléfono','Negocio','Zona','Banco','Tipo cuenta','N° cuenta','Capital','Tasa','Total','Saldo','Cuota','Pagadas','Mora/día','Mora actual','Estado']];
   clientes.forEach(c=>{
     const est=c.pagadas>=c.numCuotas?'Pagado':diasMora(c)>0?'En mora':'Activo';
-    rows.push([c.nombre,c.cedula||'',c.telefono||'',c.negocio||'',c.zona||'',c.capital,c.tasa+'%',c.total,saldo(c),c.cuota,c.pagadas,c.moraDia||0,mora(c),est]);
+    // El número de cuenta se fuerza a texto: Excel convierte los números largos a notación
+    // científica y se pierden dígitos.
+    rows.push([c.nombre,c.cedula||'',c.telefono||'',c.negocio||'',c.zona||'',c.banco||'',c.tipoCuenta||'',c.numeroCuenta?`="${c.numeroCuenta}"`:'',c.capital,c.tasa+'%',c.total,saldo(c),c.cuota,c.pagadas,c.moraDia||0,mora(c),est]);
   });
   const a=document.createElement('a');
   a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));
@@ -4363,6 +4438,9 @@ function abrirEditarCliente(id){
   editandoClienteId=id;
   document.getElementById('edit-nombre').value=c.nombre||'';
   document.getElementById('edit-cedula').value=c.cedula||'';
+  document.getElementById('edit-banco').value=c.banco||'';
+  document.getElementById('edit-tipo-cuenta').value=c.tipoCuenta||'';
+  document.getElementById('edit-cuenta').value=c.numeroCuenta||'';
   document.getElementById('edit-telefono').value=c.telefono||'';
   document.getElementById('edit-zona').value=c.zona||'';
   document.getElementById('edit-negocio').value=c.negocio||'';
@@ -4417,6 +4495,9 @@ function guardarEdicionCliente(){
   c.zona=document.getElementById('edit-zona').value.trim();
   c.negocio=document.getElementById('edit-negocio').value.trim();
   c.notas=document.getElementById('edit-notas').value.trim();
+  c.banco=document.getElementById('edit-banco').value.trim();
+  c.tipoCuenta=document.getElementById('edit-tipo-cuenta').value;
+  c.numeroCuenta=document.getElementById('edit-cuenta').value.trim();
   c.moraDia=parseFloat(document.getElementById('edit-mora').value)||0;
   const comVal=document.getElementById('edit-comision').value.trim();
   c.esInterno=!!document.getElementById('edit-interno')?.checked;
@@ -4442,7 +4523,7 @@ function guardarEdicionCliente(){
   if(cuotasCambiadas){
     saveCliente(c);
   }else{
-    saveClienteFields(c,['nombre','cedula','telefono','zona','negocio','notas','moraDia','esInterno','comisionPct','graciaHasta']);
+    saveClienteFields(c,['nombre','cedula','telefono','zona','negocio','notas','banco','tipoCuenta','numeroCuenta','moraDia','esInterno','comisionPct','graciaHasta']);
   }
   log({tipo:'edicion',cliente:c.nombre,ts:Date.now(),autor:'Admin',nota:cuotasCambiadas?`plazo→${c.numCuotas} cuotas · ${c.tipo}`:''});
   notify(cuotasCambiadas?`${c.nombre}: ${c.numCuotas} cuotas de ${fmt(c.cuota)} ✓`:`${c.nombre} actualizado ✓`,'ok');
@@ -4891,15 +4972,27 @@ function auditoriaComisiones(){
           faltaComision.slice(0,3).map(x=>`${x.cliente.nombre} · ${fmt(Math.abs(x.dif))}`).join(' — ')
     });
   }
-  // Cuadre global caja ↔ liquidaciones (dos módulos que deben decir lo mismo)
+  // Cuadre caja ↔ liquidaciones. Solo cuentan los abonos en EFECTIVO: el aporte de seguridad
+  // (esSeguridad) se le descuenta de la comisión, no se le entrega plata, y ya figura en caja
+  // como gasto/seguridad por su total. Si además saliera como liquidacion_comision, esa mitad
+  // se contaría dos veces y la caja mostraría menos plata de la que tienes.
   const egresosCaja=(Array.isArray(caja)?caja:[]).filter(m=>m&&m.subtipo==='liquidacion_comision')
     .reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
-  const totalLiqMod=(Array.isArray(liquidaciones)?liquidaciones:[]).reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
-  if(Math.abs(egresosCaja-totalLiqMod)>1){
+  const liqEfectivo=(Array.isArray(liquidaciones)?liquidaciones:[]).filter(l=>l&&!l.esSeguridad)
+    .reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
+  if(Math.abs(egresosCaja-liqEfectivo)>1){
+    // ¿Viene de un aporte de seguridad que se coló como egreso de efectivo? (bug viejo: la
+    // versión actual de registrarSeguridad ya no lo hace, pero los registros de antes quedaron)
+    const idsSeg=new Set(aportesSeguridad().map(l=>l.id));
+    const colados=(Array.isArray(caja)?caja:[]).filter(m=>m&&m.subtipo==='liquidacion_comision'&&idsSeg.has(m.liquidacionId));
+    const montoColado=colados.reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+    const dif=egresosCaja-liqEfectivo;
     issues.push({
       tipo:'red',
-      msg:'Lo que salió de caja para el cobrador no coincide con las liquidaciones registradas',
-      sub:`Egresos en caja: ${fmt(egresosCaja)} · Liquidaciones: ${fmt(totalLiqMod)} · Diferencia: ${fmt(Math.abs(egresosCaja-totalLiqMod))}`
+      msg:`La caja registra ${fmt(Math.abs(dif))} ${dif>0?'de más':'de menos'} como plata entregada al cobrador`,
+      sub:colados.length
+        ? `${colados.length} aporte(s) de seguridad salieron también como egreso de efectivo (${fmt(montoColado)}). El aporte ya está en caja como gasto por su total, así que esa plata se está contando dos veces y tu caja muestra menos de la que tienes.`
+        : `Egresos en caja: ${fmt(egresosCaja)} · Abonos en efectivo: ${fmt(liqEfectivo)}. ${dif>0?'Hay egresos sin liquidación que los respalde.':'Hay abonos registrados que nunca salieron de caja.'}`
     });
   }
   if(dups.length){
@@ -4910,12 +5003,22 @@ function auditoriaComisiones(){
       sub:dups.slice(0,3).map(d=>`${d.cliente.nombre} · ${d.dia} · ${d.autores.join(' + ')} · ${fmt(d.exceso)}`).join(' — ')+(dups.length>3?` — y ${dups.length-3} más`:'')
     });
   }
-  const totalEventosLiquidado=items.filter(x=>x.evento.liquidado).reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
+  // El invariante del cobrador:
+  //     comisión liquidada REAL + creditoCobrador === efectivo + seguridad
+  // Los eventos anulados por duplicado quedan con liquidado:true (se les pagó en su momento)
+  // pero NO son comisión ganada: contarlos aquí reporta un descuadre que no existe.
+  const totalEventosLiquidado=items
+    .filter(x=>x.evento.liquidado&&!x.evento.duplicadoAnulado)
+    .reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
   const totalLiquidaciones=liquidaciones.reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
   // Lo pagado (historial) = cobros enteros ya marcados + saldo a favor pendiente de aplicar.
   const creditoCob=Math.max(0,Math.round(window._creditoCobrador||0));
   if(Math.abs((totalEventosLiquidado+creditoCob)-totalLiquidaciones)>1){
-    issues.push({tipo:'red',msg:'Diferencia entre lo pagado y los cobros marcados como pagados',sub:`Cobros pagados: ${fmt(totalEventosLiquidado)}${creditoCob>0?` + ${fmt(creditoCob)} a favor`:''} · Total abonado: ${fmt(totalLiquidaciones)}`});
+    issues.push({tipo:'red',
+      msg:`El saldo a favor del cobrador está desfasado ${fmt(Math.abs(totalLiquidaciones-totalEventosLiquidado-creditoCob))}`,
+      sub:`Debería ser ${fmt(Math.max(0,totalLiquidaciones-totalEventosLiquidado))} y está en ${fmt(creditoCob)}. `+
+          `Comisión liquidada real ${fmt(totalEventosLiquidado)} + saldo a favor debe dar lo abonado (${fmt(totalLiquidaciones)}). `+
+          `Se corrige con "Recalcular saldo a favor" en el botón de reconciliar.`});
   }
   const eventosInvalidos=items.filter(({evento})=>{
     const pct=Math.max(0,Math.round(evento.pct||0));
@@ -4954,6 +5057,124 @@ function auditoriaComisiones(){
 // Nada se escribe sin que el usuario apruebe y vea el monto exacto. Todo queda en el log.
 // ══════════════════════════════════════════════
 
+// El crédito del cobrador NO es un número suelto: es una cantidad DERIVADA que cumple
+//     credito === (efectivo + seguridad) − (comisión liquidada REAL)
+// Guardarlo aparte lo deja a la deriva. Cualquier operación que cambie el conjunto de eventos
+// liquidados (rescatar uno enterrado que ya estaba pagado, anular un duplicado pagado) lo
+// desajusta, y sumar/restar a mano se equivoca en cuanto pasan dos cosas a la vez.
+// Recalcularlo desde la verdad es autocorrectivo: arregla también la deriva que ya existiera.
+function creditoCobradorCorrecto(){
+  const pagado=(Array.isArray(liquidaciones)?liquidaciones:[])
+    .reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
+  const liquidadaReal=eventosComisionTodos('todo')
+    .filter(x=>x.evento.liquidado&&!x.evento.duplicadoAnulado)
+    .reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
+  return Math.max(0,pagado-liquidadaReal);
+}
+async function recalcularCreditoCobrador(){
+  const antes=Math.max(0,Math.round(window._creditoCobrador||0));
+  const correcto=creditoCobradorCorrecto();
+  if(antes===correcto)return {antes,despues:correcto,cambio:0};
+  window._creditoCobrador=correcto;
+  if(fbOk&&db)await db.ref('config/creditoCobrador').set(correcto).catch(()=>{});
+  log({tipo:'recalculo_credito',cliente:'Cobrador',monto:correcto,ts:Date.now(),autor:'Admin',
+       nota:`Crédito recalculado: ${fmt(antes)} → ${fmt(correcto)} (pagado − comisión liquidada real)`});
+  return {antes,despues:correcto,cambio:correcto-antes};
+}
+
+// ── Aportes de seguridad que se colaron como egreso de efectivo ──
+// Bug de una versión vieja: registrarSeguridad creaba el gasto por el total Y ADEMÁS un egreso
+// liquidacion_comision por la mitad del cobrador. Pero esa mitad no se le entrega en efectivo:
+// se le descuenta de su comisión. Contarla dos veces hace que tu caja muestre MENOS plata de la
+// que tienes. La versión actual ya no lo hace; los registros de antes quedaron.
+function movimientosSeguridadColados(){
+  const idsSeg=new Set(aportesSeguridad().map(l=>l&&l.id).filter(Boolean));
+  return (Array.isArray(caja)?caja:[]).filter(m=>
+    m&&m.subtipo==='liquidacion_comision'&&idsSeg.has(m.liquidacionId));
+}
+async function repararSeguridadColada(){
+  const colados=movimientosSeguridadColados();
+  if(!colados.length)return {movimientos:0,monto:0};
+  const monto=colados.reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+  const ids=new Set(colados.map(m=>m.id));
+  for(const id of ids){ if(fbOk&&db) await db.ref('caja/'+id).remove().catch(()=>{}); }
+  for(let i=caja.length-1;i>=0;i--){ if(ids.has(caja[i].id))caja.splice(i,1); }
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  log({tipo:'reparacion_seguridad_colada',cliente:'Caja',monto,ts:Date.now(),autor:'Admin',
+       nota:`${colados.length} egreso(s) de seguridad duplicados eliminados de caja (${fmt(monto)}). Ese aporte ya estaba registrado como gasto por su total.`});
+  return {movimientos:colados.length,monto};
+}
+
+// ── Reconciliaciones automáticas que metieron más interés del que venían a cubrir ──
+// Su propia nota declara la diferencia ("Diff previo int X") pero el evento cargó más. NO basta
+// con esa señal: hay ciclos viejos con el interés mal archivado donde la reconciliación puso de
+// más con razón. Por eso se exige TAMBIÉN que el cliente supere el techo de interés
+// (interés del préstamo + el de sus ciclos archivados). Con las dos condiciones no hay falso positivo.
+function techoInteresCliente(c){
+  const intCiclo=o=>Math.max(o&&o.interes!=null?Math.round(o.interes):0,Math.round(((o&&o.capital)||0)*((o&&o.tasa)||0)/100));
+  const ciclos=(Array.isArray(c.ciclos)?c.ciclos:[]).reduce((s,cy)=>s+intCiclo(cy),0);
+  const hist=(Array.isArray(c.historialPrestamos)?c.historialPrestamos:[]).reduce((s,x)=>s+intCiclo(x),0);
+  return Math.round((c.interes||0)+ciclos+hist);
+}
+function reconciliacionesInfladas(){
+  const out=[];
+  (Array.isArray(clientes)?clientes:[]).forEach(c=>{
+    const evs=comisionEventosCliente(c).filter(e=>e&&String(e.origen||'')==='reconciliacion');
+    if(!evs.length)return;
+    const intEventos=comisionEventosCliente(c).reduce((s,e)=>s+Math.max(0,Math.round(e.interes||0)),0);
+    const techo=techoInteresCliente(c);
+    const sobra=intEventos-techo;
+    if(sobra<=10)return; // dentro del techo: la reconciliación estaba justificada
+    evs.forEach(e=>{
+      const m=String(e.nota||'').match(/Diff previo int (-?\d+)/);
+      if(!m)return;
+      const declarado=Math.abs(parseInt(m[1],10));
+      const puso=Math.max(0,Math.round(e.interes||0));
+      const exceso=puso-declarado;
+      if(exceso<=10)return;
+      out.push({cliente:c,evento:e,declarado,puso,exceso:Math.min(exceso,sobra),techo,intEventos});
+    });
+  });
+  return out.sort((a,b)=>b.exceso-a.exceso);
+}
+async function repararReconciliacionesInfladas(){
+  const malos=reconciliacionesInfladas();
+  if(!malos.length)return {eventos:0,interes:0,comision:0};
+  const tocados=new Map();
+  let intCorregido=0,comCorregida=0;
+  for(const x of malos){
+    const e=x.evento;
+    const pct=Math.max(0,Math.round(e.pct||pctCliente(x.cliente)));
+    const intNuevo=Math.max(0,Math.round(e.interes||0)-x.exceso);
+    const moraVal=Math.max(0,Math.round(e.mora||0));
+    const comNueva=Math.round(intNuevo*pct/100)+Math.round(moraVal*pct/100);
+    intCorregido+=Math.round(e.interes||0)-intNuevo;
+    comCorregida+=Math.max(0,Math.round(e.comision||0))-comNueva;
+    e.interesOriginal=Math.round(e.interes||0);
+    e.comisionOriginal=Math.max(0,Math.round(e.comision||0));
+    e.interes=intNuevo;
+    e.comision=comNueva;
+    e.admin=Math.max(0,(intNuevo+moraVal)-comNueva);
+    e.corregidoTs=Date.now();
+    e.corregidoNota=`Reconciliación inflada: su nota declaraba ${fmt(x.declarado)} pero cargó ${fmt(x.puso)}`;
+    tocados.set(x.cliente.id,x.cliente);
+    // La caja se alineó a estos eventos con un movimiento "cuadre": bajarlo el mismo monto,
+    // si no la caja queda reportando un interés que nunca entró.
+    const mov=(Array.isArray(caja)?caja:[]).find(m=>m&&m.clienteId===x.cliente.id&&
+      m.subtipo==='interes_cobrado'&&String(m.refKey||'').startsWith('cuadre:')&&Math.round(m.monto||0)>=x.exceso);
+    if(mov){
+      mov.monto=Math.round(mov.monto)-x.exceso;
+      if(fbOk&&db)await db.ref('caja/'+mov.id+'/monto').set(mov.monto).catch(()=>{});
+    }
+  }
+  for(const c of tocados.values()) await saveClienteFields(c,['comisionEventos']);
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  log({tipo:'reparacion_reconciliacion_inflada',cliente:'Sistema',monto:comCorregida,ts:Date.now(),autor:'Admin',
+       nota:`${malos.length} reconciliación(es) corregidas: ${fmt(intCorregido)} de interés fantasma y ${fmt(comCorregida)} de comisión pagada de más.`});
+  await recalcularCreditoCobrador();
+  return {eventos:malos.length,interes:intCorregido,comision:comCorregida};
+}
+
 // Rescata a la lista viva los cobros que quedaron enterrados en c.ciclos al cerrar un ciclo.
 // Resuelve de una tres síntomas: la comisión que el cobrador nunca vería, el "interés sin
 // comisión" en el cruce con caja, y el conteo de eventos de la liquidación que no cuadraba.
@@ -4975,35 +5196,41 @@ async function repararCobrosEnterrados(){
   for(const c of tocados.values()) await saveClienteFields(c,['comisionEventos']);
   log({tipo:'reparacion_cobros_enterrados',cliente:'Sistema',monto:pendiente,ts:Date.now(),autor:'Admin',
        nota:`${perdidos.length} cobro(s) rescatados de ciclos archivados en ${tocados.size} cliente(s). Pendiente de liquidar: ${fmt(pendiente)}`});
+  // Rescatar un cobro que YA estaba pagado suma a la comisión liquidada sin sumar a lo pagado:
+  // el crédito queda desfasado si no se recalcula.
+  await recalcularCreditoCobrador();
   return {clientes:tocados.size,eventos:perdidos.length,pendiente};
 }
 
-// Anula los cobros repetidos. Si el repetido ya se había liquidado, esa plata ya salió: se
-// devuelve como crédito a tu favor, que se descuenta del próximo abono al cobrador.
+// Anula los cobros repetidos.
+//
+// NO toca creditoCobrador, y esto es contraintuitivo: parece que si ya le pagaste el duplicado
+// habría que acreditarte esa plata. Pero el crédito no es un campo suelto — cumple el invariante
+//     creditoCobrador === (efectivo + seguridad) − (comisión liquidada REAL)
+// Al anular el evento, la comisión liquidada real baja sola, y el sobrante que ya le pagaste
+// queda absorbido en el crédito que ya existía. Sumar crédito ADEMÁS de anular contaría la
+// misma plata dos veces y descuadraría los libros. Verificado contra el backup del 16/07:
+// $384.133 + $8.534 = $392.667 = efectivo + seguridad, al peso.
 async function repararDuplicadosComision(){
   const dups=duplicadosComision();
-  if(!dups.length)return {grupos:0,anulados:0,credito:0};
+  if(!dups.length)return {grupos:0,anulados:0,recuperado:0};
   const tocados=new Map();
-  let credito=0,anulados=0;
+  let recuperado=0,anulados=0;
   dups.forEach(d=>{
     d.eventos.slice(1).forEach(ev=>{ // el primero es el bueno
       ev.duplicadoAnulado=true;
       ev.anuladoTs=Date.now();
       ev.anuladoNota=`Duplicado de ${d.dia} (${d.autores.join(' + ')})`;
-      if(ev.liquidado)credito+=Math.max(0,Math.round(ev.comision||0)); // ya se le pagó: te lo debe
+      if(ev.liquidado)recuperado+=Math.max(0,Math.round(ev.comision||0)); // solo para reportar
       anulados++;
       tocados.set(d.cliente.id,d.cliente);
     });
   });
   for(const c of tocados.values()) await saveClienteFields(c,['comisionEventos']);
-  if(credito>0){
-    const nuevo=Math.max(0,Math.round(window._creditoCobrador||0))+credito;
-    window._creditoCobrador=nuevo;
-    if(fbOk&&db)await db.ref('config/creditoCobrador').set(nuevo).catch(()=>{});
-  }
-  log({tipo:'reparacion_duplicados',cliente:'Sistema',monto:credito,ts:Date.now(),autor:'Admin',
-       nota:`${anulados} cobro(s) duplicados anulados. Crédito a tu favor: ${fmt(credito)}`});
-  return {grupos:dups.length,anulados,credito};
+  log({tipo:'reparacion_duplicados',cliente:'Sistema',monto:recuperado,ts:Date.now(),autor:'Admin',
+       nota:`${anulados} cobro(s) duplicados anulados. ${fmt(recuperado)} dejan de contar como comisión ganada y quedan a tu favor en el saldo del cobrador.`});
+  await recalcularCreditoCobrador();
+  return {grupos:dups.length,anulados,recuperado};
 }
 
 function revisionCompleta(){
@@ -5028,6 +5255,25 @@ function revisionCompleta(){
     });
   }
 
+  // ── Automático: saldo a favor del cobrador ──
+  // Es una cantidad DERIVADA (pagado − comisión liquidada real), no una decisión: hay una sola
+  // respuesta correcta y sale de los datos. No mueve plata: solo corrige el número que dice
+  // cuánta de la que ya pagaste está sin aplicar.
+  const credActual=Math.max(0,Math.round(window._creditoCobrador||0));
+  const credCorrecto=creditoCobradorCorrecto();
+  if(credActual!==credCorrecto){
+    automaticos.push({
+      id:'credito',
+      titulo:`Recalcular saldo a favor del cobrador: ${fmt(credActual)} → ${fmt(credCorrecto)}`,
+      detalle:'Es lo abonado menos la comisión liquidada real. Se desfasa cuando cambia el conjunto '+
+              'de cobros liquidados (al rescatar uno enterrado que ya estaba pagado, o al anular un duplicado).',
+      aplicar:async()=>{
+        const r=await recalcularCreditoCobrador();
+        return `${fmt(r.antes)} → ${fmt(r.despues)}`;
+      }
+    });
+  }
+
   // ── Decisión: cobros enterrados ──
   const enterrados=eventosArchivadosPerdidos();
   if(enterrados.length){
@@ -5048,6 +5294,45 @@ function revisionCompleta(){
     });
   }
 
+  // ── Decisión: aportes de seguridad colados en caja ──
+  const colados=movimientosSeguridadColados();
+  if(colados.length){
+    const monto=colados.reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+    decisiones.push({
+      id:'segcolada',
+      titulo:`Quitar ${colados.length} egreso(s) de seguridad duplicados en caja`,
+      monto,
+      direccion:'admin',
+      detalle:`Esa mitad no se le entregó en efectivo: se le descontó de su comisión, y el aporte `+
+              `ya está en caja como gasto por su total. Al quitarlo tu caja sube ${fmt(monto)} — `+
+              `no es plata nueva, es plata que ya tenías y los libros no mostraban.`,
+      aplicar:async()=>{
+        const r=await repararSeguridadColada();
+        return `${r.movimientos} movimiento(s) eliminados · caja +${fmt(r.monto)}`;
+      }
+    });
+  }
+
+  // ── Decisión: reconciliaciones infladas ──
+  const infladas=reconciliacionesInfladas();
+  if(infladas.length){
+    const exInt=infladas.reduce((s,x)=>s+x.exceso,0);
+    const exCom=infladas.reduce((s,x)=>s+Math.round(x.exceso*(x.evento.pct||40)/100),0);
+    decisiones.push({
+      id:'reconinflada',
+      titulo:`Corregir ${infladas.length} reconciliación(es) que cargaron interés de más`,
+      monto:exCom,
+      direccion:'admin',
+      detalle:`${fmt(exInt)} de interés que nunca entró, y ${fmt(exCom)} de comisión pagada sobre él. `+
+              `Se baja el evento, el ingreso de caja que lo respaldaba, y el saldo a favor del cobrador sube. `+
+              infladas.slice(0,2).map(x=>`${x.cliente.nombre}: declaró ${fmt(x.declarado)} pero cargó ${fmt(x.puso)}`).join(' · '),
+      aplicar:async()=>{
+        const r=await repararReconciliacionesInfladas();
+        return `${r.eventos} corregida(s) · ${fmt(r.interes)} de interés y ${fmt(r.comision)} de comisión`;
+      }
+    });
+  }
+
   // ── Decisión: duplicados ──
   const dups=duplicadosComision();
   if(dups.length){
@@ -5057,11 +5342,11 @@ function revisionCompleta(){
       titulo:`Anular ${dups.length} cobro(s) de comisión duplicados`,
       monto:exceso,
       direccion:'admin',
-      detalle:`Vuelve ${fmt(exceso)} como crédito a tu favor, que se descuenta del próximo abono. `+
+      detalle:`${fmt(exceso)} dejan de contar como comisión ganada: le baja el saldo pendiente en ese monto. `+
               dups.slice(0,3).map(d=>`${d.cliente.nombre} ${d.dia} (${d.autores.join(' + ')})`).join(' · '),
       aplicar:async()=>{
         const r=await repararDuplicadosComision();
-        return `${r.anulados} anulado(s) · ${fmt(r.credito)} de crédito a tu favor`;
+        return `${r.anulados} anulado(s) · ${fmt(r.recuperado)} a tu favor`;
       }
     });
   }

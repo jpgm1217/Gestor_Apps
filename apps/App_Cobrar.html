@@ -871,6 +871,49 @@ function goTab(name,el){
   if(name==='ganancias')renderGanancias();
 }
 
+// Escapa texto del usuario antes de meterlo en innerHTML. Misma implementación que el admin.
+function htmlSafe(v){return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+
+// ===== CUENTA BANCARIA DEL CLIENTE =====
+// Dónde consignarle / recibirle la plata. La define el admin al crear el cliente; acá es
+// solo lectura. Vive en el cliente, no en el ciclo: al abrir un ciclo nuevo se conserva.
+function tieneCuenta(c){return !!(c&&(String(c.banco||'').trim()||String(c.numeroCuenta||'').trim()));}
+function cuentaTexto(c){
+  if(!tieneCuenta(c))return '';
+  const b=String(c.banco||'').trim();
+  const t=String(c.tipoCuenta||'').trim();
+  const n=String(c.numeroCuenta||'').trim();
+  return [b,t&&t!=='Billetera'?t:'',n].filter(Boolean).join(' · ');
+}
+// Copiar la cuenta a mano es como se equivoca uno al consignar, así que va con botón.
+function cuentaHTML(c){
+  if(!tieneCuenta(c))return '';
+  const n=String(c.numeroCuenta||'').trim();
+  return `<div class="ibox blue" style="font-size:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <span>🏦 ${htmlSafe(cuentaTexto(c))}</span>
+    ${n?`<button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();copiarCuenta('${htmlSafe(c.id)}')">Copiar</button>`:''}
+  </div>`;
+}
+function copiarCuenta(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const n=String(c.numeroCuenta||'').trim();
+  if(!n){notify('Este cliente no tiene número de cuenta','err');return;}
+  const done=()=>notify(`Cuenta de ${c.nombre} copiada ✓`,'ok');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(n).then(done).catch(()=>_copiarFallback(n,done));
+  }else _copiarFallback(n,done);
+}
+function _copiarFallback(txt,done){
+  // navigator.clipboard no existe fuera de https/localhost — en el celular pasa.
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    document.execCommand('copy');document.body.removeChild(ta);
+    done();
+  }catch(e){notify('No se pudo copiar: '+txt,'err');}
+}
+
 // GANANCIAS COBRADOR
 // Misma clave que el admin: ambas apps corren en el mismo origen, y con claves distintas
 // el caché offline de cada una divergía y mostraban comisiones diferentes del mismo cliente.
@@ -1426,6 +1469,7 @@ function abrirDetalleClienteCobrador(id){
   document.getElementById('cliente-detalle-body').innerHTML=`
     <div class="confirm-title" style="margin-bottom:8px">${c.nombre}</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">${c.negocio||'—'}${c.zona?' · '+c.zona:''}${c.telefono?' · '+c.telefono:''}</div>
+    ${cuentaHTML(c)}
     ${accesosDirectos}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
       <div class="cs"><div class="csl">Saldo</div><div class="csv" style="color:var(--amber)">${fmtMil(sd)}</div></div>
