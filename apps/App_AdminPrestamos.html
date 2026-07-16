@@ -173,17 +173,17 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="goTab('inicio',this)"><span class="ti" data-icon="home"></span>Inicio</button>
-  <button class="tab" onclick="goTab('clientes',this)"><span class="ti" data-icon="users"></span>Clientes</button>
-  <button class="tab" onclick="goTab('nuevo',this)"><span class="ti" data-icon="plus"></span>Nuevo</button>
+  <button class="tab active" onclick="goTab('inicio',this)" id="tab-inicio"><span class="ti" data-icon="home"></span>Inicio</button>
+  <button class="tab" onclick="goTab('clientes',this)" id="tab-clientes"><span class="ti" data-icon="users"></span>Clientes</button>
+  <button class="tab" onclick="goTab('nuevo',this)" id="tab-nuevo"><span class="ti" data-icon="plus"></span>Nuevo</button>
   <button class="tab" onclick="goTab('solicitudes',this)" id="tab-solicitudes"><span class="ti" data-icon="alertTriangle"></span>Solicitudes <span id="badge-soli" style="display:none;background:var(--red);color:#fff;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
-  <button class="tab" onclick="goTab('actividad',this)"><span class="ti" data-icon="cycle"></span>Actividad</button>
-  <button class="tab" onclick="goTab('calendario',this)"><span class="ti" data-icon="calendar"></span>Calendario</button>
-  <button class="tab" onclick="goTab('caja',this)"><span class="ti" data-icon="wallet"></span>Caja</button>
-  <button class="tab" onclick="goTab('finanzas',this)"><span class="ti" data-icon="barChart"></span>Finanzas</button>
-  <button class="tab" onclick="goTab('comisiones',this)"><span class="ti" data-icon="handshake"></span>Comisión</button>
-  <button class="tab" onclick="goTab('pool',this)"><span class="ti" data-icon="banknote"></span>Pool</button>
-  <button class="tab" onclick="goTab('config',this)"><span class="ti" data-icon="settings"></span>Config</button>
+  <button class="tab" onclick="goTab('actividad',this)" id="tab-actividad"><span class="ti" data-icon="cycle"></span>Actividad</button>
+  <button class="tab" onclick="goTab('calendario',this)" id="tab-calendario"><span class="ti" data-icon="calendar"></span>Calendario</button>
+  <button class="tab" onclick="goTab('caja',this)" id="tab-caja"><span class="ti" data-icon="wallet"></span>Caja</button>
+  <button class="tab" onclick="goTab('finanzas',this)" id="tab-finanzas"><span class="ti" data-icon="barChart"></span>Finanzas</button>
+  <button class="tab" onclick="goTab('comisiones',this)" id="tab-comisiones"><span class="ti" data-icon="handshake"></span>Comisión</button>
+  <button class="tab" onclick="goTab('pool',this)" id="tab-pool"><span class="ti" data-icon="banknote"></span>Pool</button>
+  <button class="tab" onclick="goTab('config',this)" id="tab-config"><span class="ti" data-icon="settings"></span>Config</button>
 </div>
 
 <div class="scroll">
@@ -209,6 +209,15 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
   <!-- Alertas inteligentes -->
   <div id="panel-alertas"></div>
+  <div class="card" style="border-color:var(--goldb);margin-bottom:12px">
+    <div class="ct">⚡ Atajos rápidos</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="goTab('solicitudes',document.getElementById('tab-solicitudes'))">📬 Solicitudes</button>
+      <button class="btn btn-ghost btn-sm" onclick="irAClientesEnMora()">⚠️ Clientes en mora</button>
+      <button class="btn btn-blue btn-sm" onclick="goTab('nuevo',document.getElementById('tab-nuevo'))">➕ Nuevo préstamo</button>
+      <button class="btn btn-ghost btn-sm" onclick="goTab('calendario',document.getElementById('tab-calendario'))">📅 Calendario</button>
+    </div>
+  </div>
   <!-- Pendientes (un solo bloque, sin duplicar) -->
   <div class="card"><div class="ct">📥 Pendientes</div><div id="inicio-pendientes"></div></div>
   <!-- Candidatos a renovar -->
@@ -939,6 +948,16 @@ function normalizarClienteSync(c){
   ['cuotasData','historialNoPago','historialMora','comisionEventos','ciclos','historialPrestamos','historialAjustes','cargosManuales'].forEach(f=>{
     if(out[f]&&!Array.isArray(out[f]))out[f]=arrFirebase(out[f]);
   });
+  // AUTO-REPARACIÓN: numCuotas debe cubrir siempre a cuotasData. Una versión vieja de
+  // confirmarCuotaExtra agregaba la cuota extra sin persistir numCuotas/plazo, y como
+  // saldo() y mora() cortan en `pagadas>=numCuotas`, el cliente aparecía PAGADO con la
+  // cuota extra todavía debiéndose (le pasó a Lina María López el 08/07).
+  // Solo crece, nunca encoge: no toca clientes sanos ni refinanciados.
+  if(Array.isArray(out.cuotasData)&&out.cuotasData.length>(out.numCuotas||0)){
+    out.numCuotas=out.cuotasData.length;
+    out.plazo=out.numCuotas;
+    out._numCuotasReparado=true;
+  }
   return out;
 }
 function debounceConfirm(fn){
@@ -1221,6 +1240,14 @@ let _reconciliacionAutoProgramada=false;
 function escuchar(){
   db.ref('clientes').on('value',s=>{
     const d=s.val();clientes=d?Object.values(d).map(normalizarClienteSync):[];
+    // Persistir la auto-reparación de numCuotas: normalizarClienteSync la corrige en memoria,
+    // pero si no se escribe, el dato sigue malo en Firebase para cualquier otro dispositivo.
+    clientes.filter(c=>c._numCuotasReparado).forEach(c=>{
+      delete c._numCuotasReparado;
+      log({tipo:'reparacion_numcuotas',cliente:c.nombre,ts:Date.now(),autor:'Sistema',
+           nota:`numCuotas/plazo corregidos a ${c.numCuotas} para que cuadren con las ${c.cuotasData.length} cuotas reales`});
+      saveClienteFields(c,['numCuotas','plazo']);
+    });
     // FIX W13+HIGH-6: migración solo cuando hay clientes (sino marca corrida con array vacío y nunca migra)
     if(!_migracionCorrida&&clientes.length>0){
       migrarComisionesClientes();
@@ -1438,6 +1465,13 @@ function goTab(name,el){
   if(name==='inicio')renderInicio();
   if(name==='comisiones')renderComisiones();
   if(name==='pool')renderPool();
+}
+function irAClientesEnMora(){
+  const filtro=document.getElementById('filtro');
+  if(filtro)filtro.value='mora';
+  const tab=document.getElementById('tab-clientes');
+  if(tab)goTab('clientes',tab);
+  else renderClientes();
 }
 
 // PLAZO
@@ -1689,10 +1723,19 @@ function diasDesdeCreacion(c){
   if(!k)return null;
   return Math.floor((coUTCDateFromKey(hoy())-coUTCDateFromKey(k))/DAY_MS);
 }
+// El cobrador marca "cuota normal" cuando el cliente decide NO pagar todo hoy. Queda guardada
+// con la fecha y vale SOLO ese día: si el cliente se arrepiente y no paga, al día siguiente
+// vuelve a tener disponible el descuento del 10%. Sin esto el cobrador quedaba trabado —
+// no le salía el botón de cobrar y avisar al admin no lo desbloqueaba.
+function decisionCuotaNormalHoy(c){
+  const d=c&&c.decisionAnticipado;
+  return !!(d&&d.tipo==='cuota_normal'&&d.fecha===hoy());
+}
 function pagoAnticipadoElegible(c){
   if(!c||c.liquidadoAnticipado)return false;
   if(c.pagadas>0||c.pagadas>=c.numCuotas)return false;
   if((c.abonoPendiente||0)>0)return false;
+  if(decisionCuotaNormalHoy(c))return false;
   const d=diasDesdeCreacion(c);
   return d!==null&&d>=0&&d<PAGO_ANTICIPADO_DIAS;
 }
@@ -2386,7 +2429,7 @@ function confirmarAjuste(){
     if(cuotasQueAvanzaria>0){
       const capRegistrar=Math.round((c.capital||0)/c.numCuotas)*cuotasQueAvanzaria;
       const intRegistrar=Math.round((c.interes||0)/c.numCuotas)*cuotasQueAvanzaria;
-      const pctCob=(c.comisionPct!==undefined&&c.comisionPct!==null&&c.comisionPct!=='')?parseFloat(c.comisionPct):(window._comPctFB!==undefined?window._comPctFB:40);
+      const pctCob=pctCliente(c);
       const comCob=Math.round(intRegistrar*pctCob/100);
       if(!confirm(`⚠ Este ${tipoLabel.toLowerCase()} marcará ${cuotasQueAvanzaria} cuota(s) pagadas.\n\nSe registrará en CAJA como plata real recibida:\n• Capital: ${fmt(capRegistrar)}\n• Interés: ${fmt(intRegistrar)}\n• Comisión cobrador (${pctCob}%): ${fmt(comCob)}\n\nSi NO recibiste plata, CANCELA y usa "Perdón de deuda" en su lugar.\n\n¿Continuar registrando como pago real?`)){
         return;
@@ -3107,7 +3150,10 @@ function renderFinanzas(){
   const capitalActivo=act.reduce((s,c)=>s+saldo(c),0);
   const capitalTotal=clientes.reduce((s,c)=>s+c.capital,0);
   const interesEsperado=clientes.reduce((s,c)=>s+c.interes,0);
-  const interesCobrado=clientes.reduce((s,c)=>s+c.pagadas*(c.interes/c.numCuotas),0);
+  // Usar interesRealizadoPagado (lee el interés real de cada cuota) en vez de prorratear
+  // c.interes/c.numCuotas: una cuota extra sube numCuotas sin subir c.interes, y el
+  // prorrateo hacía caer este KPI retroactivamente sin que nada se pagara distinto.
+  const interesCobrado=clientes.reduce((s,c)=>s+interesRealizadoPagado(c),0);
   const enMora=act.filter(c=>mora(c)>0);
   const efectividad=interesEsperado>0?Math.round(interesCobrado/interesEsperado*100):0;
   // ROI mensual estimado: interés esperado / capital / meses promedio del portafolio
@@ -3453,7 +3499,7 @@ function interesRealizadoCaja(c){
 }
 
 function resumenLegacyComision(c){
-  const pct=(c.comisionPct!==undefined&&c.comisionPct!==null&&c.comisionPct!=='')?parseFloat(c.comisionPct):(window._comPctFB!==undefined?window._comPctFB:parseFloat(localStorage.getItem(COM_KEY)||'40'));
+  const pct=pctCliente(c);
   const interesCobrado=Math.max(0,Math.round(interesRealizadoPagado(c)+(desgloseAbonoPendienteActual(c).interesParcial||0)));
   const moraCobrada=Math.max(0,Math.round(c.moraCobradaTotal||0));
   const comInteres=Math.round(interesCobrado*pct/100);
@@ -5036,8 +5082,8 @@ function confirmarCuotaExtra(){
   if(!monto||monto<=0){notify('Ingresa un monto válido','err');return;}
   if(!fechaStr){notify('Selecciona una fecha','err');return;}
   if(!Array.isArray(c.cuotasData))c.cuotasData=[];
-  c.cuotasData.push({
-    num:c.cuotasData.length+1,
+  const nuevaCuota={
+    num:0,
     fecha:labelFromUTCDate(coUTCDateFromKey(fechaStr)),
     fechaISO:fechaStr,
     cuota:monto,
@@ -5048,7 +5094,16 @@ function confirmarCuotaExtra(){
     manual:true,
     nota,
     fechaCreacion:coDateTimeISO()
-  });
+  };
+  // La cuota extra se inserta por fecha entre las PENDIENTES: cuotasData es posicional
+  // (cuotasData[c.pagadas] = próxima a cobrar), así que un push al final haría que una
+  // extra con fecha temprana se cobrara de última. Las ya pagadas nunca se reordenan.
+  let ins=c.cuotasData.length;
+  for(let i=Math.max(0,c.pagadas||0);i<c.cuotasData.length;i++){
+    if((c.cuotasData[i].fechaISO||'')>fechaStr){ins=i;break;}
+  }
+  c.cuotasData.splice(ins,0,nuevaCuota);
+  c.cuotasData.forEach((q,i)=>{q.num=i+1;});
   if(!c.historialAjustes)c.historialAjustes=[];
   c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'cuota_extra',tipoLabel:'Cuota extra',monto,motivo:nota||'Cuota extra manual',autor:'Admin'});
   c.total=(c.total||0)+monto;
@@ -5057,8 +5112,10 @@ function confirmarCuotaExtra(){
   saveClienteFields(c,['cuotasData','historialAjustes','total','numCuotas','plazo']);
   log({tipo:'cuota_extra',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:nota||'Cuota extra manual'});
   cerrar('modal-cuota-extra');
+  cerrar('modal-cli');
   notify(`Cuota extra de ${fmt(monto)} agregada a ${c.nombre} ✓`,'ok');
-  renderInicio();renderClientes();verCliente(c.id);
+  renderInicio();renderClientes();
+  setTimeout(()=>{verCliente(c.id);},300);
 }
 
 function abrirNuevoCiclo(clienteId){
