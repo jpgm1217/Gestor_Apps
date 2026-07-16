@@ -189,6 +189,8 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div class="scroll">
 
 <div id="panel-inicio" class="panel active">
+  <!-- Auditoría automática de comisiones: se corre sola al abrir y solo aparece si hay algo que mirar -->
+  <div id="inicio-auditoria"></div>
   <!-- 4 números clave (mismos valores que Caja) -->
   <div class="g2">
     <div class="metric gold"><div class="ml">Disponible p/ prestar</div><div class="mv" id="m-disp">$0</div></div>
@@ -1780,6 +1782,7 @@ function semaforo(c){
 function renderInicio(){
   const h=hoy();
   const act=clientes.filter(c=>c.pagadas<c.numCuotas);
+  renderAuditoriaInicio();
 
   const m=metricasCaja();
 
@@ -4543,9 +4546,129 @@ function topClientesComision(periodo='todo',limit=3){
   });
   return [...mapa.values()].sort((a,b)=>b.total-a.total).slice(0,limit);
 }
+// Cobros de comisión repetidos: el mismo cobro registrado dos veces (típicamente el cobrador
+// lo marca en su app y el admin lo vuelve a marcar en la suya). El id y el ts en milisegundos
+// son distintos, así que solo se detecta por el contenido: mismo cliente, mismo día, misma
+// nota y el mismo interés/mora. Cada repetición es comisión pagada de más.
+function duplicadosComision(){
+  const porCliente=new Map();
+  eventosComisionTodos('todo').forEach(({cliente,evento})=>{
+    const dia=new Date(Number(evento.ts)||0).toISOString().slice(0,10);
+    const k=[cliente.id,dia,String(evento.nota||'').trim(),Math.round(evento.interes||0),Math.round(evento.mora||0)].join('¦');
+    if(!porCliente.has(k))porCliente.set(k,{cliente,dia,eventos:[]});
+    porCliente.get(k).eventos.push(evento);
+  });
+  return [...porCliente.values()]
+    .filter(g=>g.eventos.length>1)
+    .map(g=>({
+      cliente:g.cliente,
+      dia:g.dia,
+      nota:String(g.eventos[0].nota||'').trim(),
+      veces:g.eventos.length,
+      autores:[...new Set(g.eventos.map(e=>e.autor||'?'))],
+      // el primero es el bueno; lo que sobra es de más
+      exceso:g.eventos.slice(1).reduce((s,e)=>s+Math.max(0,Math.round(e.comision||0)),0),
+      eventos:g.eventos
+    }))
+    .sort((a,b)=>b.exceso-a.exceso);
+}
+
+// ══════════════════════════════════════════════
+// AUDITORÍA CRUZADA: comisiones ↔ caja ↔ liquidaciones
+// Cada cobro deja rastro en TRES sitios: el evento de comisión (cuánto le toca al cobrador),
+// el movimiento de caja (la plata que entró) y, al liquidar, el egreso. Un cobro sano aparece
+// en todos. Los errores caros viven justo en las costuras: comisión sin plata en caja, o plata
+// en caja sin comisión. Mirar un módulo solo no los ve — hay que cruzarlos.
+// ══════════════════════════════════════════════
+const _diaDeTs=ts=>{const d=new Date(Number(ts)||0);return isNaN(d)?'':d.toISOString().slice(0,10);};
+
+function movimientosCajaDe(clienteId,subtipo){
+  return (Array.isArray(caja)?caja:[]).filter(m=>m&&m.clienteId===clienteId&&m.subtipo===subtipo);
+}
+
+// Cobros con comisión pagada pero SIN el ingreso correspondiente en caja.
+// Causa conocida: antes el refKey de caja no llevaba el ciclo (pago:cli:N:interes), así que la
+// cuota N de un ciclo nuevo chocaba con la del ciclo anterior y el dedup descartaba el ingreso
+// EN SILENCIO. La comisión sí se creaba. Resultado: la caja reporta menos ingresos de los reales.
+// Ya está corregido (el refKey ahora lleva cicloDe), pero los cobros viejos quedaron sin registrar.
+function cobrosSinRespaldoEnCaja(){
+  const out=[];
+  (Array.isArray(clientes)?clientes:[]).forEach(c=>{
+    const cajaInt=movimientosCajaDe(c.id,'interes_cobrado');
+    comisionEventosCliente(c).forEach(ev=>{
+      // solo cobros reales: los eventos legacy/reconciliación son sintéticos, no tienen caja propia
+      if(String(ev.origen||'')!=='cobro')return;
+      const interes=Math.max(0,Math.round(ev.interes||0));
+      if(interes<=0)return;
+      const d=_diaDeTs(ev.ts);
+      const hay=cajaInt.some(m=>_diaDeTs(m.ts)===d&&Math.abs(Math.round(m.monto||0)-interes)<=2);
+      if(!hay)out.push({cliente:c,evento:ev,dia:d,interes,comision:Math.max(0,Math.round(ev.comision||0))});
+    });
+  });
+  return out.sort((a,b)=>b.interes-a.interes);
+}
+
+// Balance por cliente entre los dos módulos. Se compara por TOTAL, no cobro por cobro:
+// los eventos de reconciliación son ajustes sintéticos que cubren varios cobros de otras
+// fechas, así que cruzar por día da falsos positivos. El total sí cuadra o no cuadra.
+//   dif > 0 → hay comisión sobre interés que caja no registró (tus libros reportan de menos)
+//   dif < 0 → entró plata sin generarle comisión al cobrador (le debes)
+function balanceComisionCaja(){
+  return (Array.isArray(clientes)?clientes:[]).map(c=>{
+    const evInt=comisionEventosCliente(c).reduce((s,e)=>s+Math.max(0,Math.round(e.interes||0)),0);
+    const cajaInt=movimientosCajaDe(c.id,'interes_cobrado').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+    return {cliente:c,evInt,cajaInt,dif:evInt-cajaInt};
+  }).filter(x=>Math.abs(x.dif)>2).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
+}
+
 function auditoriaComisiones(){
   const issues=[];
   const items=eventosComisionTodos('todo');
+  const dups=duplicadosComision();
+
+  // ── Cruce con caja (por totales; el detalle por cobro va como apoyo) ──
+  const balance=balanceComisionCaja();
+  const faltaEnCaja=balance.filter(x=>x.dif>0);
+  const faltaComision=balance.filter(x=>x.dif<0);
+  if(faltaEnCaja.length){
+    const tot=faltaEnCaja.reduce((s,x)=>s+x.dif,0);
+    const detalle=cobrosSinRespaldoEnCaja();
+    issues.push({
+      tipo:'red',
+      msg:`${faltaEnCaja.length} cliente(s) con comisión sobre interés que caja nunca registró — faltan ${fmt(tot)} en tus libros`,
+      sub:`La comisión está bien: el cobro sí ocurrió y el cobrador se la ganó. Lo que falta es el INGRESO en caja, así que tus reportes muestran menos ganancia de la real. `+
+          (detalle.length?detalle.slice(0,3).map(x=>`${x.cliente.nombre} · ${x.dia} · ${fmt(x.interes)}`).join(' — ')+(detalle.length>3?` — y ${detalle.length-3} más`:''):
+           faltaEnCaja.slice(0,3).map(x=>`${x.cliente.nombre} · ${fmt(x.dif)}`).join(' — '))
+    });
+  }
+  if(faltaComision.length){
+    const tot=faltaComision.reduce((s,x)=>s+Math.abs(x.dif),0);
+    issues.push({
+      tipo:'amber',
+      msg:`${faltaComision.length} cliente(s) con interés cobrado sin comisión para el cobrador — ${fmt(tot)}`,
+      sub:'Entró la plata pero no se le generó comisión. Si no se ajusta, se lo va a reclamar a mano. '+
+          faltaComision.slice(0,3).map(x=>`${x.cliente.nombre} · ${fmt(Math.abs(x.dif))}`).join(' — ')
+    });
+  }
+  // Cuadre global caja ↔ liquidaciones (dos módulos que deben decir lo mismo)
+  const egresosCaja=(Array.isArray(caja)?caja:[]).filter(m=>m&&m.subtipo==='liquidacion_comision')
+    .reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+  const totalLiqMod=(Array.isArray(liquidaciones)?liquidaciones:[]).reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
+  if(Math.abs(egresosCaja-totalLiqMod)>1){
+    issues.push({
+      tipo:'red',
+      msg:'Lo que salió de caja para el cobrador no coincide con las liquidaciones registradas',
+      sub:`Egresos en caja: ${fmt(egresosCaja)} · Liquidaciones: ${fmt(totalLiqMod)} · Diferencia: ${fmt(Math.abs(egresosCaja-totalLiqMod))}`
+    });
+  }
+  if(dups.length){
+    const exceso=dups.reduce((s,d)=>s+d.exceso,0);
+    issues.push({
+      tipo:'red',
+      msg:`${dups.length} cobro(s) de comisión registrados por duplicado — ${fmt(exceso)} de más`,
+      sub:dups.slice(0,3).map(d=>`${d.cliente.nombre} · ${d.dia} · ${d.autores.join(' + ')} · ${fmt(d.exceso)}`).join(' — ')+(dups.length>3?` — y ${dups.length-3} más`:'')
+    });
+  }
   const totalEventosLiquidado=items.filter(x=>x.evento.liquidado).reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
   const totalLiquidaciones=liquidaciones.reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
   // Lo pagado (historial) = cobros enteros ya marcados + saldo a favor pendiente de aplicar.
@@ -4574,6 +4697,59 @@ function auditoriaComisiones(){
     issues.push({tipo:'blue',msg:`${legacy} cliente(s) conservan comisión migrada del historial anterior`,sub:'Las cuentas siguen funcionando, pero el detalle fino existe mejor desde esta versión en adelante.'});
   }
   return issues;
+}
+
+// Reporte de comisiones para el Inicio: responde de un vistazo "¿estoy perdiendo plata?".
+// Se corre solo al abrir la app. Si todo está sano muestra una línea verde y no estorba;
+// si hay plata en juego (duplicados, descuadres) lo pone arriba y en rojo.
+function renderAuditoriaInicio(){
+  const el=document.getElementById('inicio-auditoria');
+  if(!el)return;
+  if(!Array.isArray(clientes)||!clientes.length){el.innerHTML='';return;}
+  let issues=[];
+  try{issues=auditoriaComisiones()||[];}
+  catch(e){console.warn('Auditoría de comisiones falló:',e&&e.message);el.innerHTML='';return;}
+
+  const rojos=issues.filter(i=>i.tipo==='red');
+  const ambar=issues.filter(i=>i.tipo==='amber');
+  const items=eventosComisionTodos('todo');
+  const generada=items.reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
+  const tuya=items.reduce((s,x)=>{
+    const e=x.evento,com=Math.max(0,Math.round(e.comision||0));
+    const i=Math.max(0,Math.round(e.interes||0)),m=Math.max(0,Math.round(e.mora||0));
+    const adm=(e.admin===undefined||e.admin===null)?((i+m)-com):e.admin;
+    return s+Math.max(0,Math.round(adm||0));
+  },0);
+  const base=generada+tuya;
+  const pctReal=base>0?Math.round(generada/base*100):0;
+
+  if(!rojos.length&&!ambar.length){
+    el.innerHTML=`<div class="card" style="border-color:rgba(80,227,164,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:12px;color:var(--green);font-weight:700">✓ Comisiones revisadas — ${items.length} cobros, todo cuadra</div>
+        <div style="font-size:11px;color:var(--text3)">Cobrador ${pctReal}% (${fmt(generada)}) · Tú ${100-pctReal}% (${fmt(tuya)})</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Pendiente de pagarle: <strong style="color:var(--gold)">${fmt(saldoCobrador())}</strong> — es plata ya generada, no un error.</div>
+    </div>`;
+    return;
+  }
+
+  const color=rojos.length?'var(--red)':'var(--amber)';
+  const fondo=rojos.length?'rgba(255,107,107,.07)':'rgba(255,170,68,.07)';
+  el.innerHTML=`<div class="card" style="border-color:${color};background:${fondo}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;gap:10px;flex-wrap:wrap">
+      <div style="font-size:13px;font-weight:700;color:${color}">${rojos.length?'⚠ Revisa las comisiones':'Comisiones: puntos por revisar'}</div>
+      <button class="btn btn-ghost btn-sm" onclick="goTab('comisiones',document.getElementById('tab-comisiones'))">Ver detalle →</button>
+    </div>
+    ${[...rojos,...ambar].map(i=>`
+      <div style="padding:7px 0;border-top:1px solid var(--line)">
+        <div style="font-size:12px;font-weight:600;color:${i.tipo==='red'?'var(--red)':'var(--amber)'}">${i.msg}</div>
+        ${i.sub?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${i.sub}</div>`:''}
+      </div>`).join('')}
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:7px;border-top:1px solid var(--line)">
+      Sobre ${items.length} cobros · Cobrador ${pctReal}% (${fmt(generada)}) · Tú ${100-pctReal}% (${fmt(tuya)})
+    </div>
+  </div>`;
 }
 
 function renderComisiones(){
