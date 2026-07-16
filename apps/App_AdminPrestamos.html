@@ -1741,6 +1741,17 @@ function pagoAnticipadoElegible(c){
   const d=diasDesdeCreacion(c);
   return d!==null&&d>=0&&d<PAGO_ANTICIPADO_DIAS;
 }
+
+// Lo que se le cobra HOY a un cliente: la cuota que sigue + la mora, menos lo ya abonado.
+// NO es saldo(c) — eso es toda la deuda restante del préstamo. Mostrar el saldo aquí hacía
+// que el admin le pidiera al cliente pagar el préstamo entero en vez de la cuota.
+// Misma fórmula que usa App_Cobrar (cuotaBase + m - yaAbonado): si cambias una, cambia la otra.
+function _aCobrarHoy(c,moraVal){
+  if(!c)return 0;
+  const cuotaBase=(c.cuotasData&&c.cuotasData[c.pagadas]&&c.cuotasData[c.pagadas].cuota)||c.cuota||0;
+  const m=Math.max(0,Math.round(moraVal===undefined?mora(c):moraVal));
+  return Math.max(0,Math.round(cuotaBase+m-(c.abonoPendiente||0)));
+}
 function montoPagoAnticipado(c){
   const cap=Math.max(0,Math.round(c.capital||0));
   const intReal=Math.round(cap*PAGO_ANTICIPADO_PCT/100);
@@ -2027,7 +2038,8 @@ function verCliente(id,soliId=null){
       <div class="cs"><div class="csl">Mora/día</div><div class="csv" style="color:var(--red)">${fmt(c.moraDia)}</div></div>
       <div class="cs"><div class="csl">Mora total</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>
     </div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:9px;font-size:13px"><span>Total a cobrar hoy</span><strong style="color:var(--red)">${fmt(sd+m)}</strong></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span>A cobrar hoy: cuota ${Math.min(c.pagadas+1,c.numCuotas)}/${c.numCuotas} + mora</span><strong style="color:var(--red)">${fmt(_aCobrarHoy(c,m))}</strong></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:9px;font-size:11px;color:var(--text3)"><span>Saldo total del préstamo</span><span>${fmt(sd)}</span></div>
     <button class="btn btn-ghost btn-sm btn-full" onclick="perdonarMora('${c.id}')">🤝 Perdonar mora</button></div>`:graciaOn?`<div class="ibox blue" style="font-size:12px">🛡️ Sin mora hasta <strong>${graciaTxt}</strong> — gabela activa</div>`:c.graciaHasta?`<div class="ibox amber" style="font-size:12px">🛡️ La gabela terminó el <strong>${graciaTxt}</strong></div>`:'<div class="ibox green" style="font-size:12px">✓ Al día — sin mora</div>';
   const cuotasHTML=c.cuotasData.map((q,i)=>{
     const fechaProg=fechaCobroProgramada(c,q,i)||q.fechaISO;
@@ -3999,7 +4011,7 @@ function aplicarParamsAlFormulario(p){
 // ===== BACKUP / RESTORE JSON =====
 function exportarBackupJSON(){
   const backup={
-    version:3,
+    version:4,
     fecha:coDateTimeISO(),
     clientes,
     actividad,
@@ -4008,7 +4020,11 @@ function exportarBackupJSON(){
     solicitudes:window._solicitudes||[],
     params:window._paramsGlobalesFB||JSON.parse(localStorage.getItem(PARAMS_KEY)||'{}'),
     waTemplate:getWATemplate(),
-    comisionPct:pctGlobal()
+    comisionPct:pctGlobal(),
+    // El crédito a favor del cobrador es PLATA: es el sobrante de un abono que no alcanzó a
+    // cubrir un cobro entero y se aplica en el siguiente. Vivía solo en config/ de Firebase y
+    // no se respaldaba: al restaurar se perdía y el cuadre de liquidaciones quedaba descuadrado.
+    creditoCobrador:Math.max(0,Math.round(window._creditoCobrador||0))
   };
   const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
   const a=document.createElement('a');
@@ -4047,6 +4063,13 @@ function restaurarBackupJSON(input){
         if(b.params)db.ref('config/params').set(b.params);
         if(b.waTemplate)db.ref('config/waTemplate').set(b.waTemplate);
         if(b.comisionPct!==undefined&&b.comisionPct!==null)db.ref('config/comisionPct').set(parseFloat(b.comisionPct));
+        // Backups viejos (v3) no traen creditoCobrador: en ese caso NO se toca el valor actual,
+        // porque ponerlo en 0 le regalaría ese saldo a favor al cobrador sin que nadie se entere.
+        if(b.creditoCobrador!==undefined&&b.creditoCobrador!==null){
+          const cred=Math.max(0,Math.round(parseFloat(b.creditoCobrador)||0));
+          db.ref('config/creditoCobrador').set(cred);
+          window._creditoCobrador=cred;
+        }
       }
       localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
       localStorage.setItem(PARAMS_KEY,JSON.stringify(b.params||{}));
@@ -4621,10 +4644,154 @@ function balanceComisionCaja(){
   }).filter(x=>Math.abs(x.dif)>2).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
 }
 
+// Al cerrar un ciclo (refinanciar / nuevo préstamo) se archiva una FOTO del cliente en c.ciclos,
+// con sus comisionEventos incluidos. Casi todos son copias de eventos que siguen vivos en
+// c.comisionEventos — inofensivos. Pero algunos cobros del final del ciclo quedan SOLO en la
+// foto y desaparecen de la lista viva. Como comisionEventosCliente() no mira c.ciclos, esos
+// cobros se vuelven invisibles: si estaban pendientes, el cobrador nunca los cobra.
+// Identidad de un evento. Casi todos traen id, pero hay eventos viejos sin él: si se saltaran,
+// un cobro enterrado quedaría invisible justo por estar peor guardado. El respaldo por contenido
+// los cubre.
+function _claveEvento(e){
+  if(!e)return '';
+  if(e.id)return 'id:'+e.id;
+  return ['ts:'+(Number(e.ts)||0),String(e.nota||''),Math.round(e.comision||0),Math.round(e.interes||0)].join('¦');
+}
+function eventosArchivadosPerdidos(){
+  const out=[];
+  (Array.isArray(clientes)?clientes:[]).forEach(c=>{
+    const ciclos=Array.isArray(c.ciclos)?c.ciclos:[];
+    if(!ciclos.length)return;
+    const vivos=new Set(comisionEventosCliente(c).map(_claveEvento).filter(Boolean));
+    ciclos.forEach((ci,idx)=>{
+      const evs=(ci&&Array.isArray(ci.comisionEventos))?ci.comisionEventos:[];
+      evs.forEach(ev=>{
+        if(!ev)return;
+        const k=_claveEvento(ev);
+        if(!k||vivos.has(k))return; // es una copia del que sigue vivo: todo bien
+        out.push({cliente:c,evento:ev,ciclo:idx,comision:Math.max(0,Math.round(ev.comision||0)),pendiente:!ev.liquidado});
+      });
+    });
+  });
+  return out.sort((a,b)=>b.comision-a.comision);
+}
+
+// ══════════════════════════════════════════════
+// APORTE DE SEGURIDAD (mensual, 50/50 con el cobrador)
+// El aporte total se paga en efectivo (gasto en caja). Tu mitad sale de tu ganancia; la del
+// cobrador se le descuenta de su comisión pendiente marcando cobros ENTEROS por FIFO. Si no
+// hay un cobro que encaje justo, queda un sobrante que absorbes tú — por diseño, pero conviene
+// verlo: si se repite todos los meses, se acumula sin que nadie lo note.
+// ══════════════════════════════════════════════
+function aportesSeguridad(){
+  return (Array.isArray(liquidaciones)?liquidaciones:[]).filter(l=>l&&l.esSeguridad);
+}
+function mesesSinAporteSeguridad(){
+  const segs=aportesSeguridad();
+  if(!segs.length)return []; // nunca ha usado el módulo: no molestar
+  const registrados=new Set(segs.map(l=>String(l.mes||'')));
+  // Desde el primer aporte hasta el mes pasado. El mes en curso no se exige: aún puede pagarse.
+  const desde=segs.map(l=>String(l.mes||'')).filter(Boolean).sort()[0];
+  if(!/^\d{4}-\d{2}$/.test(desde||''))return [];
+  const hoyKey=(typeof coDateKey==='function'?coDateKey():hoy()).slice(0,7);
+  const faltan=[];
+  let [y,m]=desde.split('-').map(Number);
+  for(let i=0;i<120;i++){
+    const k=`${y}-${String(m).padStart(2,'0')}`;
+    if(k>=hoyKey)break;
+    if(!registrados.has(k))faltan.push(k);
+    m++; if(m>12){m=1;y++;}
+  }
+  return faltan;
+}
+function auditoriaSeguridad(){
+  const issues=[];
+  const segs=aportesSeguridad();
+  if(!segs.length)return issues;
+
+  // Meses saltados (ya vencidos)
+  const faltan=mesesSinAporteSeguridad();
+  if(faltan.length){
+    issues.push({
+      tipo:'amber',
+      msg:`${faltan.length} mes(es) sin aporte de seguridad registrado`,
+      sub:`Sin registrar: ${faltan.join(', ')}. Si de verdad se pagaron, regístralos; si no, ignóralo.`
+    });
+  }
+  // Recordatorio del mes en curso: todavía no está vencido, pero es fácil que se pase.
+  const mesActual=(typeof coDateKey==='function'?coDateKey():hoy()).slice(0,7);
+  if(!segs.some(l=>String(l.mes||'')===mesActual)){
+    const ult=segs.slice().sort((a,b)=>(b.ts||0)-(a.ts||0))[0];
+    issues.push({
+      tipo:'blue',
+      msg:`Falta registrar el aporte de seguridad de ${mesActual}`,
+      sub:ult?`El último fue ${ult.mes} por ${fmt(ult.segTotal||0)} (tú ${fmt(ult.segAdmin||0)} / cobrador ${fmt(ult.segCobrador||0)}).`:''
+    });
+  }
+  // Lo que absorbiste tú por granularidad
+  const parciales=segs.filter(l=>Math.round(l.segCobradorDescontado||0)<Math.round(l.segCobrador||0));
+  if(parciales.length){
+    const tot=parciales.reduce((s,l)=>s+(Math.round(l.segCobrador||0)-Math.round(l.segCobradorDescontado||0)),0);
+    issues.push({
+      tipo:'amber',
+      msg:`Absorbiste ${fmt(tot)} de la mitad del cobrador en ${parciales.length} aporte(s)`,
+      sub:'No alcanzó a descontarse de su comisión (se marcan cobros enteros). '+
+          parciales.slice(0,3).map(l=>`${l.mes}: le tocaban ${fmt(l.segCobrador)}, se le descontaron ${fmt(l.segCobradorDescontado)}`).join(' — ')
+    });
+  }
+  // Mes duplicado
+  const porMes={};
+  segs.forEach(l=>{const k=String(l.mes||'');porMes[k]=(porMes[k]||0)+1;});
+  const dupMes=Object.entries(porMes).filter(([,n])=>n>1);
+  if(dupMes.length){
+    issues.push({
+      tipo:'red',
+      msg:`${dupMes.length} mes(es) con el aporte de seguridad registrado más de una vez`,
+      sub:dupMes.map(([k,n])=>`${k} ×${n}`).join(' — ')+'. Se le descontó comisión de más al cobrador.'
+    });
+  }
+  // El total debe partirse exacto entre los dos
+  const malPartido=segs.filter(l=>Math.round(l.segTotal||0)!==Math.round(l.segCobrador||0)+Math.round(l.segAdmin||0));
+  if(malPartido.length){
+    issues.push({
+      tipo:'red',
+      msg:`${malPartido.length} aporte(s) de seguridad mal repartidos`,
+      sub:malPartido.slice(0,3).map(l=>`${l.mes}: total ${fmt(l.segTotal)} ≠ ${fmt(l.segCobrador)} + ${fmt(l.segAdmin)}`).join(' — ')
+    });
+  }
+  // Cuadre con caja: el gasto en caja debe ser el TOTAL de los aportes
+  const gastoCaja=(Array.isArray(caja)?caja:[]).filter(m=>m&&m.subtipo==='seguridad')
+    .reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+  const totalSeg=segs.reduce((s,l)=>s+Math.max(0,Math.round(l.segTotal||0)),0);
+  if(Math.abs(gastoCaja-totalSeg)>1){
+    issues.push({
+      tipo:'red',
+      msg:'El gasto de seguridad en caja no coincide con los aportes registrados',
+      sub:`Caja: ${fmt(gastoCaja)} · Aportes: ${fmt(totalSeg)} · Diferencia: ${fmt(Math.abs(gastoCaja-totalSeg))}`
+    });
+  }
+  return issues;
+}
+
 function auditoriaComisiones(){
   const issues=[];
   const items=eventosComisionTodos('todo');
   const dups=duplicadosComision();
+  issues.push(...auditoriaSeguridad());
+
+  // ── Cobros enterrados en ciclos archivados ──
+  const perdidos=eventosArchivadosPerdidos();
+  const perdidosPend=perdidos.filter(p=>p.pendiente&&p.comision>0);
+  if(perdidosPend.length){
+    const tot=perdidosPend.reduce((s,p)=>s+p.comision,0);
+    issues.push({
+      tipo:'red',
+      msg:`${perdidosPend.length} cobro(s) quedaron enterrados al cerrar un ciclo — le debes ${fmt(tot)} al cobrador`,
+      sub:`Están dentro de c.ciclos y el módulo de comisiones no los ve, así que nunca se le van a liquidar. `+
+          perdidosPend.slice(0,3).map(p=>`${p.cliente.nombre} · ${fmt(p.comision)}`).join(' — ')+
+          (perdidosPend.length>3?` — y ${perdidosPend.length-3} más`:'')
+    });
+  }
 
   // ── Cruce con caja (por totales; el detalle por cobro va como apoyo) ──
   const balance=balanceComisionCaja();
@@ -4712,6 +4879,7 @@ function renderAuditoriaInicio(){
 
   const rojos=issues.filter(i=>i.tipo==='red');
   const ambar=issues.filter(i=>i.tipo==='amber');
+  const azules=issues.filter(i=>i.tipo==='blue');
   const items=eventosComisionTodos('todo');
   const generada=items.reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
   const tuya=items.reduce((s,x)=>{
@@ -4723,7 +4891,7 @@ function renderAuditoriaInicio(){
   const base=generada+tuya;
   const pctReal=base>0?Math.round(generada/base*100):0;
 
-  if(!rojos.length&&!ambar.length){
+  if(!rojos.length&&!ambar.length&&!azules.length){
     el.innerHTML=`<div class="card" style="border-color:rgba(80,227,164,.3)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:12px;color:var(--green);font-weight:700">✓ Comisiones revisadas — ${items.length} cobros, todo cuadra</div>
@@ -4734,16 +4902,18 @@ function renderAuditoriaInicio(){
     return;
   }
 
-  const color=rojos.length?'var(--red)':'var(--amber)';
-  const fondo=rojos.length?'rgba(255,107,107,.07)':'rgba(255,170,68,.07)';
+  const colorDe=t=>t==='red'?'var(--red)':t==='amber'?'var(--amber)':'#6EB3FF';
+  const color=rojos.length?'var(--red)':ambar.length?'var(--amber)':'#6EB3FF';
+  const fondo=rojos.length?'rgba(255,107,107,.07)':ambar.length?'rgba(255,170,68,.07)':'rgba(110,179,255,.07)';
+  const titulo=rojos.length?'⚠ Revisa las comisiones':ambar.length?'Comisiones: puntos por revisar':'Recordatorio';
   el.innerHTML=`<div class="card" style="border-color:${color};background:${fondo}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;gap:10px;flex-wrap:wrap">
-      <div style="font-size:13px;font-weight:700;color:${color}">${rojos.length?'⚠ Revisa las comisiones':'Comisiones: puntos por revisar'}</div>
+      <div style="font-size:13px;font-weight:700;color:${color}">${titulo}</div>
       <button class="btn btn-ghost btn-sm" onclick="goTab('comisiones',document.getElementById('tab-comisiones'))">Ver detalle →</button>
     </div>
-    ${[...rojos,...ambar].map(i=>`
+    ${[...rojos,...ambar,...azules].map(i=>`
       <div style="padding:7px 0;border-top:1px solid var(--line)">
-        <div style="font-size:12px;font-weight:600;color:${i.tipo==='red'?'var(--red)':'var(--amber)'}">${i.msg}</div>
+        <div style="font-size:12px;font-weight:600;color:${colorDe(i.tipo)}">${i.msg}</div>
         ${i.sub?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${i.sub}</div>`:''}
       </div>`).join('')}
     <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-top:7px;border-top:1px solid var(--line)">
