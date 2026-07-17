@@ -189,13 +189,12 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div class="scroll">
 
 <div id="panel-inicio" class="panel active">
-  <!-- Auditoría automática de comisiones: se corre sola al abrir y solo aparece si hay algo que mirar -->
-  <div id="inicio-auditoria"></div>
-  <!-- 4 números clave (mismos valores que Caja) -->
-  <div class="g2">
-    <div class="metric gold"><div class="ml">Disponible p/ prestar</div><div class="mv" id="m-disp">$0</div></div>
-    <div class="metric"><div class="ml">Capital en calle</div><div class="mv" style="color:var(--amber)" id="m-capital">$0</div></div>
+  <!-- Aviso de salud: cuadre general, sale solo al abrir -->
+  <div id="inicio-salud"></div>
+  <!-- 3 números clave (mismos valores que Caja) -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
     <div class="metric green"><div class="ml">Cobrado hoy</div><div class="mv" id="m-cobrado">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-cobrado-sub">de $0 esperado</div></div>
+    <div class="metric"><div class="ml">Capital en calle</div><div class="mv" style="color:var(--amber)" id="m-capital">$0</div></div>
     <div class="metric"><div class="ml">Mora total</div><div class="mv" id="m-mora-total">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-mora-sub">—% del capital</div></div>
   </div>
   <!-- Disponible para prestar (manual — lo ve el cobrador) -->
@@ -209,21 +208,10 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="editarDisponibleManual()">✏️ Editar</button>
     </div>
   </div>
-  <!-- Alertas inteligentes -->
+  <!-- Alertas inteligentes (decisiones que requieren tu atención) -->
   <div id="panel-alertas"></div>
-  <div class="card" style="border-color:var(--goldb);margin-bottom:12px">
-    <div class="ct">⚡ Atajos rápidos</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <button class="btn btn-primary btn-sm" onclick="goTab('solicitudes',document.getElementById('tab-solicitudes'))">📬 Solicitudes</button>
-      <button class="btn btn-ghost btn-sm" onclick="irAClientesEnMora()">⚠️ Clientes en mora</button>
-      <button class="btn btn-blue btn-sm" onclick="goTab('nuevo',document.getElementById('tab-nuevo'))">➕ Nuevo préstamo</button>
-      <button class="btn btn-ghost btn-sm" onclick="goTab('calendario',document.getElementById('tab-calendario'))">📅 Calendario</button>
-    </div>
-  </div>
-  <!-- Pendientes (un solo bloque, sin duplicar) -->
+  <!-- Pendientes (una sola bandeja de acción) -->
   <div class="card"><div class="ct">📥 Pendientes</div><div id="inicio-pendientes"></div></div>
-  <!-- Candidatos a renovar -->
-  <div id="panel-renovar"></div>
 </div>
 
 <div id="panel-clientes" class="panel">
@@ -351,8 +339,13 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 </div>
 
 <div id="panel-finanzas" class="panel">
-  <!-- Métricas rentabilidad -->
-  <div class="g2" id="fin-metricas"></div>
+  <!-- Resumen al grano (vista limpia) -->
+  <div id="fin-resumen" style="margin-bottom:14px"></div>
+  <!-- Métricas rentabilidad (detalle) -->
+  <details id="fin-detalle" style="margin-bottom:4px">
+    <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text3);padding:6px 0;user-select:none">📊 Ver detalle completo</summary>
+    <div class="g2" id="fin-metricas" style="margin-top:10px"></div>
+  </details>
   <!-- Proyección 30 días -->
   <div class="card" style="margin-top:12px">
     <div class="ct">📅 Proyección próximos 30 días</div>
@@ -1998,7 +1991,7 @@ function semaforo(c){
 function renderInicio(){
   const h=hoy();
   const act=clientes.filter(c=>c.pagadas<c.numCuotas);
-  renderAuditoriaInicio();
+  renderSaludInicio();
 
   const m=metricasCaja();
 
@@ -3408,6 +3401,34 @@ function renderFinanzas(){
     <div class="metric"><div class="ml">Efectividad cobro</div><div class="mv" style="color:${efectividad>=70?'var(--green)':efectividad>=40?'var(--amber)':'var(--red)'}">${efectividad}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">estimado · interés cobrado vs esperado</div></div>
     <div class="metric"><div class="ml">ROI mensual est.</div><div class="mv">${roiMensual.toFixed(1)}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">estimado</div></div>`;
 
+  // — Resumen al grano (vista limpia): mismos números de metricasCaja, sin ruido —
+  const comPendResumen=clientes.reduce((s,c)=>s+(resumenComisionCliente(c).pendiente||0),0);
+  const enCalle=Math.max(0,mc.principalCalle);
+  const enCaja=Math.max(0,mc.disponibleReal);
+  const capTotal=enCalle+enCaja;
+  const pCalle=capTotal>0?Math.round(enCalle/capTotal*100):0;
+  const pCaja=100-pCalle;
+  const resEl=document.getElementById('fin-resumen');
+  if(resEl)resEl.innerHTML=`
+    <div class="card" style="padding:20px">
+      <div style="font-size:12px;color:var(--text3);font-weight:600">Tu capital total trabajando</div>
+      <div style="font-size:34px;font-weight:800;color:var(--green);letter-spacing:-.02em;margin:2px 0">${fmt(capTotal)}</div>
+      <div style="font-size:11px;color:var(--text3)">efectivo en caja + capital prestado en la calle</div>
+      <div style="display:flex;height:12px;border-radius:6px;overflow:hidden;margin:14px 0 10px;background:var(--bg3)">
+        <div style="width:${pCalle}%;background:var(--green)"></div>
+        <div style="width:${pCaja}%;background:var(--gold)"></div>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px">
+        <span style="color:var(--text2)"><span style="color:var(--green)">●</span> En la calle <b style="color:var(--text)">${fmt(enCalle)}</b></span>
+        <span style="color:var(--text2)"><span style="color:var(--gold)">●</span> En caja <b style="color:var(--text)">${fmt(enCaja)}</b></span>
+      </div>
+    </div>
+    <div class="g2" style="margin-top:10px">
+      <div class="metric"><div class="ml">Te deben en la calle</div><div class="mv" style="color:var(--amber)">${fmt(mc.carteraTotal)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">capital + interés pendiente</div></div>
+      <div class="metric"><div class="ml">Mora hoy</div><div class="mv" style="color:${mc.moraActiva>0?'var(--red)':'var(--green)'}">${fmt(mc.moraActiva)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">${enMora.length} cliente${enMora.length!==1?'s':''} atrasado${enMora.length!==1?'s':''}</div></div>
+      <div class="metric"><div class="ml">Comisión por pagar</div><div class="mv" style="color:var(--amber)">${fmt(comPendResumen)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">al cobrador</div></div>
+    </div>`;
+
   // — Proyección 30 días —
   const proyeccion=[];
   let totalProy=0;
@@ -4191,6 +4212,10 @@ function ejecutarReconciliacionUI(){
         <div class="cs"><div class="csl">Desembolsos</div><div class="csv">${fmt(r.resumen.sumDesemb)}</div></div>
         <div class="cs"><div class="csl">Comision pendiente</div><div class="csv">${fmt(r.resumen.comPendiente)}</div></div>
       </div>
+
+      ${(()=>{const s=saludApp();return s.ok
+        ?`<div class="ibox green" style="margin-bottom:10px"><div style="font-weight:700">✓ Salud general: todo cuadra</div><div style="font-size:11px;color:var(--text3)">Comisiones, caja y cuotas sin descuadres.</div></div>`
+        :`<div class="ibox red" style="margin-bottom:10px"><div style="font-weight:700;margin-bottom:4px">⚠ Salud general: ${s.problemas.length} cosa${s.problemas.length!==1?'s':''} por revisar</div>${s.problemas.map(p=>`<div style="font-size:11px;padding:3px 0"><strong style="color:${p.sev==='alto'?'var(--red)':'var(--amber)'}">${htmlSafe(p.msg)}</strong>${p.sub?`<div style="color:var(--text3)">${htmlSafe(p.sub)}</div>`:''}</div>`).join('')}</div>`;})()}
 
       ${rev.automaticos.length?`<div class="ibox green" style="margin-bottom:10px">
         <div style="font-weight:700;margin-bottom:2px">Se arreglan solos</div>
@@ -5590,6 +5615,41 @@ function revisionCompleta(){
   return {automaticos,decisiones,informativos};
 }
 
+// ── Chequeo de salud: junta los descuadres que de verdad importan ──
+// Lo usan el aviso de Inicio (al abrir) y se puede resolver desde el botón de reconciliación.
+// Solo descuadres CLAROS: comisiones dobles/huérfanas (rojos del auditor), caja en negativo,
+// e invariante numCuotas>=cuotasData (deuda que se vuelve invisible). Devuelve {ok, problemas[]}.
+function saludApp(){
+  const problemas=[];
+  try{ (auditoriaComisiones()||[]).filter(i=>i&&i.tipo==='red').forEach(i=>problemas.push({sev:'alto',msg:i.msg,sub:i.sub||''})); }catch(e){}
+  try{ const mc=metricasCaja(); if(mc.disponibleReal<0)problemas.push({sev:'alto',msg:'Disponible para prestar en NEGATIVO ('+fmt(mc.disponibleReal)+')',sub:'Prestaste más de lo registrado como capital, o pagaste comisiones/gastos por encima de tu caja.'}); }catch(e){}
+  const rotos=(Array.isArray(clientes)?clientes:[]).filter(c=>c&&Array.isArray(c.cuotasData)&&(c.numCuotas||0)<c.cuotasData.length);
+  if(rotos.length)problemas.push({sev:'alto',msg:rotos.length+' cliente(s) con cuotas descuadradas',sub:rotos.map(c=>c.nombre).join(', ')+' — su deuda puede volverse invisible (numCuotas quedó corto). Repáralo en Reconciliación.'});
+  return {ok:problemas.length===0, problemas};
+}
+function renderSaludInicio(){
+  const el=document.getElementById('inicio-salud');
+  if(!el)return;
+  if(!Array.isArray(clientes)||!clientes.length){el.innerHTML='';return;}
+  let s; try{s=saludApp();}catch(e){el.innerHTML='';return;}
+  if(s.ok){
+    el.innerHTML=`<div class="card" style="border-color:rgba(80,227,164,.35);background:rgba(80,227,164,.06);display:flex;align-items:center;gap:11px">
+      <div style="font-size:22px;line-height:1">✓</div>
+      <div><div style="font-size:13px;font-weight:700;color:var(--green)">Todo cuadra</div>
+      <div style="font-size:11px;color:var(--text3)">Comisiones, caja y cuotas sin descuadres.</div></div></div>`;
+    return;
+  }
+  el.innerHTML=`<div class="card" style="border-color:var(--red);background:rgba(255,107,107,.07)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+      <div style="font-size:13px;font-weight:800;color:var(--red)">⚠ ${s.problemas.length} cosa${s.problemas.length!==1?'s':''} por revisar</div>
+      <button class="btn btn-ghost btn-sm" onclick="goTab('config',document.getElementById('tab-config'))">Reconciliar →</button>
+    </div>
+    ${s.problemas.map(p=>`<div style="padding:7px 0;border-top:1px solid var(--line)">
+      <div style="font-size:12px;font-weight:600;color:${p.sev==='alto'?'var(--red)':'var(--amber)'}">${p.msg}</div>
+      ${p.sub?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${p.sub}</div>`:''}
+    </div>`).join('')}
+  </div>`;
+}
 function renderAuditoriaInicio(){
   const el=document.getElementById('inicio-auditoria');
   if(!el)return;
