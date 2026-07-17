@@ -949,6 +949,134 @@ function coUTCDateFromKey(key){
 function keyFromUTCDate(d){return d.getUTCFullYear()+'-'+pad2(d.getUTCMonth()+1)+'-'+pad2(d.getUTCDate());}
 function labelFromUTCDate(d){return pad2(d.getUTCDate())+'/'+pad2(d.getUTCMonth()+1)+'/'+d.getUTCFullYear();}
 function addDaysToKey(key,days){const d=coUTCDateFromKey(key);d.setUTCDate(d.getUTCDate()+days);return keyFromUTCDate(d);}
+
+// ══════════════════════════════════════════════
+// FECHAS ANCLADAS AL CALENDARIO
+// Antes las fechas se contaban sumando días desde el inicio (quincenal = +15, +30…). Un préstamo
+// que arrancaba el 15/07 daba 30/07 y 14/08: nunca caía en el 15 ni en fin de mes, y no había
+// forma de fijarlo. Ahora se anclan a fechas reales del calendario.
+//   quincenal → los días que elijas del mes (por defecto 15 y último)
+//   semanal   → siempre el mismo día de la semana (p. ej. todos los sábados)
+//   mensual   → siempre el mismo día del mes
+//   diario    → sin anclaje, +1 día
+// 'fin' = último día del mes, sea 28, 30 o 31. Un ancla en 31 cae al último día real en los
+// meses cortos (31 en febrero → 28), NUNCA se desborda al mes siguiente.
+// ══════════════════════════════════════════════
+const FIN_MES='fin';
+const DIA_SEMANA={0:'domingo',1:'lunes',2:'martes',3:'miércoles',4:'jueves',5:'viernes',6:'sábado'};
+function ultimoDiaMesUTC(y,m){return new Date(Date.UTC(y,m+1,0)).getUTCDate();}
+// Día ancla dentro de un mes concreto, recortado al último día real de ese mes.
+function fechaAnclaEnMes(y,m,dia){
+  const ult=ultimoDiaMesUTC(y,m);
+  const d=(dia===FIN_MES||dia==='fin'||Number(dia)>=31)?ult:Math.max(1,Math.min(Number(dia)||1,ult));
+  return new Date(Date.UTC(y,m,d));
+}
+// Ancla por defecto de cada frecuencia, deducida de la fecha de inicio cuando hace falta.
+function anclaPorDefecto(tipo,fechaStr){
+  const ini=coUTCDateFromKey(fechaStr||hoy());
+  if(tipo==='semanal')return{tipo:'semanal',diaSemana:ini.getUTCDay()};
+  if(tipo==='quincenal')return{tipo:'quincenal',dias:[15,FIN_MES]};
+  if(tipo==='mensual'){const d=ini.getUTCDate();return{tipo:'mensual',dias:[d>=29?FIN_MES:d]};}
+  return null; // diario y personalizado no se anclan
+}
+// Devuelve `plazo` fechas ISO, todas ESTRICTAMENTE posteriores a fechaStr, en orden ascendente.
+function fechasAncladas(tipo,fechaStr,plazo,ancla){
+  const a=ancla&&ancla.tipo?ancla:anclaPorDefecto(tipo,fechaStr);
+  if(!a)return null; // sin anclaje: que decida el llamador
+  const ini=coUTCDateFromKey(fechaStr||hoy());
+  const out=[];
+  if(a.tipo==='semanal'){
+    const objetivo=Number(a.diaSemana);
+    const d=new Date(ini);
+    let salto=(objetivo-d.getUTCDay()+7)%7;
+    if(salto===0)salto=7;            // el mismo día de la fecha de inicio no cuenta: se paga después
+    d.setUTCDate(d.getUTCDate()+salto);
+    for(let i=0;i<plazo;i++){out.push(keyFromUTCDate(d));d.setUTCDate(d.getUTCDate()+7);}
+    return out;
+  }
+  // quincenal / mensual: recorre meses y recoge los días ancla que caigan después del inicio
+  const dias=(Array.isArray(a.dias)&&a.dias.length?a.dias:[15,FIN_MES]);
+  let y=ini.getUTCFullYear(),m=ini.getUTCMonth(),guardia=0;
+  while(out.length<plazo&&guardia++<600){
+    const delMes=dias.map(d=>fechaAnclaEnMes(y,m,d)).sort((p,q)=>p-q);
+    for(const f of delMes){
+      if(f>ini&&out.length<plazo){
+        const k=keyFromUTCDate(f);
+        if(!out.includes(k))out.push(k); // 30 y 'fin' colisionan en abril: una sola cuota
+      }
+    }
+    m++;if(m>11){m=0;y++;}
+  }
+  return out;
+}
+function anclaTexto(a){
+  if(!a||!a.tipo)return 'cada N días (sin anclar)';
+  if(a.tipo==='semanal')return 'todos los '+(DIA_SEMANA[a.diaSemana]||'?');
+  const n=(a.dias||[]).map(d=>d===FIN_MES?'último día':'día '+d);
+  return n.join(' y ')+' de cada mes';
+}
+
+// ── Ajustes hechos a mano sobre el cronograma ──
+// Regenerar cuotasData (al editar plazo/frecuencia/inicio) lo reconstruye DESDE CERO y se lleva
+// por delante todo lo ajustado a mano: cuotas extra y fechas movidas una por una. Le pasó a Keisy
+// el 17/07/2026 — editar el plazo borró la fecha que la extensión había dejado bien. Antes de
+// regenerar hay que preguntar, no asumir.
+function ajustesManualesCronograma(c){
+  if(!c||!Array.isArray(c.cuotasData))return [];
+  return c.cuotasData
+    .map((q,i)=>({q,i}))
+    .filter(({q})=>q&&(q.extra||q.manual||q.fechaEditada))
+    .map(({q,i})=>({idx:i,num:q.num,fechaISO:q.fechaISO,monto:q.cuota,
+                    motivo:q.extra?'cuota extra':'fecha movida a mano'}));
+}
+
+// ── Mover la fecha de UNA cuota ──
+// cuotasData es POSICIONAL: cuotasData[pagadas] es la próxima a cobrar. Mover una fecha puede
+// alterar el orden, así que se reordenan las PENDIENTES y se renumera. Las ya pagadas son
+// historia: jamás se tocan ni se reordenan.
+function editarFechaCuotaLocal(c,idx,nuevaFechaISO){
+  if(!c||!Array.isArray(c.cuotasData))return{ok:false,error:'Este cliente no tiene cronograma'};
+  if(!(idx>=0&&idx<c.cuotasData.length))return{ok:false,error:'Esa cuota no existe'};
+  const pag=Math.max(0,c.pagadas||0);
+  if(idx<pag)return{ok:false,error:'Esa cuota ya está pagada: su fecha es historia y no se cambia'};
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(nuevaFechaISO||'')))return{ok:false,error:'Fecha inválida'};
+  const objetivo=c.cuotasData[idx];
+  const anterior=objetivo.fechaISO;
+  if(anterior===nuevaFechaISO)return{ok:true,cambio:false,anterior,nueva:nuevaFechaISO};
+  objetivo.fechaISO=nuevaFechaISO;
+  objetivo.fecha=labelFromUTCDate(coUTCDateFromKey(nuevaFechaISO));
+  objetivo.fechaEditada=coDateTimeISO();
+  const yaPagadas=c.cuotasData.slice(0,pag);
+  const pendientes=c.cuotasData.slice(pag)
+    .sort((a,b)=>String(a.fechaISO||'').localeCompare(String(b.fechaISO||'')));
+  c.cuotasData=[...yaPagadas,...pendientes];
+  c.cuotasData.forEach((q,i)=>{q.num=i+1;});
+  return{ok:true,cambio:true,anterior,nueva:nuevaFechaISO,
+         posicion:c.cuotasData.indexOf(objetivo)};
+}
+
+// ── Quitar una cuota extra que se agregó por error ──
+// Caso real (Andrés, 16/07/2026): se usó "Cuota extra manual" para anotar una mora de $10.000.
+// La mora no entró a caja ni generó comisión, el préstamo pasó de 5 a 6 cuotas, y como la línea
+// quedó siendo la próxima a cobrar, la mora automática empezó a correr SOBRE ELLA: mora sobre mora.
+// Solo se pueden quitar cuotas extra (manuales) y no pagadas: una cuota del cronograma original o
+// ya cobrada jamás se borra.
+function eliminarCuotaExtraLocal(c,idx){
+  if(!c||!Array.isArray(c.cuotasData))return{ok:false,error:'Este cliente no tiene cronograma'};
+  if(!(idx>=0&&idx<c.cuotasData.length))return{ok:false,error:'Esa cuota no existe'};
+  const q=c.cuotasData[idx];
+  if(!q||!q.extra)return{ok:false,error:'Solo se pueden quitar cuotas extra, no las del cronograma original'};
+  if(idx<Math.max(0,c.pagadas||0))return{ok:false,error:'Esa cuota extra ya está pagada: no se puede quitar'};
+  const monto=Math.round(q.cuota||0);
+  c.cuotasData.splice(idx,1);
+  c.cuotasData.forEach((x,i)=>{x.num=i+1;});
+  // INVARIANTE numCuotas >= cuotasData.length: al quitar una cuota, numCuotas baja con ella.
+  // Si no, pagadas>=numCuotas puede dispararse y el cliente se vuelve invisible debiendo plata.
+  c.numCuotas=c.cuotasData.length;
+  c.plazo=c.numCuotas;
+  c.total=Math.max(0,Math.round(c.total||0)-monto);
+  return{ok:true,monto,numCuotas:c.numCuotas};
+}
 function coNowDate(){return coUTCDateFromKey(coDateKey());}
 function startOfCoDaySerial(value){const p=coParts(value);return Date.UTC(+p.year,+p.month-1,+p.day);}
 function sameCoDate(value,refKey){
@@ -1594,7 +1722,7 @@ function toggleInterno(){
 }
 
 // GENERAR CUOTAS — con redondeo inteligente
-function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom){
+function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom,ancla){
   const int=capital*(tasa/100),total=capital+int;
   // Redondeo: leer del campo si no se pasa como parámetro
   const rd=redondeo||parseInt(document.getElementById('n-redondeo')?.value)||1000;
@@ -1607,8 +1735,13 @@ function genCuotas(capital,tasa,plazo,tipo,fechaStr,redondeo,diasCustom){
   const dxc=diasCustom||(tipo==='personalizado'?diasEntreCuotas(tipo):DIAS[tipo]||1);
   // BUGFIX: usar UTC para evitar desfase de fechas según TZ del navegador
   const ini=coUTCDateFromKey(fechaStr||hoy()),arr=[];
+  // Fechas ancladas al calendario (15/fin de mes, sábados…). Si el tipo no se ancla —diario,
+  // personalizado— o el llamador pasa ancla:null a propósito, se vuelve al conteo por días.
+  const claves=(ancla===null)?null:fechasAncladas(tipo,fechaStr,plazo,ancla);
   for(let i=1;i<=plazo;i++){
-    const f=new Date(ini);f.setUTCDate(ini.getUTCDate()+i*dxc);
+    let f;
+    if(claves&&claves[i-1]){f=coUTCDateFromKey(claves[i-1]);}
+    else{f=new Date(ini);f.setUTCDate(ini.getUTCDate()+i*dxc);}
     const esFinal=i===plazo;
     const cq=esFinal?Math.round(cuotaUltima):cuota;
     arr.push({
@@ -2246,7 +2379,7 @@ function renderSolicitudesAdmin(){
   }
   const colores={pendiente:'var(--amber)',aprobado:'var(--green)',rechazado:'var(--red)'};
   const labels={pendiente:'⏳ Pendiente',aprobado:'✅ Aprobada',rechazado:'❌ Rechazada'};
-  el.innerHTML=lista.map(s=>{
+  const cardSoli=(s)=>{
     const info=infoSolicitudAdmin(s);
     const tipo=tipoSolicitudAdmin(s);
     const nombre=s.clienteNombre||s.nombre||'—';
@@ -2275,6 +2408,7 @@ function renderSolicitudesAdmin(){
           <div style="font-size:15px;font-weight:700;color:var(--text);margin-top:2px">${nombre}</div>
           <div style="font-size:12px;color:var(--text3)">${s.cedula?'CC '+s.cedula+' · ':''}${s.telefono?'📞 '+s.telefono:'Sin teléfono'}</div>
           <div style="font-size:12px;color:var(--text3)">${s.negocio?'🏪 '+s.negocio:''}${s.zona?' · 📍 '+s.zona:''}</div>
+          ${tieneCuenta(s)?`<div style="font-size:12px;color:#6EB3FF;margin-top:2px">🏦 ${htmlSafe(cuentaTexto(s))}</div>`:''}
           ${clienteLink}${capitalNuevo}${montoAbono}${nota}
           ${s.notaAdmin?`<div style="font-size:11px;color:var(--green);margin-top:5px">Admin: ${s.notaAdmin}</div>`:''}
         </div>
@@ -2285,7 +2419,21 @@ function renderSolicitudesAdmin(){
       </div>
       ${s.estado==='pendiente'?accionesPend:''}
     </div>`;
-  }).join('');
+  };
+  // Arriba solo lo PENDIENTE (lo que pide acción); lo atendido va a un Historial colapsable
+  // para que la lista no se quede "pegada" con solicitudes ya resueltas, sin perder el rastro.
+  const pendientes=lista.filter(s=>s.estado==='pendiente');
+  const resueltas=lista.filter(s=>s.estado!=='pendiente');
+  let html=pendientes.length
+    ? pendientes.map(cardSoli).join('')
+    : '<div style="font-size:12px;color:var(--text3);text-align:center;padding:10px 0">✅ Sin solicitudes pendientes</div>';
+  if(resueltas.length){
+    html+=`<details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text3);padding:6px 0;user-select:none">📁 Historial de atendidas (${resueltas.length})</summary>
+      <div style="margin-top:8px">${resueltas.map(cardSoli).join('')}</div>
+    </details>`;
+  }
+  el.innerHTML=html;
 }
 
 // Modal aprobación — reutiliza el formulario de nuevo préstamo pre-llenado
@@ -2302,6 +2450,9 @@ function abrirAprobacion(soliId){
   document.getElementById('n-telefono').value=s.telefono||'';
   document.getElementById('n-negocio').value=s.negocio||'';
   document.getElementById('n-zona').value=s.zona||'';
+  document.getElementById('n-banco').value=s.banco||'';
+  document.getElementById('n-tipo-cuenta').value=s.tipoCuenta||'';
+  document.getElementById('n-cuenta').value=s.numeroCuenta||'';
   document.getElementById('n-notas').value=s.notas||'';
   if(s.capitalSolicitado>0)document.getElementById('n-capital').value=s.capitalSolicitado;
   window._soliPendienteAprobacion=soliId;
@@ -4511,8 +4662,16 @@ function guardarEdicionCliente(){
     const plazoNuevo=sanitizarCuotas(document.getElementById('edit-plazo')?.value,c.numCuotas||1);
     const fechaNueva=document.getElementById('edit-fecha-inicio')?.value||c.fechaInicio;
     if(tipoNuevo!==c.tipo||plazoNuevo!==(c.numCuotas||c.plazo)||fechaNueva!==c.fechaInicio){
+      // Regenerar reconstruye el cronograma DESDE CERO: se lleva las cuotas extra y las fechas
+      // movidas a mano. Antes lo hacía en silencio (a Keisy le borró la fecha de su extensión).
+      const ajustes=ajustesManualesCronograma(c);
+      if(ajustes.length&&!confirm(
+        `Este cronograma tiene ${ajustes.length} ajuste(s) hechos a mano:\n\n`+
+        ajustes.map(a=>`  · Cuota ${a.num} (${a.fechaISO}) — ${a.motivo}`).join('\n')+
+        `\n\nAl cambiar plazo, frecuencia o fecha de inicio se regenera todo y ESOS AJUSTES SE PIERDEN.\n\n¿Continuar?`
+      )){return;}
       const rd=c.redondeo||1000;
-      const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(c.capital||0,c.tasa||20,plazoNuevo,tipoNuevo,fechaNueva,rd);
+      const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(c.capital||0,c.tasa||20,plazoNuevo,tipoNuevo,fechaNueva,rd,null,c.ancla);
       const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipoNuevo]||'cuota';
       c.tipo=tipoNuevo;c.plazo=plazoNuevo;c.numCuotas=plazoNuevo;c.tipoLabel=tl;
       c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
@@ -5105,6 +5264,47 @@ async function repararSeguridadColada(){
   return {movimientos:colados.length,monto};
 }
 
+// ── Ingresos de caja que quedaron vivos tras anular su evento duplicado ──
+// Cuando el cobrador y el admin registran el MISMO cobro (refKeys distintos: ext_cob: vs ext:,
+// así que el dedup no lo ve), quedan dos eventos de comisión y dos ingresos en caja.
+// repararDuplicadosComision anula el evento sobrante pero NO tocaba la caja: el ingreso fantasma
+// se quedaba y la caja mostraba plata que nunca entró. Esto cierra ese lado.
+// Es conservador a propósito: exige que exista OTRO ingreso igual el mismo día (nunca borra uno
+// solo) y que el ts calce con el del evento anulado, para no llevarse el bueno por error.
+function ingresosDuplicadosColados(){
+  const cajaArr=Array.isArray(caja)?caja:[];
+  const out=[];
+  eventosComisionTodos('todo').forEach(({cliente,evento})=>{
+    if(!evento||!evento.duplicadoAnulado)return;
+    const monto=Math.max(0,Math.round(evento.interes||0));
+    if(monto<=0)return;
+    const dia=_diaDeTs(evento.ts);
+    const pares=cajaArr.filter(m=>m&&m.tipo==='ingreso'&&/inter[eé]s/i.test(m.desc||'')&&
+      Math.round(m.monto||0)===monto&&_diaDeTs(m.ts)===dia&&
+      (m.clienteId===cliente.id||String(m.desc||'').includes(cliente.nombre||' ')));
+    if(pares.length<2)return;                       // uno solo = el legítimo: no tocar
+    const mov=pares.reduce((a,b)=>Math.abs(b.ts-evento.ts)<Math.abs(a.ts-evento.ts)?b:a);
+    if(Math.abs(mov.ts-evento.ts)>300000)return;    // no calza con este evento: no arriesgar
+    if(out.some(o=>o.mov.id===mov.id))return;
+    out.push({cliente,evento,mov,monto,dia});
+  });
+  return out;
+}
+async function repararIngresosDuplicados(){
+  const colados=ingresosDuplicadosColados();
+  if(!colados.length)return {movimientos:0,monto:0};
+  const monto=colados.reduce((s,x)=>s+x.monto,0);
+  const ids=new Set(colados.map(x=>x.mov.id));
+  for(const id of ids){ if(fbOk&&db) await db.ref('caja/'+id).remove().catch(()=>{}); }
+  for(let i=caja.length-1;i>=0;i--){ if(ids.has(caja[i].id))caja.splice(i,1); }
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  log({tipo:'reparacion_ingreso_duplicado',cliente:'Caja',monto,ts:Date.now(),autor:'Admin',
+       nota:`${colados.length} ingreso(s) duplicados eliminados de caja (${fmt(monto)}): `+
+            colados.map(x=>`${x.cliente.nombre} ${x.dia}`).join(' · ')+
+            '. Su evento de comisión ya estaba anulado por duplicado.'});
+  return {movimientos:colados.length,monto};
+}
+
 // ── Reconciliaciones automáticas que metieron más interés del que venían a cubrir ──
 // Su propia nota declara la diferencia ("Diff previo int X") pero el evento cargó más. NO basta
 // con esa señal: hay ciclos viejos con el interés mal archivado donde la reconciliación puso de
@@ -5309,6 +5509,26 @@ function revisionCompleta(){
       aplicar:async()=>{
         const r=await repararSeguridadColada();
         return `${r.movimientos} movimiento(s) eliminados · caja +${fmt(r.monto)}`;
+      }
+    });
+  }
+
+  // ── Decisión: ingresos duplicados que sobrevivieron a la anulación de su evento ──
+  const ingDup=ingresosDuplicadosColados();
+  if(ingDup.length){
+    const montoID=ingDup.reduce((s,x)=>s+x.monto,0);
+    decisiones.push({
+      id:'ingdup',
+      titulo:`Quitar ${ingDup.length} ingreso(s) duplicados en caja`,
+      monto:montoID,
+      direccion:'admin',
+      detalle:ingDup.map(x=>`${x.cliente.nombre} ${x.dia} ${fmt(x.monto)}`).join(' · ')+
+              `. El mismo cobro se registró dos veces (cobrador y admin) y su evento de comisión `+
+              `ya quedó anulado, pero el ingreso siguió en caja. Al quitarlo tu caja BAJA ${fmt(montoID)}: `+
+              `es plata que los libros mostraban y nunca entró.`,
+      aplicar:async()=>{
+        const r=await repararIngresosDuplicados();
+        return `${r.movimientos} ingreso(s) eliminados · caja −${fmt(r.monto)}`;
       }
     });
   }
@@ -6091,7 +6311,7 @@ function confirmarNuevoCiclo(){
   registrarCajaAuto('desembolso_prestamo',capital,`Nuevo ciclo: ${c.nombre}`,`prestamo:${c.id}:ciclo${c.ciclos.length}`,{clienteId:c.id,cliente:c.nombre});
   cerrar('modal-nuevo-ciclo');
   notify(`Ciclo ${c.ciclos.length+1} creado para ${c.nombre} ✓`,'ok');
-  marcarSoliRenovacionAprobada(); // FIX: resolver la solicitud de renovación (antes se quedaba pegada en pendiente)
+  marcarSoliRenovacionAprobada(c.id); // FIX: resolver la solicitud de renovación (por enlace o por cliente, sin importar el camino)
   renderInicio();renderClientes();
 }
 
@@ -6184,13 +6404,22 @@ function procesarSolicitudRenovacion(soliId){
   document.getElementById('modal-nuevo-ciclo').classList.add('open');
 }
 
-// Hook: cuando se crea ciclo nuevo desde solicitud, marcar solicitud aprobada
-const _confirmarNuevoCicloOrig=confirmarNuevoCiclo;
-// (ya integrado arriba, solo marcar soli si existe)
-function marcarSoliRenovacionAprobada(){
+// Marca la solicitud de renovación como aprobada al crear el ciclo. Se llama desde
+// confirmarNuevoCiclo con el id del cliente (ver FIX arriba).
+function marcarSoliRenovacionAprobada(clienteId){
+  // 1) El enlace explícito: el ciclo se creó desde el botón "Crear ciclo" de la solicitud.
   if(window._soliPendienteRenovacion){
     resolverSolicitudAdmin(window._soliPendienteRenovacion,'aprobado','ciclo_creado','Ciclo creado');
     window._soliPendienteRenovacion=null;
+  }
+  // 2) FIX: cualquier solicitud de renovación pendiente de ESTE cliente, aunque el ciclo se
+  // haya creado desde la ficha (abrirNuevoCiclo borra el enlace) y no desde la solicitud. Sin
+  // esto, la solicitud del cobrador quedaba pegada en pendiente para siempre. Idempotente:
+  // resolver una ya resuelta solo re-marca 'aprobado'.
+  if(clienteId){
+    (window._solicitudes||[])
+      .filter(s=>s&&s.estado==='pendiente'&&s.tipoSolicitud==='renovacion'&&s.clienteId===clienteId)
+      .forEach(s=>resolverSolicitudAdmin(s.id,'aprobado','ciclo_creado','Ciclo creado'));
   }
 }
 

@@ -273,6 +273,25 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     </div>
     <div class="fg"><label class="fl">Negocio / Actividad</label><input type="text" id="soli-negocio" placeholder="Ej: Tienda de ropa"></div>
     <div class="fg"><label class="fl">Zona / Barrio</label><input type="text" id="soli-zona" placeholder="Ej: Centro, Barrio Norte..."></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Banco / Billetera</label>
+        <input type="text" id="soli-banco" placeholder="Ej: Nequi" list="bancos-sugeridos">
+      </div>
+      <div class="fg"><label class="fl">Tipo de cuenta</label>
+        <select id="soli-tipo-cuenta">
+          <option value="">—</option>
+          <option value="Ahorros">Ahorros</option>
+          <option value="Corriente">Corriente</option>
+          <option value="Billetera">Billetera digital</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label class="fl">Número de cuenta</label><input type="text" id="soli-cuenta" placeholder="Ej: 300 000 0000" inputmode="numeric"></div>
+    <datalist id="bancos-sugeridos">
+      <option value="Nequi"><option value="Daviplata"><option value="Bancolombia"><option value="Davivienda">
+      <option value="Banco de Bogotá"><option value="BBVA"><option value="Banco Agrario"><option value="Colpatria">
+      <option value="Banco Caja Social"><option value="Banco Popular"><option value="Bancoomeva"><option value="Efectivo">
+    </datalist>
     <div class="fg"><label class="fl">Monto que solicita ($)</label><input type="number" id="soli-capital" placeholder="Ej: 500000" step="50000" min="0"></div>
     <div class="fg"><label class="fl">Notas para el admin</label><textarea id="soli-notas" rows="2" placeholder="Ej: Atiende después de las 2pm, local azul en la esquina..."></textarea></div>
     <div id="soli-estado" style="display:none"></div>
@@ -2394,6 +2413,9 @@ function enviarSolicitud(){
     telefono,
     negocio:document.getElementById('soli-negocio').value.trim(),
     zona:document.getElementById('soli-zona').value.trim(),
+    banco:document.getElementById('soli-banco').value.trim(),
+    tipoCuenta:document.getElementById('soli-tipo-cuenta').value,
+    numeroCuenta:document.getElementById('soli-cuenta').value.trim(),
     capitalSolicitado:parseFloat(document.getElementById('soli-capital').value)||0,
     montoReportado:0,
     notas:document.getElementById('soli-notas').value.trim(),
@@ -2404,7 +2426,7 @@ function enviarSolicitud(){
   };
   db.ref('solicitudes/'+soli.id).set(soli).then(()=>{
     notify(`Solicitud de ${nombre} enviada ✓`,'ok');
-    ['soli-nombre','soli-cedula','soli-telefono','soli-negocio','soli-zona','soli-notas'].forEach(id=>{
+    ['soli-nombre','soli-cedula','soli-telefono','soli-negocio','soli-zona','soli-banco','soli-tipo-cuenta','soli-cuenta','soli-notas'].forEach(id=>{
       const el=document.getElementById(id);if(el)el.value='';
     });
     document.getElementById('soli-capital').value='';
@@ -2432,6 +2454,7 @@ function renderSolicitudes(){
           <div style="font-size:13px;font-weight:600;color:var(--text)">${info.icon} ${info.label}</div>
           <div style="font-size:12px;color:var(--text)">${nombre}</div>
           <div style="font-size:11px;color:var(--text3)">${s.negocio||'—'} · ${s.zona||'—'}</div>
+          ${tieneCuenta(s)?`<div style="font-size:11px;color:#6EB3FF">🏦 ${cuentaTexto(s)}</div>`:''}
           ${capital}${monto}
           ${s.notas?`<div style="font-size:11px;color:var(--text3);margin-top:3px">Nota: ${s.notas}</div>`:''}
         </div>
