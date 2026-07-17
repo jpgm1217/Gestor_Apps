@@ -2252,7 +2252,8 @@ function verCliente(id,soliId=null){
     const b=p?'<span class="badge bg" style="font-size:10px">✓</span>':esH?'<span class="badge bgold" style="font-size:10px">Hoy</span>':v?'<span class="badge br" style="font-size:10px">Vencida</span>':'<span class="badge bgray" style="font-size:10px">—</span>';
     const fechaTxt=fechaProg&&fechaProg!==q.fechaISO?labelFromUTCDate(coUTCDateFromKey(fechaProg))+' dif.':q.fecha;
     const extraBadge=q.extra?'<span class="badge bgold" style="font-size:10px;margin-left:4px">Extra</span>':'';
-    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}${extraBadge}</td><td style="padding:5px 3px">${b}</td></tr>`;
+    const btnQuitar=(q.extra&&i>=c.pagadas)?` <button onclick="quitarCuotaExtra('${c.id}',${i})" title="Quitar esta cuota extra" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;margin-left:4px;vertical-align:middle">🗑</button>`:'';
+    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}${extraBadge}</td><td style="padding:5px 3px">${b}${btnQuitar}</td></tr>`;
   }).join('');
   document.getElementById('modal-cli-body').innerHTML=`
     <div class="mtitle">${c.nombre}${c.refinanciado?` <span style="font-size:12px;font-weight:400;color:var(--amber)">🔄 Refinanciado×${c.conteoRefinanciaciones||1}</span>`:''}</div>
@@ -6180,6 +6181,28 @@ function confirmarCuotaExtra(){
   cerrar('modal-cuota-extra');
   cerrar('modal-cli');
   notify(`Cuota extra de ${fmt(monto)} agregada a ${c.nombre} ✓`,'ok');
+  renderInicio();renderClientes();
+  setTimeout(()=>{verCliente(c.id);},300);
+}
+// Quitar una cuota extra que se agregó por error (ej. una mora anotada como cuota). Usa
+// eliminarCuotaExtraLocal (respeta el invariante numCuotas>=cuotasData y baja el total) y
+// persiste con transacción. Solo cuotas extra NO pagadas; las del cronograma original nunca.
+function quitarCuotaExtra(clienteId,idx){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  const c=clientes.find(x=>x.id===clienteId);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  const q=(c.cuotasData||[])[idx];
+  if(!q||!q.extra){notify('Solo se pueden quitar cuotas extra','err');return;}
+  if(!confirm(`¿Quitar la cuota EXTRA de ${fmt(q.cuota)} (${q.fecha||q.fechaISO})?\n\nEl préstamo bajará de ${c.numCuotas} a ${(c.numCuotas||0)-1} cuotas y el total en ${fmt(q.cuota)}. Las cuotas ya pagadas no se tocan.`))return;
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const r=eliminarCuotaExtraLocal(c,idx);
+  if(!r.ok){notify(r.error||'No se pudo quitar','err');return;}
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'quitar_cuota_extra',tipoLabel:'Quitar cuota extra',monto:r.monto,motivo:'Cuota extra quitada (registrada por error)',autor:'Admin'});
+  saveClienteFields(c,['cuotasData','total','numCuotas','plazo','historialAjustes']);
+  log({tipo:'quitar_cuota_extra',cliente:c.nombre,monto:r.monto,ts:Date.now(),autor:'Admin',nota:'Cuota extra quitada'});
+  cerrar('modal-cli');
+  notify(`Cuota extra de ${fmt(r.monto)} quitada de ${c.nombre} ✓`,'ok');
   renderInicio();renderClientes();
   setTimeout(()=>{verCliente(c.id);},300);
 }
