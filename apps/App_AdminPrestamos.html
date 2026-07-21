@@ -119,6 +119,15 @@ textarea{resize:vertical;min-height:60px;}
 .notif.show{transform:translateX(-50%) translateY(0);}
 .notif.ok{border-color:rgba(80,227,164,.4);color:var(--green);}
 .notif.err{border-color:rgba(255,107,107,.4);color:var(--red);}
+.header-actions{display:flex;align-items:center;gap:10px;}
+.notif-bell{position:relative;width:38px;height:38px;border-radius:12px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.notif-bell:active{transform:scale(.96);}
+.notif-count{display:none;position:absolute;top:-6px;right:-6px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;border:2px solid var(--bg2);font-size:10px;font-weight:800;align-items:center;justify-content:center;}
+.notif-count.show{display:flex;}
+.notif-row{padding:11px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;}
+.notif-row:last-child{border-bottom:none;}
+.notif-row.unread{background:linear-gradient(90deg,rgba(232,197,71,.08),transparent);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:8px;}
+.notif-dot{width:8px;height:8px;border-radius:50%;background:var(--gold);margin-top:6px;flex-shrink:0;}
 .sl{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin:12px 0 7px;}
 hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
 .empty{text-align:center;padding:32px 16px;color:var(--text3);}
@@ -169,7 +178,26 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 
 <div class="header">
   <div><div class="app-name">CréditoRápido</div><div class="app-role">👑 Admin</div></div>
-  <div class="live-dot"><div class="dot" id="dot"></div><span id="conn-status">Conectando...</span></div>
+  <div class="header-actions">
+    <button class="notif-bell" type="button" onclick="abrirCentroNotificaciones()" aria-label="Abrir notificaciones">🔔<span class="notif-count" id="notif-count">0</span></button>
+    <div class="live-dot"><div class="dot" id="dot"></div><span id="conn-status">Conectando...</span></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-notificaciones" onclick="if(event.target===this)cerrarCentroNotificaciones()">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px">
+      <div>
+        <div class="mtitle" style="margin-bottom:2px">🔔 Notificaciones</div>
+        <div id="notif-resumen" style="font-size:11px;color:var(--text3)">Pagos y novedades del cobrador</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="marcarNotificacionesLeidas()">Marcar vistas</button>
+    </div>
+    <div id="notif-totales" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px"></div>
+    <div id="notif-lista"></div>
+    <button class="btn btn-ghost btn-full" style="margin-top:12px" type="button" onclick="cerrarCentroNotificaciones()">Cerrar</button>
+  </div>
 </div>
 
 <div class="tabs">
@@ -251,7 +279,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       </div>
     </div>
     <div class="fg"><label class="fl">Número de cuenta</label><input type="text" id="n-cuenta" placeholder="Ej: 300 000 0000" inputmode="numeric"></div>
-    <div class="fg"><label class="fl">Notas</label><textarea id="n-notas" placeholder="Ej: Solo paga después de las 10am, local azul..."></textarea></div>
+    <div class="fg"><label class="fl">Nota operativa (visible al cobrador)</label><textarea id="n-notas" placeholder="Ej: Solo paga después de las 10am, local azul..."></textarea></div>
   </div>
   <datalist id="bancos-sugeridos">
     <option value="Nequi"><option value="Daviplata"><option value="Bancolombia"><option value="Davivienda">
@@ -335,7 +363,11 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 </div>
 
 <div id="panel-actividad" class="panel">
-  <div class="card"><div class="ct">Feed en tiempo real</div><div id="feed-act"></div></div>
+  <div class="card">
+    <div class="ct">Feed en tiempo real</div>
+    <div style="font-size:11px;color:var(--text3);margin:-5px 0 10px">Aquí queda quién hizo la actividad, quién recibió el dinero y cómo pagó el cliente.</div>
+    <div id="feed-act"></div>
+  </div>
 </div>
 
 <div id="panel-finanzas" class="panel">
@@ -412,7 +444,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 <div id="panel-comisiones" class="panel">
   <!-- Métricas resumen -->
   <div class="g2">
-    <div class="metric gold"><div class="ml">Comisión pendiente cobrador</div><div class="mv" id="com-pendiente">$0</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-pct-lbl">—% efectivo sobre interés+mora</div></div>
+    <div class="metric gold"><div class="ml">Comisión pendiente cobrador</div><div class="mv" id="com-pendiente">$0</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-saldo-detalle">Comisión pendiente real</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-pct-lbl">—% efectivo sobre interés+mora</div></div>
     <div class="metric green"><div class="ml">Ya liquidado al cobrador</div><div class="mv" id="com-liquidado">$0</div></div>
     <div class="metric"><div class="ml">Tu ganancia (interés+mora)</div><div class="mv" style="color:var(--green)" id="com-tuya">$0</div><div style="font-size:10px;color:var(--text3);margin-top:3px" id="com-tuya-lbl">—% efectivo retenido</div></div>
     <div class="metric"><div class="ml">Mora cobrada total</div><div class="mv" style="color:var(--amber)" id="com-mora">$0</div></div>
@@ -548,6 +580,12 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <button class="btn btn-primary btn-full" onclick="ejecutarReconciliacionUI()">Reconciliar ahora</button>
   </div>
   <div class="card" style="margin-top:12px">
+    <div class="ct">📅 Calendario estándar</div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:8px">Semanal: sábados · Quincenal: 15 y último día · Mensual: día 1. Los préstamos y ciclos nuevos usan estas fechas automáticamente.</div>
+    <div id="calendario-estandar-status" style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Revisando cronogramas…</div>
+    <button class="btn btn-primary btn-full" onclick="alinearCalendariosEstandar()">Revisar y alinear pendientes</button>
+  </div>
+  <div class="card" style="margin-top:12px">
     <div class="ct">🔧 Cuadre automático de caja</div>
     <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Recupera en la caja los cobros que sí quedaron en la comisión pero se perdieron al guardar (fallos de conexión). Es seguro: solo confía en la comisión, no inventa nada, y te muestra qué va a agregar antes de aplicar.</div>
     <button class="btn btn-primary btn-full" onclick="abrirCuadreCaja()">Revisar y cuadrar caja</button>
@@ -556,7 +594,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="ct">Notificaciones</div>
     <div id="notif-admin-status" style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:10px">Desactivadas.</div>
     <button class="btn btn-primary" id="notif-admin-btn" onclick="activarNotificacionesAdmin()">🔔 Activar notificaciones</button>
-    <div style="font-size:11px;color:var(--text3);margin-top:8px">Solo avisan mientras la app esté abierta. Para avisos con la app cerrada ya se necesita push real con service worker.</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">La campana dentro de la app siempre guarda el historial reciente. Los avisos del sistema funcionan mientras la app esté abierta; con la app cerrada se necesita un servicio de push.</div>
   </div>
   <div class="card" style="margin-top:12px">
     <div class="ct">Exportar y datos</div>
@@ -568,6 +606,12 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <button class="btn btn-ghost btn-full" onclick="cargarDatosDemo()" style="border-color:var(--goldb);color:var(--gold)">🧪 Cargar datos de prueba</button>
       <button class="btn btn-red btn-full" onclick="borrarTodo()">🗑 Borrar todos los datos</button>
     </div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="ct">🛟 Backups automáticos (solo Admin)</div>
+    <div id="backup-admin-status" style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:10px">Se iniciará cuando terminen de sincronizar los datos.</div>
+    <button class="btn btn-primary btn-full" onclick="guardarBackupDiarioAdmin(true,'manual')">Respaldar ahora en Firebase</button>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Se actualiza durante el día y hace un cierre a las 11:55 p. m. (hora Colombia). No aparece en la app del cobrador.</div>
   </div>
 </div>
 
@@ -626,7 +670,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       </div>
     </div>
     <div class="fg"><label class="fl">Número de cuenta</label><input type="text" id="edit-cuenta" placeholder="Ej: 300 000 0000" inputmode="numeric"></div>
-    <div class="fg"><label class="fl">Notas</label><textarea id="edit-notas" rows="2" placeholder="Observaciones..." style="resize:vertical"></textarea></div>
+    <div class="fg"><label class="fl">Nota operativa (visible al cobrador)</label><textarea id="edit-notas" rows="2" placeholder="Indicaciones vigentes para el cobro..." style="resize:vertical"></textarea></div>
     <div style="margin-top:4px;margin-bottom:12px">
       <div class="sl" style="margin-bottom:6px">Condiciones del préstamo</div>
       <div class="fr">
@@ -765,6 +809,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="mhandle"></div>
     <div class="mtitle">🔄 Nuevo ciclo</div>
     <div id="nuevo-ciclo-info" class="ibox blue" style="margin-bottom:12px"></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Al crear el ciclo, Admin guardará automáticamente el cumplimiento del ciclo anterior. La nota operativa vieja se archiva y no se arrastra como vigente.</div>
     <div class="fr">
       <div class="fg"><label class="fl">Capital ($)</label><input type="number" id="nc-capital" step="50000" value="200000" oninput="previewNuevoCiclo()"></div>
       <div class="fg"><label class="fl">Tasa (%)</label><input type="number" id="nc-tasa" value="20" oninput="previewNuevoCiclo()"></div>
@@ -781,7 +826,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <div class="fg"><label class="fl">Nº cuotas</label><input type="number" id="nc-plazo" value="15" min="1" oninput="previewNuevoCiclo()"></div>
     </div>
     <div class="fr">
-      <div class="fg"><label class="fl">Fecha inicio</label><input type="date" id="nc-fecha"></div>
+      <div class="fg"><label class="fl">Fecha inicio</label><input type="date" id="nc-fecha" oninput="previewNuevoCiclo()"></div>
       <div class="fg"><label class="fl">Mora/día ($)</label><input type="number" id="nc-mora" value="3000" step="1000" min="0"></div>
     </div>
     <div class="fr">
@@ -839,6 +884,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="mtitle">Abono parcial</div>
     <div id="abono-info" class="ibox blue"></div>
     <div class="fg"><label class="fl">Monto del abono ($)</label><input type="number" id="abono-monto" placeholder="0" oninput="prevAbono()"></div>
+    <div class="fg"><label class="fl">¿Cómo pagó?</label><select id="abono-metodo-admin"><option value="efectivo">💵 Efectivo</option><option value="transferencia">🏦 Transferencia</option></select></div>
     <div id="abono-prev" style="font-size:13px;color:var(--text2);min-height:20px;margin-bottom:12px"></div>
     <button class="btn btn-primary" onclick="confirmarAbono()">💵 Registrar abono</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-abono')">Cancelar</button>
@@ -852,6 +898,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="mtitle">💳 Solo interés — Extensión</div>
     <div id="ext-info" style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6"></div>
     <div class="fg"><label class="fl">Monto recibido hoy ($)</label><input type="number" id="ext-monto" placeholder="0" step="1000" min="0" oninput="prevExtension()"></div>
+    <div class="fg"><label class="fl">¿Cómo pagó?</label><select id="ext-metodo-admin"><option value="efectivo">💵 Efectivo</option><option value="transferencia">🏦 Transferencia</option></select></div>
     <div class="fg"><label class="fl">Próxima fecha de pago</label><input type="date" id="ext-fecha"></div>
     <div id="ext-prev" style="font-size:13px;color:var(--text2);min-height:40px;margin-bottom:12px;background:var(--bg3);border-radius:8px;padding:8px 10px;line-height:1.8"></div>
     <button class="btn btn-primary" onclick="confirmarExtensionInteres()">💳 Registrar extensión</button>
@@ -949,8 +996,8 @@ function addDaysToKey(key,days){const d=coUTCDateFromKey(key);d.setUTCDate(d.get
 // que arrancaba el 15/07 daba 30/07 y 14/08: nunca caía en el 15 ni en fin de mes, y no había
 // forma de fijarlo. Ahora se anclan a fechas reales del calendario.
 //   quincenal → los días que elijas del mes (por defecto 15 y último)
-//   semanal   → siempre el mismo día de la semana (p. ej. todos los sábados)
-//   mensual   → siempre el mismo día del mes
+//   semanal   → todos los sábados
+//   mensual   → el día 1 de cada mes
 //   diario    → sin anclaje, +1 día
 // 'fin' = último día del mes, sea 28, 30 o 31. Un ancla en 31 cae al último día real en los
 // meses cortos (31 en febrero → 28), NUNCA se desborda al mes siguiente.
@@ -964,12 +1011,12 @@ function fechaAnclaEnMes(y,m,dia){
   const d=(dia===FIN_MES||dia==='fin'||Number(dia)>=31)?ult:Math.max(1,Math.min(Number(dia)||1,ult));
   return new Date(Date.UTC(y,m,d));
 }
-// Ancla por defecto de cada frecuencia, deducida de la fecha de inicio cuando hace falta.
+// Ancla estándar de cada frecuencia. No depende del día en que se crea el préstamo: así todos
+// los clientes de la misma frecuencia se agrupan en las mismas rutas.
 function anclaPorDefecto(tipo,fechaStr){
-  const ini=coUTCDateFromKey(fechaStr||hoy());
-  if(tipo==='semanal')return{tipo:'semanal',diaSemana:ini.getUTCDay()};
+  if(tipo==='semanal')return{tipo:'semanal',diaSemana:6};
   if(tipo==='quincenal')return{tipo:'quincenal',dias:[15,FIN_MES]};
-  if(tipo==='mensual'){const d=ini.getUTCDate();return{tipo:'mensual',dias:[d>=29?FIN_MES:d]};}
+  if(tipo==='mensual')return{tipo:'mensual',dias:[1]};
   return null; // diario y personalizado no se anclan
 }
 // Devuelve `plazo` fechas ISO, todas ESTRICTAMENTE posteriores a fechaStr, en orden ascendente.
@@ -1007,6 +1054,75 @@ function anclaTexto(a){
   if(a.tipo==='semanal')return 'todos los '+(DIA_SEMANA[a.diaSemana]||'?');
   const n=(a.dias||[]).map(d=>d===FIN_MES?'último día':'día '+d);
   return n.join(' y ')+' de cada mes';
+}
+
+// Un préstamo/ciclo creado hoy nunca debe nacer con su primera cuota ya vencida porque el admin
+// digitó una fecha de inicio anterior. Se conserva fechaInicio como dato histórico, pero el
+// cronograma nuevo se calcula desde hoy (o desde una fecha futura si fue programado).
+function baseCronogramaNuevo(fechaStr,refStr){
+  const ref=refStr||hoy(),f=fechaStr||ref;
+  return f<ref?ref:f;
+}
+function fechaCumpleCalendarioEstandar(tipo,fechaISO){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaISO||'')))return false;
+  const f=coUTCDateFromKey(fechaISO),d=f.getUTCDate();
+  if(tipo==='semanal')return f.getUTCDay()===6;
+  if(tipo==='quincenal')return d===15||d===ultimoDiaMesUTC(f.getUTCFullYear(),f.getUTCMonth());
+  if(tipo==='mensual')return d===1;
+  return true;
+}
+function diagnosticoCalendarioEstandar(lista){
+  const cambios=[],protegidos=[];
+  (Array.isArray(lista)?lista:[]).forEach(c=>{
+    if(!c||c.pagadas>=c.numCuotas||!['semanal','quincenal','mensual'].includes(c.tipo))return;
+    const pendientes=(c.cuotasData||[]).slice(Math.max(0,c.pagadas||0));
+    if(!pendientes.some(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO)))return;
+    if(pendientes.some(q=>q&&(q.extra||q.manual||q.fechaEditada))||graciaActiva(c)||c.moraBaseDate){
+      protegidos.push(c);return;
+    }
+    cambios.push(c);
+  });
+  return{cambios,protegidos};
+}
+function fechasPendientesEstandar(c,refStr){
+  const pag=Math.max(0,c&&c.pagadas||0),cantidad=Math.max(0,(c&&c.cuotasData||[]).length-pag);
+  if(!cantidad)return[];
+  const ref=refStr||hoy(),ayer=addDaysToKey(ref,-1);
+  const ultimaPagada=pag>0&&c.cuotasData[pag-1]?.fechaISO||'';
+  const base=ultimaPagada>ayer?ultimaPagada:ayer; // permite usar HOY si hoy es fecha estándar
+  return fechasAncladas(c.tipo,base,cantidad,anclaPorDefecto(c.tipo,base))||[];
+}
+function actualizarEstadoCalendarioEstandar(){
+  const el=document.getElementById('calendario-estandar-status');if(!el)return;
+  const d=diagnosticoCalendarioEstandar(clientes);
+  if(!d.cambios.length&&!d.protegidos.length){
+    el.innerHTML='<strong style="color:var(--green)">✓ Todos los cronogramas pendientes están alineados.</strong>';return;
+  }
+  el.innerHTML=`<strong style="color:${d.cambios.length?'var(--amber)':'var(--green)'}">${d.cambios.length} cliente(s) se pueden alinear</strong>${d.protegidos.length?`<br>${d.protegidos.length} con fecha manual, extra, gracia o extensión se conservan para revisión individual.`:''}`;
+}
+async function alinearCalendariosEstandar(){
+  const d=diagnosticoCalendarioEstandar(clientes);
+  if(!d.cambios.length){notify(d.protegidos.length?'Solo hay cronogramas protegidos; revísalos uno por uno.':'Todos ya usan el calendario estándar ✓',d.protegidos.length?'err':'ok');return;}
+  const propuestas=d.cambios.map(c=>{
+    const nuevas=fechasPendientesEstandar(c),pend=(c.cuotasData||[]).slice(c.pagadas||0);
+    return{c,nuevas,antes:pend.map(q=>q.fechaISO)};
+  }).filter(x=>x.nuevas.length===x.antes.length);
+  const detalle=propuestas.map(x=>`• ${x.c.nombre}: ${x.antes[0]} → ${x.nuevas[0]} (${x.nuevas.length} pendiente${x.nuevas.length!==1?'s':''})`).join('\n');
+  if(!propuestas.length||!confirm(`Se alinearán SOLO las cuotas pendientes, sin tocar pagos anteriores ni montos:\n\n${detalle}\n\nReglas: sábados · 15/fin de mes · día 1.\n\n¿Continuar?`))return;
+  for(const x of propuestas){
+    const pag=Math.max(0,x.c.pagadas||0);
+    x.nuevas.forEach((fecha,i)=>{
+      const q=x.c.cuotasData[pag+i];if(!q)return;
+      q.fechaISO=fecha;q.fecha=labelFromUTCDate(coUTCDateFromKey(fecha));q.fechaEstandarizada=coDateTimeISO();
+    });
+    x.c.ancla=anclaPorDefecto(x.c.tipo,hoy());
+    if(!x.c.historialAjustes)x.c.historialAjustes=[];
+    x.c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'alinear_calendario',tipoLabel:'Calendario estándar',monto:0,motivo:`Pendientes: ${x.antes.join(', ')} → ${x.nuevas.join(', ')}`,autor:'Admin'});
+    await saveClienteFields(x.c,['cuotasData','ancla','historialAjustes']);
+    log({tipo:'reanclar_fechas',cliente:x.c.nombre,ts:Date.now(),autor:'Admin',nota:`${x.antes[0]} → ${x.nuevas[0]} · ${x.c.tipo}`});
+  }
+  actualizarEstadoCalendarioEstandar();renderInicio();renderClientes();
+  notify(`${propuestas.length} cronograma(s) alineados ✓`,'ok');
 }
 
 // ── Ajustes hechos a mano sobre el cronograma ──
@@ -1125,8 +1241,10 @@ function debounceConfirm(fn){
 const PIN_KEY='cr_pin_admin';            // LEGACY: PIN plano (se migra a hash y se borra)
 const PIN_HASH_KEY='cr_pin_admin_hash';  // Hash SHA-256 cacheado local
 const NOTIF_KEY='cr_admin_notif_enabled';
+const NOTIF_LEIDO_KEY='cr_admin_notif_ultimo_visto';
 let pinBuf='',pinMode='check';
 let _prevSolicitudesPendientes=[];
+let _actividadInicialCargada=false;
 
 // PIN — Hash SHA-256, sincronizado entre dispositivos via Firebase
 async function hashPIN(pin){
@@ -1282,6 +1400,78 @@ function soportaNotificaciones(){
 function notifHabilitadas(){
   return localStorage.getItem(NOTIF_KEY)==='1' && soportaNotificaciones() && Notification.permission==='granted';
 }
+function etiquetaMetodoPago(metodo){
+  return {efectivo:'Efectivo',transferencia:'Transferencia'}[metodo]||'Sin registrar';
+}
+function metaPagoAdmin(selectId='admin-metodo-pago'){
+  const metodo=document.getElementById(selectId)?.value||'efectivo';
+  return {metodoPago:metodo,recibidoPor:'Admin',registradoPor:'Admin'};
+}
+function esActividadNotificable(a){
+  return !!a&&a.autor==='Cobrador'&&['pago','abono','extension_interes','mora_cobrada','no_pago'].includes(a.tipo);
+}
+function ultimoVistoNotificaciones(){return parseInt(localStorage.getItem(NOTIF_LEIDO_KEY)||'0',10)||0;}
+function notificacionesPendientes(){
+  const visto=ultimoVistoNotificaciones();
+  return actividad.filter(a=>esActividadNotificable(a)&&(a.ts||0)>visto);
+}
+function actualizarBadgeNotificaciones(){
+  const badge=document.getElementById('notif-count');if(!badge)return;
+  const n=notificacionesPendientes().length;
+  badge.textContent=n>99?'99+':String(n);
+  badge.classList.toggle('show',n>0);
+  badge.setAttribute('aria-label',`${n} notificaciones pendientes`);
+}
+function tituloActividad(a){
+  const cliente=a.cliente||'Cliente';
+  return {
+    pago:`Pago recibido de ${cliente}`,
+    abono:`Abono recibido de ${cliente}`,
+    extension_interes:`Solo interés recibido de ${cliente}`,
+    mora_cobrada:`Mora recibida de ${cliente}`,
+    no_pago:`Visita sin pago — ${cliente}`,
+    nuevo:`Nuevo cliente — ${cliente}`,
+    refinanciacion:`Refinanciación — ${cliente}`,
+    mora_perdonada:`Mora perdonada — ${cliente}`,
+    liquidacion_anticipada:`Liquidación anticipada — ${cliente}`
+  }[a.tipo]||`Actividad — ${cliente}`;
+}
+function detalleResponsablesActividad(a){
+  const partes=[`Registró: ${a.registradoPor||a.autor||'Sistema'}`];
+  if(a.monto>0||['pago','abono','extension_interes','mora_cobrada'].includes(a.tipo)){
+    partes.push(`Recibió: ${a.recibidoPor||a.autor||'Sin registrar'}`);
+    partes.push(`Medio: ${etiquetaMetodoPago(a.metodoPago)}`);
+  }
+  return partes.join(' · ');
+}
+function renderCentroNotificaciones(){
+  const el=document.getElementById('notif-lista'),res=document.getElementById('notif-resumen'),totalesEl=document.getElementById('notif-totales');if(!el)return;
+  const items=actividad.filter(esActividadNotificable).sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,50);
+  const visto=ultimoVistoNotificaciones(),pend=items.filter(a=>(a.ts||0)>visto).length;
+  if(res)res.textContent=pend?`${pend} pendiente${pend!==1?'s':''} de revisar`:'Todo revisado';
+  if(totalesEl){
+    const dineroHoy=actividad.filter(a=>a.monto>0&&['pago','abono','extension_interes','mora_cobrada','liquidacion_anticipada'].includes(a.tipo)&&sameCoDate(a.ts,hoy()));
+    const delCobrador=dineroHoy.filter(a=>(a.recibidoPor||a.autor)==='Cobrador').reduce((s,a)=>s+(a.monto||0),0);
+    const delAdmin=dineroHoy.filter(a=>(a.recibidoPor||a.autor)==='Admin').reduce((s,a)=>s+(a.monto||0),0);
+    totalesEl.innerHTML=`<div class="cs"><div class="csl">Hoy recibió Cobrador</div><div class="csv" style="color:var(--gold)">${fmt(delCobrador)}</div></div><div class="cs"><div class="csl">Hoy recibió Admin</div><div class="csv" style="color:var(--green)">${fmt(delAdmin)}</div></div>`;
+  }
+  if(!items.length){el.innerHTML='<div class="empty"><div class="empty-i">🔔</div><div class="empty-t">Aún no hay movimientos del cobrador</div></div>';return;}
+  el.innerHTML=items.map(a=>{
+    const fecha=new Date(a.ts||Date.now()).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const unread=(a.ts||0)>visto;
+    return `<div class="notif-row ${unread?'unread':''}">${unread?'<div class="notif-dot"></div>':'<div style="width:8px;flex-shrink:0"></div>'}<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">${htmlSafe(tituloActividad(a))}</div><div style="font-size:12px;color:var(--text2);margin-top:3px">${htmlSafe(detalleResponsablesActividad(a))}</div>${a.nota?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${htmlSafe(a.nota)}</div>`:''}<div style="font-size:10px;color:var(--text3);margin-top:3px">${fecha}</div></div>${a.monto>0?`<div class="ai-amt">${fmt(a.monto)}</div>`:''}</div>`;
+  }).join('');
+}
+function abrirCentroNotificaciones(){
+  renderCentroNotificaciones();
+  document.getElementById('modal-notificaciones')?.classList.add('open');
+}
+function cerrarCentroNotificaciones(){document.getElementById('modal-notificaciones')?.classList.remove('open');}
+function marcarNotificacionesLeidas(){
+  const maxTs=actividad.filter(esActividadNotificable).reduce((m,a)=>Math.max(m,a.ts||0),Date.now());
+  localStorage.setItem(NOTIF_LEIDO_KEY,String(maxTs));
+  actualizarBadgeNotificaciones();renderCentroNotificaciones();
+}
 function actualizarUINotificaciones(){
   const st=document.getElementById('notif-admin-status');
   const btn=document.getElementById('notif-admin-btn');
@@ -1295,7 +1485,7 @@ function actualizarUINotificaciones(){
   }
   const permiso=Notification.permission;
   if(notifHabilitadas()){
-    st.textContent='Activadas. Recibirás aviso mientras la app esté abierta.';
+    st.textContent='Activadas. Recibirás avisos de pagos y novedades del cobrador mientras la app esté abierta.';
     st.style.color='var(--green)';
     btn.textContent='🔔 Notificaciones activas';
   }else if(permiso==='denied'){
@@ -1303,7 +1493,7 @@ function actualizarUINotificaciones(){
     st.style.color='var(--red)';
     btn.textContent='🚫 Notificaciones bloqueadas';
   }else{
-    st.textContent='Desactivadas. Puedes habilitarlas para avisos de nuevas solicitudes.';
+    st.textContent='Desactivadas. Puedes habilitarlas para avisos de pagos, abonos y nuevas solicitudes.';
     st.style.color='var(--text3)';
     btn.textContent='🔔 Activar notificaciones';
   }
@@ -1339,6 +1529,23 @@ function avisarNuevaSolicitud(s){
       body:`${s.nombre||s.clienteNombre||'Cliente'}${s.telefono?' · '+s.telefono:''}${s.capitalSolicitado?` · ${fmt(s.capitalSolicitado)}`:''}${s.montoReportado?` · ${fmt(s.montoReportado)}`:''}`,
       tag:'credito-rapido-solicitud'
     });
+  }catch(e){console.error(e);}
+}
+function avisarActividadCobrador(a){
+  if(!esActividadNotificable(a))return;
+  const monto=a.monto>0?` · ${fmt(a.monto)}`:'';
+  const medio=a.monto>0?` · ${etiquetaMetodoPago(a.metodoPago)}`:'';
+  const recibido=a.monto>0?` · recibió ${a.recibidoPor||'sin registrar'}`:'';
+  notify(`${tituloActividad(a)}${monto}${medio}${recibido}`,a.tipo==='no_pago'?'err':'ok');
+  try{if(typeof navigator!=='undefined'&&navigator.vibrate)navigator.vibrate([120,60,120]);}catch(e){}
+  actualizarBadgeNotificaciones();
+  if(!notifHabilitadas())return;
+  try{
+    const n=new Notification(tituloActividad(a),{
+      body:`${a.monto>0?fmt(a.monto)+' · ':''}${detalleResponsablesActividad(a)}${a.nota?' · '+a.nota:''}`,
+      tag:`credito-actividad-${a._key||a.ts||Date.now()}`
+    });
+    n.onclick=()=>{try{window.focus();abrirCentroNotificaciones();n.close();}catch(e){}};
   }catch(e){console.error(e);}
 }
 
@@ -1391,9 +1598,11 @@ function setConn(ok){
 }
 let _migracionCorrida=false; // FIX W13: evita loop save→listener→migrar→save
 let _reconciliacionAutoProgramada=false;
+let _cargaInicialAdmin={clientes:false,caja:false,liquidaciones:false,credito:false};
 function escuchar(){
   db.ref('clientes').on('value',s=>{
     const d=s.val();clientes=d?Object.values(d).map(normalizarClienteSync):[];
+    _cargaInicialAdmin.clientes=true;
     // Persistir la auto-reparación de numCuotas: normalizarClienteSync la corrige en memoria,
     // pero si no se escribe, el dato sigue malo en Firebase para cualquier otro dispositivo.
     clientes.filter(c=>c._numCuotasReparado).forEach(c=>{
@@ -1407,15 +1616,26 @@ function escuchar(){
       migrarComisionesClientes();
       _migracionCorrida=true;
     }
-    renderInicio();renderClientes();renderCaja();
+    renderInicio();renderClientes();renderCaja();actualizarEstadoCalendarioEstandar();
     programarReconciliacionAuto();
+    solicitarBackupDiarioAdmin();
   });
-  db.ref('actividad').limitToLast(50).on('child_added',s=>{
-    const a=s.val();
-    if(a&&!actividad.find(x=>x.ts===a.ts&&x.cliente===a.cliente)){actividad.unshift(a);renderActividad();}
+  // Una sola fotografía ordenada permite distinguir la carga inicial de un evento realmente
+  // nuevo. Así no se disparan 50 avisos viejos cada vez que el admin abre la aplicación.
+  db.ref('actividad').limitToLast(100).on('value',s=>{
+    const d=s.val()||{};
+    const prevKeys=new Set(actividad.map(a=>a._key).filter(Boolean));
+    const nuevas=Object.entries(d).map(([key,val])=>({...val,_key:key})).sort((a,b)=>(b.ts||0)-(a.ts||0));
+    const llegadas=_actividadInicialCargada?nuevas.filter(a=>!prevKeys.has(a._key)):[];
+    actividad=nuevas;
+    renderActividad();actualizarBadgeNotificaciones();renderCentroNotificaciones();
+    if(_actividadInicialCargada)llegadas.sort((a,b)=>(a.ts||0)-(b.ts||0)).forEach(avisarActividadCobrador);
+    _actividadInicialCargada=true;
+    solicitarBackupDiarioAdmin();
   });
   db.ref('caja').on('value',s=>{
     const d=s.val();caja=d?Object.values(d):[];
+    _cargaInicialAdmin.caja=true;
     // FIX NEW-4: alimentar pool con movs cobrador que aún no fueron contados (dedup por refKey)
     autoAlimentarPoolDesdeCaja();
     renderCaja();
@@ -1423,15 +1643,19 @@ function escuchar(){
     // sin cambio de cliente (p.ej. cuadre, o cobro del cobrador), hay que refrescar el inicio.
     renderInicio();
     programarReconciliacionAuto();
+    solicitarBackupDiarioAdmin();
   });
   db.ref('liquidaciones').on('value',s=>{
     const d=s.val();
     liquidaciones=d?Object.values(d):[];
+    _cargaInicialAdmin.liquidaciones=true;
     localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
     syncCajaConLiquidaciones();
     renderCaja();
     renderInicio();
     renderComisiones();
+    programarReconciliacionAuto();
+    solicitarBackupDiarioAdmin();
   });
   // Escuchar % comisión global desde Firebase (sincroniza entre dispositivos)
   db.ref('config/comisionPct').on('value',s=>{
@@ -1454,7 +1678,9 @@ function escuchar(){
   db.ref('config/creditoCobrador').on('value',s=>{
     const v=s.val();
     window._creditoCobrador=(v!==null&&v!==undefined)?Math.max(0,Math.round(parseFloat(v)||0)):0;
+    _cargaInicialAdmin.credito=true;
     if(typeof renderComisiones==='function'&&document.getElementById('com-pendiente'))renderComisiones();
+    programarReconciliacionAuto();
   });
   // Escuchar solicitudes de nuevos clientes
   db.ref('solicitudes').on('value',s=>{
@@ -1473,6 +1699,7 @@ function escuchar(){
     }
     _prevSolicitudesPendientes=idsActuales;
     renderSolicitudesAdmin();
+    solicitarBackupDiarioAdmin();
   });
   // Escuchar parámetros globales desde Firebase
   db.ref('config/params').on('value',s=>{
@@ -1591,7 +1818,9 @@ function log(item){
 // PIN arranca apenas carga el DOM — antes que Firebase (initPIN es async, intenta fetch hash remoto)
 document.addEventListener('DOMContentLoaded', async function(){
   await initPIN();
-  document.getElementById('n-fecha').value=hoy();
+  const fechaNueva=document.getElementById('n-fecha');
+  fechaNueva.value=hoy();fechaNueva.min=hoy();
+  ['nc-fecha','rf-fecha'].forEach(id=>{const el=document.getElementById(id);if(el)el.min=hoy();});
   // Cargar parámetros globales guardados (localStorage como fallback antes de que Firebase responda)
   const pLocal=JSON.parse(localStorage.getItem('cr_params_globales')||'{}');
   if(pLocal.tasa||pLocal.tipo){aplicarParamsAlFormulario(pLocal);}else{updatePlazo();preview();}
@@ -1694,6 +1923,9 @@ function preview(){
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:'cuota'}[tipo]||'cuota';
   const dxc=tipo==='personalizado'?diasEntreCuotas(tipo):DIAS[tipo]||1;
   const ultimaDif=Math.abs(cuotaUltima-cuota)>0;
+  const fechaBase=baseCronogramaNuevo(document.getElementById('n-fecha')?.value||hoy());
+  const primera=genCuotas(cap,tasa,plazo,tipo,fechaBase,rd,tipo==='personalizado'?dxc:null).arr[0];
+  const regla=tipo==='semanal'?'todos los sábados':tipo==='quincenal'?'días 15 y último de mes':tipo==='mensual'?'día 1 de cada mes':`cada ${dxc} día${dxc>1?'s':''}`;
   document.getElementById('prev-content').innerHTML=`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="cs"><div class="csl">Capital</div><div class="csv">${fmt(cap)}</div></div>
@@ -1702,7 +1934,7 @@ function preview(){
       <div class="cs"><div class="csl">Cuota/${tl}</div><div class="csv" style="color:var(--gold);font-weight:700">${fmt(cuota)}</div></div>
     </div>
     ${ultimaDif?`<div style="font-size:11px;color:var(--text3);margin-top:6px;padding:5px 8px;background:var(--amberd);border-radius:6px">⚠ Última cuota: ${fmt(cuotaUltima)} (ajustada)</div>`:''}
-    <div style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center">${plazo} cuotas · cada ${dxc} día${dxc>1?'s':''}</div>`;
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center">${plazo} cuotas · ${regla} · primera: <strong>${primera?.fecha||'—'}</strong></div>`;
 }
 function toggleInterno(){
   const checked=document.getElementById('n-interno')?.checked;
@@ -1761,7 +1993,8 @@ function crearPrestamo(){
   const tasa=parseFloat(document.getElementById('n-tasa').value)||20;
   const tipo=document.getElementById('n-tipo').value;
   const plazo=sanitizarCuotas(document.getElementById('n-plazo').value,1);
-  const fechaStr=document.getElementById('n-fecha').value;
+  const fechaStr=document.getElementById('n-fecha').value||hoy();
+  const fechaCronograma=baseCronogramaNuevo(fechaStr);
   const moraDia=parseFloat(document.getElementById('n-mora').value)||0;
   const comisionPctVal=document.getElementById('n-comision').value.trim();
   const esInterno=!!document.getElementById('n-interno')?.checked;
@@ -1770,10 +2003,10 @@ function crearPrestamo(){
   const diasCustom=tipo==='personalizado'?parseInt(document.getElementById('n-dias-custom')?.value)||3:null;
   const graciaHastaRaw=(document.getElementById('n-gracia')?.value||'').trim();
   const graciaHasta=graciaHastaRaw||null;
-  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom);
+  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaCronograma,rd,diasCustom);
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
   const c={id:'c'+Date.now(),nombre,cedula:document.getElementById('n-cedula').value.trim(),telefono:document.getElementById('n-telefono').value.trim(),negocio:document.getElementById('n-negocio').value.trim(),zona:document.getElementById('n-zona').value.trim(),notas:document.getElementById('n-notas').value.trim(),banco:document.getElementById('n-banco').value.trim(),tipoCuenta:document.getElementById('n-tipo-cuenta').value,numeroCuenta:document.getElementById('n-cuenta').value.trim(),capital,tasa,tipo,plazo,total,interes,cuota,cuotaUltima,numCuotas:plazo,tipoLabel:tl,cuotasData:arr,fechaInicio:fechaStr,moraDia,graciaHasta,redondeo:rd,diasCuota,moraPerdonada:0,abonoParcial:0,abonoPendiente:0,pagadas:0,ultimoPago:null,comisionPct,esInterno,moraCobradaTotal:0,historialMora:[],comisionEventos:[],cargosManuales:[],creado:coDateTimeISO()}; // FIX NEW-13: init cargosManuales
-  clientes.push(c);save();
+  clientes.push(c);saveCliente(c);
   registrarCajaAuto('desembolso_prestamo', capital, `Desembolso préstamo: ${nombre}`, `prestamo:${c.id}:desembolso`, {clienteId:c.id, cliente:nombre});
   moverPool('salida', capital, `Desembolso: ${nombre}`, nombre);
   log({tipo:'nuevo',cliente:nombre,monto:capital,ts:Date.now(),autor:'Admin'});
@@ -1902,13 +2135,10 @@ function pagoAnticipadoElegible(c){
 // ===== CUENTA BANCARIA DEL CLIENTE =====
 // Dónde consignarle / recibirle la plata. Se define al crear el cliente y se puede editar
 // después. Vive en el cliente, no en el ciclo: al abrir un ciclo nuevo se conserva.
-function tieneCuenta(c){return !!(c&&(String(c.banco||'').trim()||String(c.numeroCuenta||'').trim()));}
+function tieneCuenta(c){return !!(c&&String(c.numeroCuenta||'').trim());}
 function cuentaTexto(c){
   if(!tieneCuenta(c))return '';
-  const b=String(c.banco||'').trim();
-  const t=String(c.tipoCuenta||'').trim();
-  const n=String(c.numeroCuenta||'').trim();
-  return [b,t&&t!=='Billetera'?t:'',n].filter(Boolean).join(' · ');
+  return String(c.numeroCuenta||'').trim();
 }
 // Bloque para las fichas de cliente. Copiar la cuenta a mano es como se equivoca uno al
 // consignar, así que se ofrece el botón de copiar.
@@ -2262,7 +2492,8 @@ function verCliente(id,soliId=null){
     ${c.refinanciado&&c.dineroExtra>0?`<div class="ibox amber" style="font-size:12px">💵 Incluye <strong>${fmt(c.dineroExtra)}</strong> de dinero adicional en última refinanciación</div>`:''}
     ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];if(!ult||!sameCoDate(ult.fecha,h))return '';const mora_acum=mora(c);return`<div style="background:rgba(255,107,107,.12);border:1.5px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px">❌ No pagó hoy${ult.motivo&&ult.motivo!=='Sin motivo'?' — '+ult.motivo:''}</div><div style="font-size:12px;color:var(--text2)">El cobrador ya realizó la visita. Mañana debe cobrar:</div><div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div><div class="cs"><div class="csl">Mora acumulada</div><div class="csv" style="color:var(--red)">${fmt(mora_acum)}</div></div><div class="cs" style="grid-column:span 2"><div class="csl">Total a cobrar mañana</div><div class="csv" style="color:var(--red);font-size:16px">${fmt(c.cuota+mora_acum)}</div></div></div></div>`;})()}
     ${cuentaHTML(c)}
-    ${c.notas?`<div class="ibox blue" style="font-size:12px">📝 ${c.notas}</div>`:''}
+    ${c.notas?`<div class="ibox blue" style="font-size:12px">📝 ${htmlSafe(c.notas)}</div>`:''}
+    ${htmlFichaCicloAdmin(c)}
     <div style="font-size:11px;color:var(--text3);margin-top:-10px;margin-bottom:12px">${c.cedula?'CC '+c.cedula:''}${c.telefono?' · 📞 '+c.telefono:''}${c.zona?' · 📍 '+c.zona:''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:11px">
       <div class="cs"><div class="csl">Capital</div><div class="csv">${fmt(c.capital)}</div></div>
@@ -2286,6 +2517,10 @@ function verCliente(id,soliId=null){
         </tr></thead>
         <tbody>${cuotasHTML}</tbody>
       </table>
+    </div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px;margin-bottom:10px">
+      <label class="fl" for="admin-metodo-pago" style="margin-bottom:6px">¿Cómo pagó? · el dinero lo recibiste tú (Admin)</label>
+      <select id="admin-metodo-pago"><option value="efectivo">💵 Efectivo</option><option value="transferencia">🏦 Transferencia</option></select>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
       <button class="btn btn-green btn-sm" onclick="pagoNormal('${c.id}')">✓ Cuota normal</button>
@@ -2536,7 +2771,7 @@ function generarHistorialCliente(c){
       fecha:new Date(a.ts),
       tipo:a.tipo==='pago'?'pago':'abono',
       ico:a.tipo==='pago'?'💰':'💵',
-      desc:a.tipo==='pago'?`Cuota ${a.cuota||''}/${a.total||c.numCuotas}${a.nota?' · '+a.nota:''}`:`Abono parcial${a.nota?' · '+a.nota:''}`,
+      desc:(a.tipo==='pago'?`Cuota ${a.cuota||''}/${a.total||c.numCuotas}`:'Abono parcial')+` · registró ${a.registradoPor||a.autor||'Sistema'} · recibió ${a.recibidoPor||a.autor||'Sin registrar'} · ${etiquetaMetodoPago(a.metodoPago)}${a.nota?' · '+a.nota:''}`,
       monto:a.monto,
       color:'var(--green)'
     });
@@ -2741,6 +2976,7 @@ function pagoNormal(id){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
   _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
   const c=clientes.find(x=>x.id===id);if(!c)return;
+  const meta=metaPagoAdmin();
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
   // FIX NEW-10: warning si cliente elegible pago anticipado 10%
   if(pagoAnticipadoElegible(c)){
@@ -2748,16 +2984,18 @@ function pagoNormal(id){
     if(!confirm(`⚠ Cliente elegible PAGO ANTICIPADO\n\nTotal con descuento 10%: ${fmt(pa.total)} (capital ${fmt(pa.capital)} + interés ${fmt(pa.interes)})\nEn vez de cobrar cuota normal por ${fmt(c.cuota)} ahora.\n\n¿Cobrar cuota normal de todos modos (cliente PIERDE el descuento del 10%)?`))return;
   }
   const cuotaNo=c.pagadas+1;
-  const partes=partesCuotaIndex(c,c.pagadas);
-  const montoCuota=partes.capital+partes.interes; // FIX: monto real de la cuota (la última puede diferir de c.cuota) — consistente con caja
+  const partes=partesPendientesCuota(c);
+  const montoCuota=partes.cuota; // incluye ajustes/cuotas extra sin convertirlos en interés
+  if(montoCuota<=0){notify('La cuota ya está cubierta por un abono previo. Revisa el saldo antes de avanzar.','err');return;}
   c.pagadas++;c.moraBaseDate=null;c.graciaHasta=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
   saveClienteFields(c,['pagadas','moraBaseDate','graciaHasta','abonoPendiente','ultimoPago','comisionEventos']);
   // Alimentar pool con cuota cobrada
   alimentarPool(montoCuota,c.nombre);
-  registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
-  registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
-  log({tipo:'pago',cliente:c.nombre,monto:montoCuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin'});
+  registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
+  registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre,...meta});
+  if(partes.ajuste>0)registrarCajaAuto('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
+  log({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:montoCuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',...meta});
   resolverSolicitudActiva('pago_registrado',`Pago ${c.pagadas}/${c.numCuotas} registrado por admin`);
   // Última cuota — ofrecer nuevo ciclo
   if(c.pagadas>=c.numCuotas){
@@ -2776,6 +3014,7 @@ function liquidarAnticipado(id){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
   _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
   const c=clientes.find(x=>x.id===id);if(!c)return;
+  const meta=metaPagoAdmin();
   if(!pagoAnticipadoElegible(c)){
     notify('No elegible: requiere 0 cuotas pagadas, sin abono pendiente y < 15 días desde creación','err');return;
   }
@@ -2820,13 +3059,13 @@ function liquidarAnticipado(id){
   c.fechaLiquidacionAnticipada=coDateTimeISO();
   c.diasLiquidacionAnticipada=dias;
   // Caja: capital + interés 10%
-  registrarCajaAuto('recuperacion_capital',capital,`Recuperación capital ${c.nombre} · liquidación anticipada`,`liqant:${c.id}:c${cicloDe(c)}:cap`,{clienteId:c.id,cliente:c.nombre});
-  if(interes>0)registrarCajaAuto('interes_cobrado',interes,`Interés 10% ${c.nombre} · pago < 15 días`,`liqant:${c.id}:c${cicloDe(c)}:int`,{clienteId:c.id,cliente:c.nombre});
+  registrarCajaAuto('recuperacion_capital',capital,`Recuperación capital ${c.nombre} · liquidación anticipada`,`liqant:${c.id}:c${cicloDe(c)}:cap`,{clienteId:c.id,cliente:c.nombre,...meta});
+  if(interes>0)registrarCajaAuto('interes_cobrado',interes,`Interés 10% ${c.nombre} · pago < 15 días`,`liqant:${c.id}:c${cicloDe(c)}:int`,{clienteId:c.id,cliente:c.nombre,...meta});
   // Comisión sobre el interés real (10%)
   registrarComisionEventoCliente(c,{interes:interes,mora:0,autor:'Admin',nota:`Liquidación anticipada (${dias}d) — interés 10%`});
   // Pool
   alimentarPool(total,c.nombre);
-  log({tipo:'liquidacion_anticipada',cliente:c.nombre,monto:total,ts:Date.now(),autor:'Admin',nota:`${dias}d · cap ${fmt(capital)} + int 10% ${fmt(interes)} = ${fmt(total)}`});
+  log({tipo:'liquidacion_anticipada',clienteId:c.id,cliente:c.nombre,monto:total,ts:Date.now(),autor:'Admin',...meta,nota:`${dias}d · cap ${fmt(capital)} + int 10% ${fmt(interes)} = ${fmt(total)}`});
   saveClienteFields(c,['interes','total','cuotasDataOriginal','cuotasData','numCuotasOriginal','numCuotas','cuota','cuotaUltima','pagadas','abonoPendiente','moraBaseDate','graciaHasta','ultimoPago','liquidadoAnticipado','fechaLiquidacionAnticipada','diasLiquidacionAnticipada','moraPerdonada','historialMora','comisionEventos']);
   resolverSolicitudActiva('liquidacion_anticipada',`Liquidación anticipada ${fmt(total)}`);
   notify(`${c.nombre} liquidó anticipado · ${fmt(total)} ✓`,'ok');
@@ -2837,19 +3076,21 @@ function cobrarConMora(id){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
   _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
   const c=clientes.find(x=>x.id===id);if(!c)return;
+  const meta=metaPagoAdmin();
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
   let m=mora(c);
   const _mIng=prompt(`Mora a cobrar a ${c.nombre} (sugerida ${fmt(m)}; edítala si pactaste otra, ej. 6000):`,String(Math.round(m)));
   if(_mIng===null){_busyConfirm=false;return;}
-  m=Math.max(0,parseFloat(String(_mIng).replace(/[^\d.]/g,''))||0);
+  m=Math.max(0,Math.round(parseFloat(String(_mIng).replace(/[^\d.]/g,''))||0));
   // FIX NEW-10: warning si cliente elegible pago anticipado (raro tener mora <15d pero por simetría)
   if(pagoAnticipadoElegible(c)){
     const pa=montoPagoAnticipado(c);
     if(!confirm(`⚠ Cliente elegible PAGO ANTICIPADO ${fmt(pa.total)} (10%). ¿Cobrar cuota+mora normal igual? (cliente PIERDE descuento)`))return;
   }
   const cuotaNo=c.pagadas+1;
-  const partes=partesCuotaIndex(c,c.pagadas);
-  const montoCuota=partes.capital+partes.interes; // FIX: monto real de la cuota (la última puede diferir de c.cuota) — consistente con caja
+  const partes=partesPendientesCuota(c);
+  const montoCuota=partes.cuota; // incluye ajustes/cuotas extra sin convertirlos en interés
+  if(montoCuota<=0){notify('La cuota ya está cubierta por un abono previo. Revisa el saldo antes de avanzar.','err');return;}
   registrarEventoMora(c,'cobrada',m,`Cobrada junto con cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
   c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.moraPerdonada=(c.moraPerdonada||0)+m;
   c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
@@ -2858,10 +3099,11 @@ function cobrarConMora(id){
   saveClienteFields(c,['pagadas','moraBaseDate','abonoPendiente','moraPerdonada','moraCobradaTotal','ultimoPago','historialMora','comisionEventos']);
   // Alimentar pool con cuota + mora
   alimentarPool(montoCuota+m,c.nombre);
-  registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
-  registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
-  registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
-  log({tipo:'pago',cliente:c.nombre,monto:montoCuota+m,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:`mora ${fmt(m)}`});
+  registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
+  registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre,...meta});
+  if(partes.ajuste>0)registrarCajaAuto('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
+  registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre,...meta});
+  log({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:montoCuota+m,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',...meta,nota:`mora ${fmt(m)}`});
   resolverSolicitudActiva('pago_con_mora',`Cobro aplicado por admin: ${fmt(montoCuota+m)}`);
   if(c.telefono){
     const msg=encodeURIComponent(buildWAMsg(c,c.pagadas,montoCuota+m,m));
@@ -2934,7 +3176,7 @@ function abrirAbono(id){
   const proxima=c.cuotasData[c.pagadas];
   const m=mora(c);
   const cuotaBase=proxima?.cuota||c.cuota;
-  const totalDeber=cuotaBase+m-(c.abonoPendiente||0);
+  const totalDeber=partesPendientesCuota(c).cuota+m;
   document.getElementById('abono-info').innerHTML=
     `<strong>${c.nombre}</strong> · Cuota ${c.pagadas+1}/${c.numCuotas}<br>`+
     `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px">`+
@@ -2945,6 +3187,7 @@ function abrirAbono(id){
     `<div style="margin-top:8px;font-size:13px">Total a pagar: <strong style="color:var(--amber)">${fmt(totalDeber)}</strong></div>`+
     (proxima?`<div style="font-size:11px;color:var(--text3);margin-top:3px">Fecha cuota: ${proxima.fecha}</div>`:'');
   document.getElementById('abono-monto').value='';
+  const metodoEl=document.getElementById('abono-metodo-admin');if(metodoEl)metodoEl.value='efectivo';
   document.getElementById('abono-prev').innerHTML='';
   cerrar('modal-cli');
   document.getElementById('modal-abono').classList.add('open');
@@ -2952,21 +3195,23 @@ function abrirAbono(id){
 
 function prevAbono(){
   const c=clientes.find(x=>x.id===pendingAbono);if(!c)return;
-  const v=parseFloat(document.getElementById('abono-monto').value)||0;
+  const v=Math.max(0,Math.round(parseFloat(document.getElementById('abono-monto').value)||0));
   if(v<=0){document.getElementById('abono-prev').innerHTML='';return;}
   const m=mora(c);
   const cuotaBase=c.cuotasData[c.pagadas]?.cuota||c.cuota;
-  const totalDeber=cuotaBase+m-(c.abonoPendiente||0);
+  const cuotaPendiente=partesPendientesCuota(c).cuota;
+  const totalDeber=cuotaPendiente+m;
   let msg='';
-  if(v>=totalDeber){
+  if(v>totalDeber){
+    msg=`<span style="color:var(--red)">⚠ El máximo para esta cuota es ${fmt(totalDeber)}. Registra la siguiente cuota por separado.</span>`;
+  } else if(v===totalDeber){
     msg=`<span style="color:var(--green)">✓ Cubre cuota${m>0?' + mora':''} completa — se marcará como pagada</span>`;
-    if(v>totalDeber)msg+=`<br><span style="color:var(--text2);font-size:11px">Sobran ${fmt(v-totalDeber)} que se abonan a la siguiente cuota</span>`;
   } else {
     // Abono parcial — desglose: mora primero, resto a cuota
     const aMora=Math.min(v,m);
     const aCuota=v-aMora;
     const moraRest=Math.max(0,m-aMora);
-    const baseRest=Math.max(0,cuotaBase-(c.abonoPendiente||0)-aCuota);
+    const baseRest=Math.max(0,cuotaPendiente-aCuota);
     msg=`<span style="color:var(--amber)">Abono parcial:</span><br><span style="font-size:11px;color:var(--text2)">`;
     if(aMora>0)msg+=`• Mora: <strong style="color:var(--red)">${fmt(aMora)}</strong>${moraRest>0?` (restan ${fmt(moraRest)} mora)`:' ✓ liquidada'}<br>`;
     if(aCuota>0)msg+=`• Cuota: <strong style="color:var(--amber)">${fmt(aCuota)}</strong> (faltan ${fmt(baseRest)} de cuota)<br>`;
@@ -2981,35 +3226,38 @@ function confirmarAbono(){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
   _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
   const c=clientes.find(x=>x.id===pendingAbono);if(!c)return;
-  const monto=parseFloat(document.getElementById('abono-monto').value)||0;
+  const meta=metaPagoAdmin('abono-metodo-admin');
+  const monto=Math.max(0,Math.round(parseFloat(document.getElementById('abono-monto').value)||0));
   if(monto<=0){notify('Ingresa un monto válido','err');return;}
   const m=mora(c);
-  const cuotaBase=c.cuotasData[c.pagadas]?.cuota||c.cuota;
-  const totalDeber=cuotaBase+m-(c.abonoPendiente||0);
+  const partesPendientes=partesPendientesCuota(c);
+  const totalDeber=partesPendientes.cuota+m;
+  if(partesPendientes.cuota<=0){notify('La cuota ya está cubierta por un abono previo. Revisa el saldo antes de avanzar.','err');return;}
+  if(monto>totalDeber){
+    notify(`El máximo para esta cuota es ${fmt(totalDeber)}. Registra la siguiente cuota por separado.`,'err');
+    return;
+  }
 
   if(monto>=totalDeber){
     // Cubre todo → cuota pagada
-    const sobrante=monto-totalDeber;
     if(m>0){
       registrarEventoMora(c,'cobrada',m,`Cobrada via abono — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
       c.moraPerdonada=(c.moraPerdonada||0)+m;
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
     }
     const cuotaNo=c.pagadas+1;
-    const partes=partesCuotaIndex(c,c.pagadas);
+    const partes=partesPendientes;
     c.pagadas++;
-    c.abonoPendiente=sobrante>0?sobrante:0;
+    c.abonoPendiente=0;
     c.moraBaseDate=null;c.graciaHasta=null; // limpiar — la cuota quedó pagada
     c.ultimoPago=coDateTimeISO();
     registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Abono completo cuota ${cuotaNo}/${c.numCuotas}`});
-    registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre});
-    registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre});
-    if(m>0)registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre});
-    if(sobrante>0)registrarCajaAuto('abono_adelantado', sobrante, `Abono adelantado ${c.nombre}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:sobrante`, {clienteId:c.id, cliente:c.nombre});
-    const msg=sobrante>0
-      ?`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}. Sobrante ${fmt(sobrante)} a la siguiente`
-      :`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}`;
-    log({tipo:'abono',cliente:c.nombre,monto,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',nota:msg});
+    registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
+    registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre,...meta});
+    if(partes.ajuste>0)registrarCajaAuto('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
+    if(m>0)registrarCajaAuto('mora_cobrada', m, `Mora cobrada ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre,...meta});
+    const msg=`Cuota ${c.pagadas}/${c.numCuotas} pagada${m>0?' + mora '+fmt(m):''}`;
+    log({tipo:'abono',clienteId:c.id,cliente:c.nombre,monto,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',...meta,nota:msg});
     alimentarPool(monto,c.nombre); // FIX NEW-1: pool no se alimentaba en abono completo admin
     notify(`${msg} ✓`,'ok');
   } else {
@@ -3022,13 +3270,14 @@ function confirmarAbono(){
       registrarEventoMora(c,'cobrada',abonoEnMora,`Mora parcial en abono — cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
       c.moraPerdonada=(c.moraPerdonada||0)+abonoEnMora;
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+abonoEnMora;
-      registrarCajaAuto('mora_cobrada', abonoEnMora, `Mora parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:mora:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+      registrarCajaAuto('mora_cobrada', abonoEnMora, `Mora parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:mora:${Date.now()}`, {clienteId:c.id, cliente:c.nombre,...meta});
     }
     const deltaPartes=deltaDesgloseAbono(c,abonoEnCuota);
     c.abonoPendiente=(c.abonoPendiente||0)+abonoEnCuota;
     if(abonoEnCuota>0){
-      if(deltaPartes.capitalDelta>0)registrarCajaAuto('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:capital:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
-      if(deltaPartes.interesDelta>0)registrarCajaAuto('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:interes:${Date.now()}`, {clienteId:c.id, cliente:c.nombre});
+      if(deltaPartes.capitalDelta>0)registrarCajaAuto('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:capital:${Date.now()}`, {clienteId:c.id, cliente:c.nombre,...meta});
+      if(deltaPartes.interesDelta>0)registrarCajaAuto('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:interes:${Date.now()}`, {clienteId:c.id, cliente:c.nombre,...meta});
+      if(deltaPartes.ajusteDelta>0)registrarCajaAuto('cuota_extra_cobrada', deltaPartes.ajusteDelta, `Cuota extra/ajuste parcial ${c.nombre} · cuota ${c.pagadas+1}`, `abono_parcial:${c.id}:${c.pagadas+1}:ajuste:${Date.now()}`, {clienteId:c.id, cliente:c.nombre,...meta});
     }
     if(deltaPartes.interesDelta>0||abonoEnMora>0){
       registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:abonoEnMora,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
@@ -3039,10 +3288,10 @@ function confirmarAbono(){
       c.moraBaseDate=hoy(); // mora liquidada, reinicia contador
     }
     c.ultimoPago=coDateTimeISO();
-    const faltaBase=cuotaBase-c.abonoPendiente;
+    const faltaBase=Math.max(0,partesPendientes.cuota-abonoEnCuota);
     const moraRest=Math.max(0,m-abonoEnMora);
     const nota=`Abono ${fmt(monto)}${abonoEnMora>0?' (mora '+fmt(abonoEnMora)+')':''}${abonoEnCuota>0?' (cuota '+fmt(abonoEnCuota)+')':''} — base falta ${fmt(Math.max(0,faltaBase))}${moraRest>0?', mora restante '+fmt(moraRest):''}`;
-    log({tipo:'abono',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota});
+    log({tipo:'abono',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',...meta,nota});
     alimentarPool(monto,c.nombre); // FIX NEW-1: pool no se alimentaba en abono parcial admin
     notify(`Abono ${fmt(monto)} registrado — ${abonoEnMora>0?'mora '+fmt(abonoEnMora)+', ':''}base falta ${fmt(Math.max(0,faltaBase))}${moraRest>0?', mora restante '+fmt(moraRest):''} ✓`,'ok');
   }
@@ -3076,6 +3325,7 @@ function abrirExtensionInteres(id){
     `</div>`+
     `<div style="margin-top:8px;font-size:11px;color:var(--text3);background:rgba(110,179,255,.08);border-radius:6px;padding:6px 8px">El cliente paga solo el interés hoy. La cuota completa de <strong>${fmt(partes.cuota)}</strong> queda pendiente para la próxima fecha seleccionada. No se cobra mora.</div>`;
   document.getElementById('ext-monto').value='';
+  const metodoEl=document.getElementById('ext-metodo-admin');if(metodoEl)metodoEl.value='efectivo';
   document.getElementById('ext-fecha').value=calcularFechaExtension(c);
   document.getElementById('ext-prev').innerHTML='';
   cerrar('modal-cli');
@@ -3096,6 +3346,7 @@ function confirmarExtensionInteres(){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
   _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
   const c=clientes.find(x=>x.id===pendingExtension);if(!c)return;
+  const meta=metaPagoAdmin('ext-metodo-admin');
   const monto=parseFloat(document.getElementById('ext-monto').value)||0;
   if(monto<=0){notify('Ingresa el monto recibido','err');return;}
   const fechaExtension=document.getElementById('ext-fecha').value;
@@ -3111,7 +3362,7 @@ function confirmarExtensionInteres(){
     c.moraPerdonada=(c.moraPerdonada||0)+m;
   }
   if(interesEnEste>0){
-    registrarCajaAuto('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:int:${Date.now()}`,{clienteId:c.id,cliente:c.nombre});
+    registrarCajaAuto('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:int:${Date.now()}`,{clienteId:c.id,cliente:c.nombre,...meta});
   }
   if(interesEnEste>0){
     registrarComisionEventoCliente(c,{interes:interesEnEste,mora:0,autor:'Admin',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaExtension}`});
@@ -3119,10 +3370,10 @@ function confirmarExtensionInteres(){
   c.graciaHasta=fechaExtension;
   c.moraBaseDate=fechaExtension;
   c.ultimoPago=coDateTimeISO();
-  log({tipo:'extension_interes',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}. Interés: ${fmt(interesEnEste)}`});
+  log({tipo:'extension_interes',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',...meta,nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}. Interés: ${fmt(interesEnEste)}`});
   alimentarPool(monto,c.nombre); // FIX NEW-2: pool no se alimentaba en extensión admin
   notify(`Extensión registrada — próxima cuota: ${fechaExtension} ✓`,'ok');
-  save();
+  saveClienteFields(c,['historialMora','moraPerdonada','comisionEventos','graciaHasta','moraBaseDate','ultimoPago']);
   cerrar('modal-extension');
   renderClientes();renderInicio();renderCaja();
 }
@@ -3181,8 +3432,9 @@ function confirmarRefin(){
   const plazo=sanitizarCuotas(document.getElementById('rf-plazo').value,15);
   const moraDia=parseFloat(document.getElementById('rf-mora').value)||0;
   const fechaInicio=document.getElementById('rf-fecha').value||hoy();
+  const fechaCronograma=baseCronogramaNuevo(fechaInicio);
   const rd=c.redondeo||1000;
-  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(nc,tasa,plazo,tipo,fechaInicio,rd);
+  const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(nc,tasa,plazo,tipo,fechaCronograma,rd);
   const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes'}[tipo];
   // Guardar historial del préstamo anterior en el mismo cliente (sin duplicar)
   if(!c.historialPrestamos)c.historialPrestamos=[];
@@ -3214,7 +3466,7 @@ function confirmarRefin(){
   c.creado=coDateTimeISO(); // FIX HIGH-5: nuevo ciclo = nueva fecha para regla 15 días anticipado
   c.refinanciado=true;c.refinanciadoEn=coDateTimeISO();
   c.conteoRefinanciaciones=(c.conteoRefinanciaciones||0)+1;
-  save();
+  saveCliente(c);
   if(extra>0){
     registrarCajaAuto('refinanciacion_extra', extra, `Dinero adicional refinanciación: ${c.nombre}`, `refin:${c.id}:${c.conteoRefinanciaciones}:extra`, {clienteId:c.id, cliente:c.nombre});
     moverPool('salida',extra,`Refinanciación extra: ${c.nombre}`,c.nombre); // FIX NEW-3: pool egreso por dinero adicional
@@ -3506,12 +3758,12 @@ function renderFinanzas(){
 function renderActividad(){
   const el=document.getElementById('feed-act');
   if(!actividad.length){el.innerHTML='<div class="empty"><div class="empty-i">📡</div><div class="empty-t">Sin actividad aún</div></div>';return;}
-  const im={pago:'💰',nuevo:'📋',abono:'💵',refinanciacion:'🔄',mora_perdonada:'🤝',no_pago:'❌'};
-  const bg={pago:'var(--greend)',nuevo:'var(--goldd)',abono:'var(--blued)',refinanciacion:'var(--amberd)',mora_perdonada:'var(--greend)',no_pago:'var(--redd)'};
+  const im={pago:'💰',nuevo:'📋',abono:'💵',extension_interes:'💳',mora_cobrada:'🧾',refinanciacion:'🔄',mora_perdonada:'🤝',no_pago:'❌',liquidacion_anticipada:'⚡'};
+  const bg={pago:'var(--greend)',nuevo:'var(--goldd)',abono:'var(--blued)',extension_interes:'var(--blued)',mora_cobrada:'var(--amberd)',refinanciacion:'var(--amberd)',mora_perdonada:'var(--greend)',no_pago:'var(--redd)',liquidacion_anticipada:'var(--greend)'};
   el.innerHTML=actividad.slice(0,40).map(a=>{
     const ts=new Date(a.ts).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    const titulo=a.tipo==='pago'?`Pago — ${a.cliente} (${a.cuota||''}/${a.total||''})`:a.tipo==='nuevo'?`Nuevo — ${a.cliente}`:a.tipo==='abono'?`Abono — ${a.cliente}`:a.tipo==='refinanciacion'?`Refinanciación — ${a.cliente}`:a.tipo==='mora_perdonada'?`Mora perdonada — ${a.cliente}`:'Actividad';
-    return`<div class="ai"><div class="ai-icon" style="background:${bg[a.tipo]||'var(--bg3)'}">${im[a.tipo]||'📝'}</div><div class="ai-body"><div class="ai-title">${titulo}</div><div class="ai-sub">${a.autor||'Sistema'} · ${ts}${a.nota?' · '+a.nota:''}</div></div><div class="ai-amt">${fmt(a.monto)}</div></div>`;
+    const cuota=a.tipo==='pago'&&a.cuota?` · cuota ${a.cuota}/${a.total||'?'}`:'';
+    return`<div class="ai"><div class="ai-icon" style="background:${bg[a.tipo]||'var(--bg3)'}">${im[a.tipo]||'📝'}</div><div class="ai-body"><div class="ai-title">${htmlSafe(tituloActividad(a))}${cuota}</div><div class="ai-sub" style="color:var(--text2);margin-top:3px">${htmlSafe(detalleResponsablesActividad(a))}</div><div class="ai-sub">${ts}${a.nota?' · '+htmlSafe(a.nota):''}</div></div>${a.monto>0?`<div class="ai-amt">${fmt(a.monto)}</div>`:''}</div>`;
   }).join('');
 }
 
@@ -3605,7 +3857,7 @@ function rangoDiaISO(iso){
 }
 function totalCobradoHoyCaja(iso){
   const {start,end}=rangoDiaISO(iso||hoy());
-  const subtipos=['recuperacion_capital','interes_cobrado','mora_cobrada','abono_adelantado'];
+  const subtipos=['recuperacion_capital','interes_cobrado','mora_cobrada','cuota_extra_cobrada','abono_adelantado'];
   return (caja||[]).filter(m=>m.tipo==='ingreso'&&subtipos.includes(m.subtipo)&&(m.ts||0)>=start&&(m.ts||0)<=end).reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
 }
 function solicitudesPendientesLista(){
@@ -3641,7 +3893,7 @@ function pendienteRutaHoyCliente(c,fecha){
   if(!due)return 0;
   const d=Math.floor((coUTCDateFromKey(f)-coUTCDateFromKey(due))/DAY_MS);
   if(d<0||d>DIAS_RUTA_MAX)return 0; // aún no vence, o ya salió de la ventana de ruta (queda a decisión del admin)
-  return (c.cuota||0)+mora(c); // mismo criterio que la ruta del cobrador (cuota + mora)
+  return _aCobrarHoy(c,mora(c)); // cuota real + mora - abono, idéntico a la ruta del cobrador
 }
 function renderInicioResumen(h,act){
   const el=document.getElementById('inicio-resumen');
@@ -3706,13 +3958,20 @@ function interesRealizadoPagado(c,count){
 }
 function partesCuotaIndex(c,idx){
   const q=c.cuotasData?.[idx]||{};
+  const cuota=Math.max(0,Math.round(parseFloat(q.cuota)||((idx===(c.numCuotas||1)-1&&c.cuotaUltima)?c.cuotaUltima:c.cuota||0)));
+  // Una cuota extra aumenta la deuda sin tocar capital/interés ni generar comisión.
+  // Sus ceros son intencionales: no aplicarles el fallback proporcional de cuotas legacy.
+  if(q.extra){
+    const capital=Math.max(0,Math.min(cuota,Math.round(parseFloat(q.capital)||0)));
+    const interes=Math.max(0,Math.min(cuota-capital,Math.round(parseFloat(q.interes)||0)));
+    return {capital,interes,cuota};
+  }
   const capitalAntes=capitalRecuperadoPagado(c,idx);
   const interesAntes=interesRealizadoPagado(c,idx);
   const capitalRest=Math.max(0,Math.round((c.capital||0)-capitalAntes));
   const interesRest=Math.max(0,Math.round((c.interes||0)-interesAntes));
   let capital=Math.min(capitalRest,Math.max(0,Math.round(parseFloat(q.capital)||Math.round((c.capital||0)/Math.max(1,c.numCuotas||1)))));
   let interes=Math.min(interesRest,Math.max(0,Math.round(parseFloat(q.interes)||Math.round((c.interes||0)/Math.max(1,c.numCuotas||1)))));
-  const cuota=Math.max(0,Math.round(parseFloat(q.cuota)||((idx===(c.numCuotas||1)-1&&c.cuotaUltima)?c.cuotaUltima:c.cuota||0)));
   const suma=capital+interes;
   if(cuota>0&&suma!==cuota){
     const totalRest=capitalRest+interesRest;
@@ -3731,14 +3990,19 @@ function partesCuotaIndex(c,idx){
 }
 function desgloseAbonoConMonto(c,abono){
   const valor=Math.max(0,Math.round(abono||0));
-  if(valor<=0||c.pagadas>=c.numCuotas)return {capitalParcial:0,interesParcial:0};
+  if(valor<=0||c.pagadas>=c.numCuotas)return {capitalParcial:0,interesParcial:0,ajusteParcial:0};
   const partes=partesCuotaIndex(c,c.pagadas);
   const base=Math.max(1,partes.cuota||c.cuota||1);
   const usado=Math.min(valor,base);
-  const ratioCap=Math.max(0,Math.min(1,(partes.capital||0)/base));
-  const capitalParcial=Math.min(partes.capital||0,Math.round(usado*ratioCap));
-  const interesParcial=Math.max(0,usado-capitalParcial);
-  return {capitalParcial,interesParcial};
+  const capitalBase=Math.max(0,Math.min(base,Math.round(partes.capital||0)));
+  const interesBase=Math.max(0,Math.min(base-capitalBase,Math.round(partes.interes||0)));
+  const ajusteBase=Math.max(0,base-capitalBase-interesBase);
+  const capitalParcial=Math.min(capitalBase,Math.round(usado*capitalBase/base));
+  const restante=Math.max(0,usado-capitalParcial);
+  const baseNoCapital=interesBase+ajusteBase;
+  const interesParcial=Math.min(interesBase,baseNoCapital>0?Math.round(restante*interesBase/baseNoCapital):0);
+  const ajusteParcial=Math.max(0,restante-interesParcial);
+  return {capitalParcial,interesParcial,ajusteParcial};
 }
 function desgloseAbonoPendienteActual(c){
   return desgloseAbonoConMonto(c,c.abonoPendiente||0);
@@ -3748,8 +4012,18 @@ function deltaDesgloseAbono(c,delta){
   const siguiente=desgloseAbonoConMonto(c,(c.abonoPendiente||0)+Math.max(0,delta||0));
   return {
     capitalDelta:Math.max(0,(siguiente.capitalParcial||0)-(previo.capitalParcial||0)),
-    interesDelta:Math.max(0,(siguiente.interesParcial||0)-(previo.interesParcial||0))
+    interesDelta:Math.max(0,(siguiente.interesParcial||0)-(previo.interesParcial||0)),
+    ajusteDelta:Math.max(0,(siguiente.ajusteParcial||0)-(previo.ajusteParcial||0))
   };
+}
+function partesPendientesCuota(c){
+  const partes=partesCuotaIndex(c,c.pagadas);
+  const abonado=desgloseAbonoConMonto(c,c.abonoPendiente||0);
+  const capital=Math.max(0,Math.round((partes.capital||0)-(abonado.capitalParcial||0)));
+  const interes=Math.max(0,Math.round((partes.interes||0)-(abonado.interesParcial||0)));
+  const cuota=Math.max(0,Math.round(partes.cuota||0)-Math.min(Math.round(partes.cuota||0),Math.max(0,Math.round(c.abonoPendiente||0))));
+  const ajuste=Math.max(0,cuota-capital-interes);
+  return {capital,interes,ajuste,cuota};
 }
 function capitalPendiente(c){
   const rec=capitalRecuperadoPagado(c)+(desgloseAbonoPendienteActual(c).capitalParcial||0);
@@ -3770,7 +4044,10 @@ function resumenLegacyComision(c){
   return {pct,interesCobrado,moraCobrada,total,admin};
 }
 function comisionEventosCliente(c){
-  if(Array.isArray(c.comisionEventos)&&c.comisionEventos.length)return c.comisionEventos.filter(Boolean);
+  // Los eventos anulados se conservan como rastro de auditoría, pero ya no son comisión
+  // ganada ni interés real. Dejarlos entrar aquí inflaba los acumulados de ambas apps y
+  // podía hacer que Auto-cuadre volviera a crear el ingreso que acabábamos de eliminar.
+  if(Array.isArray(c.comisionEventos)&&c.comisionEventos.length)return c.comisionEventos.filter(e=>e&&!e.duplicadoAnulado);
   const legacy=resumenLegacyComision(c);
   if(legacy.total<=0)return [];
   const tsBase=Date.parse(c.ultimoPago||c.creado||coDateTimeISO())||Date.now();
@@ -3802,7 +4079,7 @@ function eventosHistoricosCliente(c){
   const map=new Map();
   const keyOf=(e,fb)=>e&&e.id?e.id:`${(e&&e.ts)||0}_${(e&&e.nota)||''}_${fb}`;
   (c.ciclos||[]).forEach((cy,ci)=>{
-    (cy.comisionEventos||[]).filter(Boolean).forEach((e,i)=>{
+    (cy.comisionEventos||[]).filter(e=>e&&!e.duplicadoAnulado).forEach((e,i)=>{
       map.set(keyOf(e,`c${ci}_${i}`),Object.assign({},e,{_ciclo:cy.cicloNum||(ci+1)}));
     });
   });
@@ -3841,14 +4118,12 @@ function registrarComisionEventoCliente(c,{interes=0,mora=0,autor='Admin',nota='
 }
 function migrarComisionesClientes(){
   if(!Array.isArray(clientes)||!clientes.length)return;
-  let changed=false;
   clientes.forEach(c=>{
     if(!Array.isArray(c.comisionEventos)){
       c.comisionEventos=comisionEventosCliente(c);
-      changed=true;
+      saveClienteFields(c,['comisionEventos']);
     }
   });
-  if(changed)save();
 }
 function rangoPeriodoLiquidacion(periodo){
   if(periodo==='todo')return {start:0,end:Date.now()+86400000};
@@ -3903,13 +4178,14 @@ function metricasCaja(){
   const principalCalle=activos.reduce((s,c)=>s+capitalPendiente(c),0);
   const carteraTotal=activos.reduce((s,c)=>s+saldo(c),0);
   const interesRealizado=caja.filter(m=>m.auto&&m.subtipo==='interes_cobrado').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+  const cuotasExtraReal=caja.filter(m=>m.auto&&m.subtipo==='cuota_extra_cobrada').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
   const interesPendiente=activos.reduce((s,c)=>s+Math.max(0,Math.round((c.interes||0)-interesRealizadoPagado(c))),0);
   const moraReal=caja.filter(m=>m.auto&&m.subtipo==='mora_cobrada').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
   const moraActiva=activos.reduce((s,c)=>s+mora(c),0);
   const comisionesPagadas=totalLiquidacionesComision();
-  const utilidadNeta=Math.round(interesRealizado+moraReal-comisionesPagadas-gastos);
-  const disponibleReal=capitalBase-principalCalle+interesRealizado+moraReal-comisionesPagadas-gastos;
-  return {ingresosCapital,retirosCapital,gastos,capitalBase,principalCalle,carteraTotal,interesRealizado,interesPendiente,moraReal,moraActiva,comisionesPagadas,utilidadNeta,disponibleReal};
+  const utilidadNeta=Math.round(interesRealizado+moraReal+cuotasExtraReal-comisionesPagadas-gastos);
+  const disponibleReal=capitalBase-principalCalle+interesRealizado+moraReal+cuotasExtraReal-comisionesPagadas-gastos;
+  return {ingresosCapital,retirosCapital,gastos,capitalBase,principalCalle,carteraTotal,interesRealizado,interesPendiente,moraReal,moraActiva,cuotasExtraReal,comisionesPagadas,utilidadNeta,disponibleReal};
 }
 function renderCaja(){
   const m=metricasCaja();
@@ -3943,7 +4219,7 @@ function renderCaja(){
   const el=document.getElementById('cj-historial');
   if(!el)return;
   if(!caja.length){el.innerHTML='<div style="font-size:13px;color:var(--text3);padding:10px 0;text-align:center">Sin movimientos</div>';return;}
-  const labelSubtipo={desembolso_prestamo:'Desembolso',recuperacion_capital:'Capital recuperado',interes_cobrado:'Interés',mora_cobrada:'Mora',refinanciacion_extra:'Extra refinanciación',abono_adelantado:'Abono adelantado',liquidacion_comision:'Pago comisión cobrador'};
+  const labelSubtipo={desembolso_prestamo:'Desembolso',recuperacion_capital:'Capital recuperado',interes_cobrado:'Interés',mora_cobrada:'Mora',cuota_extra_cobrada:'Cuota extra/ajuste',refinanciacion_extra:'Extra refinanciación',abono_adelantado:'Abono adelantado',liquidacion_comision:'Pago comisión cobrador'};
   el.innerHTML=caja.slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).map(mv=>{
     const ts=new Date(mv.ts).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'2-digit'});
     const positivo=mv.tipo==='ingreso';
@@ -3953,7 +4229,7 @@ function renderCaja(){
     return `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)">
       <div>
         <div style="font-size:13px;font-weight:600">${mv.desc||mv.tipo}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">${ts} · ${subt}${mv.cliente?` · ${mv.cliente}`:''}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${ts} · ${subt}${mv.cliente?` · ${mv.cliente}`:''}${mv.recibidoPor?` · recibió ${htmlSafe(mv.recibidoPor)}`:''}${mv.metodoPago?` · ${htmlSafe(etiquetaMetodoPago(mv.metodoPago))}`:''}</div>
       </div>
       <div style="text-align:right">
         <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${col}">${sg}${fmt(mv.monto)}</div>
@@ -4033,7 +4309,9 @@ function aplicarCorteCaja(){
 function detectarCuadreCaja(){
   const res=[];
   (clientes||[]).forEach(c=>{
-    const evs=Array.isArray(c.comisionEventos)?c.comisionEventos.filter(Boolean):[];
+    // Solo eventos vigentes. Un duplicado anulado sigue guardado por trazabilidad, pero no
+    // representa plata cobrada (caso Santiago: el cuadre lo contó y recreó $10.000 falsos).
+    const evs=Array.isArray(c.comisionEventos)?c.comisionEventos.filter(e=>e&&!e.duplicadoAnulado):[];
     if(!evs.length)return;
     const evInt=evs.reduce((s,e)=>s+Math.round(e.interes||0),0);
     const evMora=evs.reduce((s,e)=>s+Math.round(e.mora||0),0);
@@ -4125,15 +4403,16 @@ function calcularReconciliacion(){
     // Mora: la VERDAD financiera son la caja (plata cobrada) y los eventos de comisión (base de pago al
     // cobrador). FAIL solo si esas dos NO concuerdan. El total mostrado del cliente (moraCobradaTotal +
     // histórica) es un campo derivado que puede quedar desactualizado → solo WARN, no fail.
-    const evMora=Array.isArray(c.comisionEventos)?c.comisionEventos.reduce((s,e)=>s+Math.round(e.mora||0),0):0;
+    const eventosVigentes=Array.isArray(c.comisionEventos)?c.comisionEventos.filter(e=>e&&!e.duplicadoAnulado):[];
+    const evMora=eventosVigentes.reduce((s,e)=>s+Math.round(e.mora||0),0);
     const moraMostrada=Math.round((c.moraCobradaTotal||0)+(c.moraHistoricaAcumulada||0));
     if(Math.abs(sumMora-evMora)>2)fails.push(`${tag} mora descuadra: caja=${sumMora.toLocaleString('es-CO')} vs comisión=${evMora.toLocaleString('es-CO')}`);
     if(Math.abs(sumMora-moraMostrada)>2)warns.push(`${tag} mora total mostrado ${moraMostrada.toLocaleString('es-CO')} vs caja ${sumMora.toLocaleString('es-CO')} (campo a corregir)`);
     if(Array.isArray(c.comisionEventos)){
-      const sumIntEv=c.comisionEventos.reduce((s,e)=>s+(e.interes||0),0);
+      const sumIntEv=eventosVigentes.reduce((s,e)=>s+(e.interes||0),0);
       if(Math.abs(sumIntEv-sumInt)>2)warns.push(`${tag} comision interes vs caja: ${sumIntEv.toLocaleString('es-CO')} != ${sumInt.toLocaleString('es-CO')}`);
       if(!c.esInterno){
-        c.comisionEventos.forEach((e,i)=>{
+        eventosVigentes.forEach((e,i)=>{
           const pct=e.pct||PCT_DEFAULT;
           const expected=Math.round((e.interes||0)*pct/100)+Math.round((e.mora||0)*pct/100);
           if(Math.abs((e.comision||0)-expected)>1)fails.push(`${tag} comision evento[${i}] mal: ${e.comision||0} esperado ${expected}`);
@@ -4144,7 +4423,8 @@ function calcularReconciliacion(){
       const expected=Math.round((c.capital||0)*0.10);
       if(Math.abs((c.interes||0)-expected)>5)warns.push(`${tag} liquidado anticipado con interes ${c.interes||0}; esperado 10%=${expected}`);
     }
-    if(c.pagadas>0&&!c.liquidadoAnticipado&&sumCap===0&&sumInt===0)warns.push(`${tag} pagadas=${c.pagadas} pero sin entradas caja (legacy o data perdida)`);
+    const sumAjuste=movs.filter(m=>m.subtipo==='cuota_extra_cobrada').reduce((s,m)=>s+(m.monto||0),0);
+    if(c.pagadas>0&&!c.liquidadoAnticipado&&sumCap===0&&sumInt===0&&sumAjuste===0)warns.push(`${tag} pagadas=${c.pagadas} pero sin entradas caja (legacy o data perdida)`);
   });
 
   const sumDesemb=caja.filter(m=>m.subtipo==='desembolso_prestamo').reduce((s,m)=>s+(m.monto||0),0);
@@ -4166,7 +4446,7 @@ function calcularReconciliacion(){
     else seen[m.refKey]=m.id;
   });
   let comGenTotal=0,comLiqTotal=0;
-  clientes.forEach(c=>(c.comisionEventos||[]).forEach(e=>{
+  clientes.forEach(c=>(c.comisionEventos||[]).filter(e=>e&&!e.duplicadoAnulado).forEach(e=>{
     comGenTotal+=(e.comision||0);
     if(e.liquidado)comLiqTotal+=(e.comision||0);
   }));
@@ -4277,13 +4557,25 @@ async function aplicarRevision(){
 }
 
 function programarReconciliacionAuto(){
-  if(_reconciliacionAutoProgramada||!Array.isArray(clientes)||!clientes.length)return;
+  const datosListos=_cargaInicialAdmin&&_cargaInicialAdmin.clientes&&_cargaInicialAdmin.caja&&_cargaInicialAdmin.liquidaciones&&_cargaInicialAdmin.credito;
+  if(datosListos)iniciarBackupsAdmin();
+  if(_reconciliacionAutoProgramada||!datosListos||!Array.isArray(clientes)||!clientes.length)return;
   _reconciliacionAutoProgramada=true;
   clearTimeout(window._reconAutoTimer);
+  window._validacionInicioAdmin={estado:'validando'};
+  renderSaludInicio();
   window._reconAutoTimer=setTimeout(()=>{
-    const r=calcularReconciliacion();
-    renderReconciliacionResumen(r);
-    if(r.fails.length>0)notify(`Reconciliacion detecto ${r.fails.length} fail(s). Abre Config.`,'err');
+    try{
+      const v=validarDatosInicioAdmin();
+      window._validacionInicioAdmin=v;
+      renderReconciliacionResumen(v.reconciliacion);
+      renderSaludInicio();
+      if(!v.ok)notify(`La validación inicial encontró ${v.problemas.length} cosa(s) por revisar. Abre Reconciliación.`,'err');
+    }catch(e){
+      console.error('Validación inicial falló:',e);
+      window._validacionInicioAdmin={estado:'error',ts:Date.now(),mensaje:e&&e.message||String(e)};
+      renderSaludInicio();
+    }
   },3000);
 }
 
@@ -4325,29 +4617,93 @@ function aplicarParamsAlFormulario(p){
 }
 
 // ===== BACKUP / RESTORE JSON =====
-function exportarBackupJSON(){
-  const backup={
-    version:4,
-    fecha:coDateTimeISO(),
-    clientes,
-    actividad,
-    caja,
-    liquidaciones,
-    solicitudes:window._solicitudes||[],
+// Lee los nodos completos con once('value'): actividad en pantalla está limitada a 100 y usarla
+// habría dejado por fuera el historial antiguo. También incluye pool + configuración financiera.
+function construirBackupCompleto(fuente){
+  const configLocal={
     params:window._paramsGlobalesFB||JSON.parse(localStorage.getItem(PARAMS_KEY)||'{}'),
-    waTemplate:getWATemplate(),
-    comisionPct:pctGlobal(),
-    // El crédito a favor del cobrador es PLATA: es el sobrante de un abono que no alcanzó a
-    // cubrir un cobro entero y se aplica en el siguiente. Vivía solo en config/ de Firebase y
-    // no se respaldaba: al restaurar se perdía y el cuadre de liquidaciones quedaba descuadrado.
-    creditoCobrador:Math.max(0,Math.round(window._creditoCobrador||0))
+    waTemplate:getWATemplate(),comisionPct:pctGlobal(),
+    creditoCobrador:Math.max(0,Math.round(window._creditoCobrador||0)),
+    disponibleManual:window._dispManual===undefined?null:window._dispManual
   };
-  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`backup_prestamos_${coDateTimeISO().split('T')[0]}.json`;
-  a.click();
-  notify('Backup descargado ✓','ok');
+  const armar=(nodos)=>{
+    const cfg=nodos&&nodos[5]||configLocal;
+    return{
+      version:5,fecha:coDateTimeISO(),fuente:fuente||'manual',
+      clientes:arrFirebase(nodos?nodos[0]:clientes),
+      actividad:arrFirebase(nodos?nodos[1]:actividad),
+      caja:arrFirebase(nodos?nodos[2]:caja),
+      liquidaciones:arrFirebase(nodos?nodos[3]:liquidaciones),
+      solicitudes:arrFirebase(nodos?nodos[4]:(window._solicitudes||[])),
+      params:cfg.params||configLocal.params,
+      waTemplate:cfg.waTemplate||configLocal.waTemplate,
+      comisionPct:cfg.comisionPct!==undefined?cfg.comisionPct:configLocal.comisionPct,
+      creditoCobrador:Math.max(0,Math.round(cfg.creditoCobrador!==undefined?cfg.creditoCobrador:configLocal.creditoCobrador)),
+      configCompleta:cfg,
+      pool:nodos?nodos[6]:(typeof pool==='object'?pool:null)
+    };
+  };
+  if(!fbOk||!db)return Promise.resolve(armar(null));
+  const rutas=['clientes','actividad','caja','liquidaciones','solicitudes','config','pool'];
+  return Promise.all(rutas.map(r=>db.ref(r).once('value').then(s=>s.val()))).then(armar);
+}
+function exportarBackupJSON(){
+  notify('Preparando backup completo…','ok');
+  return construirBackupCompleto('manual').then(backup=>{
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`backup_prestamos_${coDateTimeISO().split('T')[0]}.json`;
+    a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    notify(`Backup completo descargado · ${backup.actividad.length} actividades ✓`,'ok');
+    return backup;
+  }).catch(e=>{console.error(e);notify('No se pudo preparar el backup: '+e.message,'err');});
+}
+
+const BACKUP_ADMIN_KEY='cr_backup_admin_ultimo';
+const BACKUP_ADMIN_INTERVALO=30*60*1000;
+let _backupAdminIniciado=false,_backupAdminGuardando=false,_backupAdminTimer=null,_backupCierreTimer=null;
+function pintarEstadoBackupAdmin(msg,color){
+  const el=document.getElementById('backup-admin-status');if(!el)return;
+  el.innerHTML=`<span style="color:${color||'var(--text3)'}">${htmlSafe(msg)}</span>`;
+}
+function guardarBackupDiarioAdmin(forzar,motivo){
+  if(!fbOk||!db){pintarEstadoBackupAdmin('Sin conexión: el backup automático espera a Firebase.','var(--red)');return Promise.resolve(null);}
+  if(_backupAdminGuardando)return Promise.resolve(null);
+  const ahora=Date.now(),ultimo=JSON.parse(localStorage.getItem(BACKUP_ADMIN_KEY)||'null');
+  if(!forzar&&ultimo&&ultimo.fecha===hoy()&&ahora-(ultimo.ts||0)<BACKUP_ADMIN_INTERVALO)return Promise.resolve(null);
+  _backupAdminGuardando=true;pintarEstadoBackupAdmin('Guardando copia completa…','#6EB3FF');
+  return construirBackupCompleto('automatico').then(backup=>{
+    backup.motivo=motivo||'cambio';backup.guardadoTs=Date.now();
+    return db.ref('backupsDiarios/'+hoy()).set(backup).then(()=>backup);
+  }).then(backup=>{
+    const estado={fecha:hoy(),ts:Date.now(),actividad:backup.actividad.length,clientes:backup.clientes.length};
+    localStorage.setItem(BACKUP_ADMIN_KEY,JSON.stringify(estado));
+    pintarEstadoBackupAdmin(`✓ Último backup: ${new Date(estado.ts).toLocaleString('es-CO')} · ${estado.clientes} clientes · ${estado.actividad} actividades completas`,'var(--green)');
+    return backup;
+  }).catch(e=>{console.error('Backup automático:',e);pintarEstadoBackupAdmin('⚠ Falló el backup: '+(e&&e.message||e),'var(--red)');return null;})
+    .finally(()=>{_backupAdminGuardando=false;});
+}
+function solicitarBackupDiarioAdmin(){
+  if(!_backupAdminIniciado||!fbOk||!db)return;
+  clearTimeout(_backupAdminTimer);
+  const ultimo=JSON.parse(localStorage.getItem(BACKUP_ADMIN_KEY)||'null'),faltan=ultimo?Math.max(0,BACKUP_ADMIN_INTERVALO-(Date.now()-(ultimo.ts||0))):0;
+  _backupAdminTimer=setTimeout(()=>guardarBackupDiarioAdmin(false,'cambio'),Math.max(120000,faltan));
+}
+function programarCierreBackupAdmin(){
+  clearTimeout(_backupCierreTimer);
+  const hoyKey=hoy(),objetivoHoy=Date.parse(hoyKey+'T23:55:00-05:00');
+  const objetivo=objetivoHoy>Date.now()?objetivoHoy:Date.parse(addDaysToKey(hoyKey,1)+'T23:55:00-05:00');
+  _backupCierreTimer=setTimeout(()=>guardarBackupDiarioAdmin(true,'cierre_dia').finally(programarCierreBackupAdmin),Math.max(1000,objetivo-Date.now()));
+}
+function iniciarBackupsAdmin(){
+  if(_backupAdminIniciado||!fbOk||!db)return;
+  _backupAdminIniciado=true;
+  const ultimo=JSON.parse(localStorage.getItem(BACKUP_ADMIN_KEY)||'null');
+  if(ultimo&&ultimo.fecha===hoy())pintarEstadoBackupAdmin(`Último backup de este dispositivo: ${new Date(ultimo.ts).toLocaleString('es-CO')}`,'var(--green)');
+  guardarBackupDiarioAdmin(true,'inicio_admin');
+  programarCierreBackupAdmin();
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')solicitarBackupDiarioAdmin();});
 }
 
 function restaurarBackupJSON(input){
@@ -4368,20 +4724,24 @@ function restaurarBackupJSON(input){
       if(fbOk&&db){
         const obj=clientes.reduce((a,c)=>{a[c.id]=c;return a;},{});
         db.ref('clientes').set(obj);
-        const actObj=actividad.reduce((a,c,i)=>{a[c.id||('act_'+i+'_'+(c.ts||Date.now()))]=c;return a;},{});
-        const cajaObj=caja.reduce((a,c)=>{a[c.id||('mov_'+Date.now())]=c;return a;},{});
+        const actObj=actividad.reduce((a,c,i)=>{a['act_'+i+'_'+(c.ts||Date.now())]=c;return a;},{});
+        const cajaObj=caja.reduce((a,c,i)=>{a[c.id||('mov_'+i+'_'+Date.now())]=c;return a;},{});
         const liqObj=liquidaciones.reduce((a,c,i)=>{a[c.id||('liq_'+i+'_'+(c.ts||Date.now()))]=c;return a;},{});
         const soliObj=(window._solicitudes||[]).reduce((a,c,i)=>{a[c.id||('soli_'+i+'_'+Date.now())]=c;return a;},{});
         db.ref('actividad').set(actObj);
         db.ref('caja').set(cajaObj);
         db.ref('liquidaciones').set(liqObj);
         db.ref('solicitudes').set(soliObj);
-        if(b.params)db.ref('config/params').set(b.params);
-        if(b.waTemplate)db.ref('config/waTemplate').set(b.waTemplate);
-        if(b.comisionPct!==undefined&&b.comisionPct!==null)db.ref('config/comisionPct').set(parseFloat(b.comisionPct));
+        if(b.configCompleta&&typeof b.configCompleta==='object')db.ref('config').set(b.configCompleta);
+        else{
+          if(b.params)db.ref('config/params').set(b.params);
+          if(b.waTemplate)db.ref('config/waTemplate').set(b.waTemplate);
+          if(b.comisionPct!==undefined&&b.comisionPct!==null)db.ref('config/comisionPct').set(parseFloat(b.comisionPct));
+        }
+        if(b.pool&&typeof b.pool==='object')db.ref('pool').set(b.pool);
         // Backups viejos (v3) no traen creditoCobrador: en ese caso NO se toca el valor actual,
         // porque ponerlo en 0 le regalaría ese saldo a favor al cobrador sin que nadie se entere.
-        if(b.creditoCobrador!==undefined&&b.creditoCobrador!==null){
+        if(!b.configCompleta&&b.creditoCobrador!==undefined&&b.creditoCobrador!==null){
           const cred=Math.max(0,Math.round(parseFloat(b.creditoCobrador)||0));
           db.ref('config/creditoCobrador').set(cred);
           window._creditoCobrador=cred;
@@ -4391,6 +4751,8 @@ function restaurarBackupJSON(input){
       localStorage.setItem(PARAMS_KEY,JSON.stringify(b.params||{}));
       if(b.waTemplate)localStorage.setItem(WA_TEMPLATE_KEY,b.waTemplate);
       if(b.comisionPct!==undefined&&b.comisionPct!==null)localStorage.setItem(COM_KEY,String(b.comisionPct));
+      if(b.creditoCobrador!==undefined&&b.creditoCobrador!==null)window._creditoCobrador=Math.max(0,Math.round(parseFloat(b.creditoCobrador)||0));
+      if(b.pool&&typeof b.pool==='object'){pool=b.pool;localStorage.setItem('cr_pool',JSON.stringify(pool));}
       notify(`Backup restaurado — ${clientes.length} clientes ✓`,'ok');
       renderInicio();renderClientes();renderActividad();renderCaja();renderSolicitudesAdmin();
     }catch(err){notify('Error leyendo archivo','err');console.error(err);}
@@ -4697,7 +5059,8 @@ function guardarEdicionCliente(){
         `\n\nAl cambiar plazo, frecuencia o fecha de inicio se regenera todo y ESOS AJUSTES SE PIERDEN.\n\n¿Continuar?`
       )){return;}
       const rd=c.redondeo||1000;
-      const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(c.capital||0,c.tasa||20,plazoNuevo,tipoNuevo,fechaNueva,rd,null,c.ancla);
+      const fechaCronograma=baseCronogramaNuevo(fechaNueva);
+      const {arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(c.capital||0,c.tasa||20,plazoNuevo,tipoNuevo,fechaCronograma,rd);
       const tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipoNuevo]||'cuota';
       c.tipo=tipoNuevo;c.plazo=plazoNuevo;c.numCuotas=plazoNuevo;c.tipoLabel=tl;
       c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
@@ -4763,7 +5126,7 @@ function subirFoto(input, tipo){
       const base64=canvas.toDataURL('image/jpeg',0.75);
       if(!c.fotos)c.fotos={};
       c.fotos[tipo]=base64;
-      save();
+      saveClienteFields(c,['fotos']);
       renderFotos(c);
       notify(`Foto de ${tipo} guardada ✓`,'ok');
     };
@@ -4777,7 +5140,7 @@ function eliminarFoto(tipo){
   const c=clientes.find(x=>x.id===fotoClienteId);if(!c)return;
   if(!confirm(`¿Eliminar foto de ${tipo}?`))return;
   if(c.fotos)delete c.fotos[tipo];
-  save();renderFotos(c);notify('Foto eliminada','ok');
+  saveClienteFields(c,['fotos']);renderFotos(c);notify('Foto eliminada','ok');
 }
 
 function verFotoGrande(src){
@@ -4809,7 +5172,7 @@ function comisionAdmin(c){
 }
 
 function totalComisionPendiente(){
-  return eventosPendientesLiquidacion('todo').reduce((s,item)=>s+Math.round(item.evento.comision||0),0);
+  return clientes.reduce((s,c)=>s+Math.round(resumenComisionCliente(c).pendiente||0),0);
 }
 
 function actualizarPctGlobal(val){
@@ -4999,14 +5362,16 @@ function eventosArchivadosPerdidos(){
     // se le asigna un id si no tenía, y sin ese rastro dejaría de reconocer a su propio original
     // y se reportaría enterrado para siempre.
     const vivos=new Set();
-    comisionEventosCliente(c).forEach(e=>{
+    // Aquí sí se incluyen los anulados vivos para reconocer su copia archivada. No deben
+    // rescatarse ni volver a convertirse en comisión por el solo hecho de estar anulados.
+    (Array.isArray(c.comisionEventos)?c.comisionEventos:[]).filter(Boolean).forEach(e=>{
       const k=_claveEvento(e); if(k)vivos.add(k);
       if(e&&e.claveOriginal)vivos.add(e.claveOriginal);
     });
     ciclos.forEach((ci,idx)=>{
       const evs=(ci&&Array.isArray(ci.comisionEventos))?ci.comisionEventos:[];
       evs.forEach(ev=>{
-        if(!ev)return;
+        if(!ev||ev.duplicadoAnulado)return;
         const k=_claveEvento(ev);
         if(!k||vivos.has(k))return; // es una copia del que sigue vivo: todo bien
         out.push({cliente:c,evento:ev,ciclo:idx,comision:Math.max(0,Math.round(ev.comision||0)),pendiente:!ev.liquidado});
@@ -5300,19 +5665,23 @@ async function repararSeguridadColada(){
 function ingresosDuplicadosColados(){
   const cajaArr=Array.isArray(caja)?caja:[];
   const out=[];
-  eventosComisionTodos('todo').forEach(({cliente,evento})=>{
-    if(!evento||!evento.duplicadoAnulado)return;
-    const monto=Math.max(0,Math.round(evento.interes||0));
-    if(monto<=0)return;
-    const dia=_diaDeTs(evento.ts);
-    const pares=cajaArr.filter(m=>m&&m.tipo==='ingreso'&&/inter[eé]s/i.test(m.desc||'')&&
-      Math.round(m.monto||0)===monto&&_diaDeTs(m.ts)===dia&&
-      (m.clienteId===cliente.id||String(m.desc||'').includes(cliente.nombre||' ')));
-    if(pares.length<2)return;                       // uno solo = el legítimo: no tocar
-    const mov=pares.reduce((a,b)=>Math.abs(b.ts-evento.ts)<Math.abs(a.ts-evento.ts)?b:a);
-    if(Math.abs(mov.ts-evento.ts)>300000)return;    // no calza con este evento: no arriesgar
-    if(out.some(o=>o.mov.id===mov.id))return;
-    out.push({cliente,evento,mov,monto,dia});
+  // comisionEventosCliente() excluye anulados de todos los cálculos; este reparador es la
+  // excepción porque necesita precisamente su rastro para encontrar el ingreso sobrante.
+  (Array.isArray(clientes)?clientes:[]).forEach(cliente=>{
+    (Array.isArray(cliente.comisionEventos)?cliente.comisionEventos:[]).forEach(evento=>{
+      if(!evento||!evento.duplicadoAnulado)return;
+      const monto=Math.max(0,Math.round(evento.interes||0));
+      if(monto<=0)return;
+      const dia=_diaDeTs(evento.ts);
+      const pares=cajaArr.filter(m=>m&&m.tipo==='ingreso'&&/inter[eé]s/i.test(m.desc||'')&&
+        Math.round(m.monto||0)===monto&&_diaDeTs(m.ts)===dia&&
+        (m.clienteId===cliente.id||String(m.desc||'').includes(cliente.nombre||' ')));
+      if(pares.length<2)return;                       // uno solo = el legítimo: no tocar
+      const mov=pares.reduce((a,b)=>Math.abs(b.ts-evento.ts)<Math.abs(a.ts-evento.ts)?b:a);
+      if(Math.abs(mov.ts-evento.ts)>300000)return;    // no calza con este evento: no arriesgar
+      if(out.some(o=>o.mov.id===mov.id))return;
+      out.push({cliente,evento,mov,monto,dia});
+    });
   });
   return out;
 }
@@ -5329,6 +5698,52 @@ async function repararIngresosDuplicados(){
             colados.map(x=>`${x.cliente.nombre} ${x.dia}`).join(' · ')+
             '. Su evento de comisión ya estaba anulado por duplicado.'});
   return {movimientos:colados.length,monto};
+}
+
+// ── Auto-cuadres creados a partir de un evento que ya estaba anulado ──
+// Una versión de detectarCuadreCaja() sumaba también duplicadoAnulado. Después de limpiar el
+// duplicado real de Caja, el botón podía interpretar ese mismo evento como "cobro perdido" y
+// recrearlo con refKey cuadre:. Se detecta de forma muy estricta: debe ser un cuadre de interés,
+// debe existir exceso exacto en Caja y su timestamp de creación debe quedar dentro de las 24 h
+// posteriores a la anulación. Así no se toca ningún cuadre histórico legítimo.
+function cuadresGeneradosPorEventosAnulados(){
+  const out=[];
+  const cajaArr=Array.isArray(caja)?caja:[];
+  (Array.isArray(clientes)?clientes:[]).forEach(cliente=>{
+    const todos=Array.isArray(cliente.comisionEventos)?cliente.comisionEventos.filter(Boolean):[];
+    const anulados=todos.filter(e=>e.duplicadoAnulado&&Number(e.anuladoTs)>0&&Math.round(e.interes||0)>0);
+    if(!anulados.length)return;
+    const interesVigente=todos.filter(e=>!e.duplicadoAnulado).reduce((s,e)=>s+Math.max(0,Math.round(e.interes||0)),0);
+    const movs=cajaArr.filter(m=>m&&m.clienteId===cliente.id&&m.tipo==='ingreso'&&m.subtipo==='interes_cobrado');
+    let exceso=movs.reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0)-interesVigente;
+    if(exceso<=2)return;
+    const candidatos=movs.filter(m=>String(m.refKey||'').startsWith(`cuadre:${cliente.id}:int:`)).map(m=>{
+      const match=String(m.refKey||'').match(/:int:(\d{13})(?:_|$)/);
+      return {mov:m,creado:match?Number(match[1]):0};
+    }).filter(x=>x.creado>0).sort((a,b)=>b.creado-a.creado);
+    candidatos.forEach(x=>{
+      const monto=Math.max(0,Math.round(x.mov.monto||0));
+      if(monto<=0||monto>exceso+2)return;
+      const evento=anulados.find(e=>Math.round(e.interes||0)===monto&&x.creado>=Number(e.anuladoTs)&&x.creado-Number(e.anuladoTs)<=86400000);
+      if(!evento)return;
+      out.push({cliente,evento,mov:x.mov,monto,creado:x.creado});
+      exceso-=monto;
+    });
+  });
+  return out;
+}
+async function repararCuadresGeneradosPorAnulados(){
+  const items=cuadresGeneradosPorEventosAnulados();
+  if(!items.length)return {movimientos:0,monto:0};
+  const ids=new Set(items.map(x=>x.mov.id));
+  const monto=items.reduce((s,x)=>s+x.monto,0);
+  for(const id of ids){if(fbOk&&db)await db.ref('caja/'+id).remove();}
+  for(let i=caja.length-1;i>=0;i--){if(ids.has(caja[i].id))caja.splice(i,1);}
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  log({tipo:'reparacion_cuadre_evento_anulado',cliente:'Caja',monto,ts:Date.now(),autor:'Admin',
+       nota:`${items.length} auto-cuadre(s) generado(s) desde eventos ya anulados eliminados (${fmt(monto)}): `+
+            items.map(x=>x.cliente.nombre).join(' · ')+'.'});
+  return {movimientos:items.length,monto};
 }
 
 // ── Reconciliaciones automáticas que metieron más interés del que venían a cubrir ──
@@ -5539,6 +5954,25 @@ function revisionCompleta(){
     });
   }
 
+  // ── Decisión: Auto-cuadre que revivió un evento ya anulado ──
+  const cuadresAnulados=cuadresGeneradosPorEventosAnulados();
+  if(cuadresAnulados.length){
+    const montoCA=cuadresAnulados.reduce((s,x)=>s+x.monto,0);
+    decisiones.push({
+      id:'cuadre_anulado',
+      titulo:`Quitar ${cuadresAnulados.length} auto-cuadre(s) originado(s) en eventos anulados`,
+      monto:montoCA,
+      direccion:'admin',
+      detalle:cuadresAnulados.map(x=>`${x.cliente.nombre} ${fmt(x.monto)}`).join(' · ')+
+              `. El evento duplicado ya estaba anulado, pero Auto-cuadre lo contó y volvió a sumar `+
+              `ese ingreso. Al quitarlo tu caja BAJA ${fmt(montoCA)} y vuelve al valor respaldado por cobros reales.`,
+      aplicar:async()=>{
+        const r=await repararCuadresGeneradosPorAnulados();
+        return `${r.movimientos} auto-cuadre(s) eliminado(s) · caja −${fmt(r.monto)}`;
+      }
+    });
+  }
+
   // ── Decisión: ingresos duplicados que sobrevivieron a la anulación de su evento ──
   const ingDup=ingresosDuplicadosColados();
   if(ingDup.length){
@@ -5627,26 +6061,57 @@ function saludApp(){
   if(rotos.length)problemas.push({sev:'alto',msg:rotos.length+' cliente(s) con cuotas descuadradas',sub:rotos.map(c=>c.nombre).join(', ')+' — su deuda puede volverse invisible (numCuotas quedó corto). Repáralo en Reconciliación.'});
   return {ok:problemas.length===0, problemas};
 }
+// Validación liviana de los DATOS REALES al abrir Admin. No ejecuta las pruebas de desarrollo
+// dentro del celular: revisa clientes, cuotas, caja, comisiones y saldo del cobrador sin mutar nada.
+function validarDatosInicioAdmin(){
+  const reconciliacion=calcularReconciliacion();
+  const salud=saludApp();
+  const problemas=(salud.problemas||[]).slice();
+  (reconciliacion.fails||[]).forEach(msg=>{
+    if(!problemas.some(p=>p.msg===msg))problemas.push({sev:'alto',msg,sub:'Detectado por la reconciliación automática al iniciar.'});
+  });
+  const comisionBruta=totalComisionPendiente();
+  const credito=Math.max(0,Math.round(window._creditoCobrador||0));
+  let calendario={cambios:[],protegidos:[]};
+  try{if(typeof diagnosticoCalendarioEstandar==='function')calendario=diagnosticoCalendarioEstandar(clientes);}catch(e){}
+  return {
+    estado:'completa',ts:Date.now(),ok:problemas.length===0,problemas,
+    advertencias:(reconciliacion.warns||[]).length+calendario.cambios.length+calendario.protegidos.length,reconciliacion,calendario,
+    comisionBruta,credito,saldoCobrador:Math.max(0,comisionBruta-credito)
+  };
+}
 function renderSaludInicio(){
   const el=document.getElementById('inicio-salud');
   if(!el)return;
   if(!Array.isArray(clientes)||!clientes.length){el.innerHTML='';return;}
-  let s; try{s=saludApp();}catch(e){el.innerHTML='';return;}
+  const validacion=window._validacionInicioAdmin;
+  if(validacion&&validacion.estado==='validando'){
+    el.innerHTML=`<div class="card" style="border-color:rgba(110,179,255,.35);background:rgba(110,179,255,.06);display:flex;align-items:center;gap:11px"><div style="font-size:21px">⏳</div><div><div style="font-size:13px;font-weight:700;color:#6EB3FF">Validando datos al iniciar…</div><div style="font-size:11px;color:var(--text3)">Revisando clientes, cuotas, Caja y comisiones.</div></div></div>`;
+    return;
+  }
+  if(validacion&&validacion.estado==='error'){
+    el.innerHTML=`<div class="card" style="border-color:var(--red);background:rgba(255,107,107,.07)"><div style="font-size:13px;font-weight:800;color:var(--red)">⚠ No se pudo completar la validación inicial</div><div style="font-size:11px;color:var(--text3);margin-top:4px">${htmlSafe(validacion.mensaje||'Error desconocido')} · puedes ejecutarla manualmente en Config.</div></div>`;
+    return;
+  }
+  let s; try{s=validacion&&validacion.estado==='completa'?validacion:saludApp();}catch(e){el.innerHTML='';return;}
+  const hora=validacion&&validacion.ts?new Date(validacion.ts).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}):'';
+  const lineaSaldo=validacion&&validacion.estado==='completa'?`<div style="font-size:11px;color:var(--text3);margin-top:4px">Comisión real pendiente: <strong style="color:var(--gold)">${fmt(validacion.saldoCobrador)}</strong>${validacion.credito>0?` · pendiente bruto ${fmt(validacion.comisionBruta)} menos saldo a favor ${fmt(validacion.credito)}`:''}</div>`:'';
   if(s.ok){
     el.innerHTML=`<div class="card" style="border-color:rgba(80,227,164,.35);background:rgba(80,227,164,.06);display:flex;align-items:center;gap:11px">
       <div style="font-size:22px;line-height:1">✓</div>
-      <div><div style="font-size:13px;font-weight:700;color:var(--green)">Todo cuadra</div>
-      <div style="font-size:11px;color:var(--text3)">Comisiones, caja y cuotas sin descuadres.</div></div></div>`;
+      <div><div style="font-size:13px;font-weight:700;color:var(--green)">Validación automática: todo cuadra</div>
+      <div style="font-size:11px;color:var(--text3)">Clientes, comisiones, Caja y cuotas revisados${hora?' a las '+hora:''}.${validacion&&validacion.advertencias?` · ${validacion.advertencias} aviso(s) informativo(s) en Config.`:''}</div>${lineaSaldo}</div></div>`;
     return;
   }
   el.innerHTML=`<div class="card" style="border-color:var(--red);background:rgba(255,107,107,.07)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-      <div style="font-size:13px;font-weight:800;color:var(--red)">⚠ ${s.problemas.length} cosa${s.problemas.length!==1?'s':''} por revisar</div>
+      <div style="font-size:13px;font-weight:800;color:var(--red)">⚠ Validación automática: ${s.problemas.length} cosa${s.problemas.length!==1?'s':''} por revisar</div>
       <button class="btn btn-ghost btn-sm" onclick="goTab('config',document.getElementById('tab-config'))">Reconciliar →</button>
     </div>
+    ${lineaSaldo}
     ${s.problemas.map(p=>`<div style="padding:7px 0;border-top:1px solid var(--line)">
-      <div style="font-size:12px;font-weight:600;color:${p.sev==='alto'?'var(--red)':'var(--amber)'}">${p.msg}</div>
-      ${p.sub?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${p.sub}</div>`:''}
+      <div style="font-size:12px;font-weight:600;color:${p.sev==='alto'?'var(--red)':'var(--amber)'}">${htmlSafe(p.msg)}</div>
+      ${p.sub?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${htmlSafe(p.sub)}</div>`:''}
     </div>`).join('')}
   </div>`;
 }
@@ -5720,6 +6185,11 @@ function renderComisiones(){
   },{generada:0,liquidada:0,pendiente:0,admin:0,interes:0,mora:0});
 
   document.getElementById('com-pendiente').textContent=fmt(saldoCobrador());
+  const credito=Math.max(0,Math.round(window._creditoCobrador||0));
+  const saldoDetalle=document.getElementById('com-saldo-detalle');
+  if(saldoDetalle)saldoDetalle.textContent=credito>0
+    ?`Eventos pendientes ${fmt(resumen.pendiente)} − saldo a favor ya abonado ${fmt(credito)}`
+    :'Sin saldo a favor pendiente de aplicar';
   document.getElementById('com-liquidado').textContent=fmt(resumen.liquidada);
   document.getElementById('com-tuya').textContent=fmt(resumen.admin);
   document.getElementById('com-mora').textContent=fmt(resumen.mora);
@@ -6149,7 +6619,7 @@ function autoAlimentarPoolDesdeCaja(){
   // Buscar movs cobrador (refKey con pago_cob/abono_cob/ext_cob) no procesados
   const candidatos=caja.filter(m=>{
     if(m.tipo!=='ingreso'||!m.refKey)return false;
-    if(!['recuperacion_capital','interes_cobrado','mora_cobrada','abono_adelantado'].includes(m.subtipo))return false;
+    if(!['recuperacion_capital','interes_cobrado','mora_cobrada','cuota_extra_cobrada','abono_adelantado'].includes(m.subtipo))return false;
     const esCobrador=m.refKey.startsWith('pago_cob:')||m.refKey.startsWith('abono_cob:')||m.refKey.startsWith('abono_cob_parcial:')||m.refKey.startsWith('ext_cob:');
     if(!esCobrador)return false;
     return !procesados.has(m.refKey);
@@ -6267,6 +6737,41 @@ function quitarCuotaExtra(clienteId,idx){
   setTimeout(()=>{verCliente(c.id);},300);
 }
 
+// La ficha de ciclo es deliberadamente Admin-only: resume hechos verificables del ciclo
+// y evita reutilizar como vigente una nota operativa escrita para un préstamo anterior.
+function resumenCierreCiclo(c,fechaCierre=null){
+  const inicio=String(c.creado||c.fechaInicio||'').slice(0,10);
+  const visitas=(Array.isArray(c.historialNoPago)?c.historialNoPago:[]).filter(n=>{
+    const fecha=String((n&&n.fecha)||'').slice(0,10);
+    return !inicio||!fecha||fecha>=inicio;
+  }).length;
+  const total=Math.max(0,Number(c.numCuotas)||0,(c.cuotasData||[]).length);
+  const pagadas=Math.max(0,Math.min(total,Number(c.pagadas)||0));
+  const completado=total>0&&pagadas>=total;
+  const moraCobrada=Math.max(0,Math.round(c.moraCobradaTotal||0));
+  const estado=completado?(visitas===0&&moraCobrada===0?'Completó sin novedades':'Completó con novedades'):'Cerrado antes de completar';
+  const inicioMs=Date.parse(c.creado||c.fechaInicio||'');
+  const cierreMs=Date.parse(fechaCierre||c.ultimoPago||'');
+  const duracionDias=Number.isFinite(inicioMs)&&Number.isFinite(cierreMs)?Math.max(0,Math.ceil((cierreMs-inicioMs)/86400000)):null;
+  const moraLeve=moraCobrada<=Math.max(0,Number(c.moraDia)||0)*5;
+  const calificacion=!completado?'Revisar antes de renovar':visitas===0&&moraCobrada===0?'Excelente':visitas<=1&&moraLeve?'Bueno':'Requiere seguimiento';
+  return {estado,calificacion,pagadas,totalCuotas:total,completado,visitasSinPago:visitas,moraCobrada,duracionDias,ultimoPago:c.ultimoPago||null};
+}
+
+function htmlResumenCierreCiclo(r){
+  if(!r)return'';
+  return `<div style="font-size:11px;color:var(--text2);margin-top:5px"><strong>${htmlSafe(r.calificacion||r.estado||'Ciclo cerrado')}</strong> · ${htmlSafe(r.estado||'Ciclo cerrado')} · ${Number(r.pagadas)||0}/${Number(r.totalCuotas)||0} cuotas · ${Number(r.visitasSinPago)||0} visita${Number(r.visitasSinPago)!==1?'s':''} sin pago · mora cobrada ${fmt(r.moraCobrada||0)}${Number.isFinite(r.duracionDias)?` · ${r.duracionDias} días para cerrar`:''}${r.ultimoPago?` · último pago ${coDateLabel(r.ultimoPago)}`:''}</div>`;
+}
+
+function htmlFichaCicloAdmin(c){
+  const anterior=(c.ciclos||[]).slice(-1)[0];
+  if(!(anterior&&anterior.resumenCierre))return'';
+  return `<div class="ibox blue" style="font-size:12px">
+    <div style="font-weight:700">📊 Cumplimiento del ciclo anterior</div>
+    ${htmlResumenCierreCiclo(anterior.resumenCierre)}
+  </div>`;
+}
+
 function abrirNuevoCiclo(clienteId){
   const c=clientes.find(x=>x.id===clienteId);
   if(!c)return;
@@ -6274,11 +6779,13 @@ function abrirNuevoCiclo(clienteId){
   _clienteCicloActivo=clienteId;
   document.getElementById('nuevo-ciclo-info').textContent=`Cliente: ${c.nombre} · Ciclo ${((c.ciclos||[]).length)+2}`;
   document.getElementById('nc-fecha').value=hoy();
+  document.getElementById('nc-fecha').min=hoy();
   document.getElementById('nc-capital').value=c.capital||200000;
   document.getElementById('nc-tasa').value=c.tasa||20;
   document.getElementById('nc-tipo').value=c.tipo||'diario';
   document.getElementById('nc-plazo').value=c.numCuotas||15;
   document.getElementById('nc-mora').value=c.moraDia||3000;
+  ['nc-cuota-1','nc-cuota-2','nc-fecha-1','nc-fecha-2'].forEach(id=>document.getElementById(id).value='');
   previewNuevoCiclo();
   cerrar('modal-cli');
   document.getElementById('modal-nuevo-ciclo').classList.add('open');
@@ -6307,7 +6814,11 @@ function previewNuevoCiclo(){
   const interes=capital*(tasa/100);
   const total=capital+interes;
   const cuota=Math.ceil((total/plazo)/1000)*1000;
-  document.getElementById('nc-preview').textContent=`Total: ${fmt(total)} · Cuota aprox: ${fmt(cuota)} · ${plazo} cuotas`;
+  const tipo=document.getElementById('nc-tipo').value;
+  const fechaBase=baseCronogramaNuevo(document.getElementById('nc-fecha').value||hoy());
+  const primera=genCuotas(capital,tasa,plazo,tipo,fechaBase,1000).arr[0];
+  const regla=tipo==='semanal'?'sábados':tipo==='quincenal'?'15 y último día':tipo==='mensual'?'día 1 de cada mes':'días consecutivos';
+  document.getElementById('nc-preview').textContent=`Total: ${fmt(total)} · Cuota aprox: ${fmt(cuota)} · ${plazo} cuotas · ${regla} · primera: ${primera?.fecha||'—'}`;
 }
 
 function confirmarNuevoCiclo(){
@@ -6319,7 +6830,8 @@ function confirmarNuevoCiclo(){
   const tasa=parseFloat(document.getElementById('nc-tasa').value)||20;
   const tipo=document.getElementById('nc-tipo').value;
   const plazo=parseInt(document.getElementById('nc-plazo').value)||1;
-  const fechaStr=document.getElementById('nc-fecha').value;
+  const fechaStr=document.getElementById('nc-fecha').value||hoy();
+  const fechaCronograma=baseCronogramaNuevo(fechaStr);
   const moraDia=parseFloat(document.getElementById('nc-mora').value)||0;
   const cuota1=parseFloat(document.getElementById('nc-cuota-1').value)||0;
   const cuota2=parseFloat(document.getElementById('nc-cuota-2').value)||0;
@@ -6334,6 +6846,8 @@ function confirmarNuevoCiclo(){
 
   // Archivar ciclo actual en historial
   if(!c.ciclos)c.ciclos=[];
+  const fechaCierre=coDateTimeISO();
+  const resumenCierre=resumenCierreCiclo(c,fechaCierre);
   const rd=c.redondeo||1000;
   // FIX: el espaciado de cuotas debe salir de la FRECUENCIA (tipo) elegida en este modal,
   // NO heredar c.diasCuota del ciclo anterior. Antes, un cliente que venía quincenal (15d)
@@ -6344,10 +6858,12 @@ function confirmarNuevoCiclo(){
     cicloNum:(c.ciclos.length)+1,
     capital:c.capital,tasa:c.tasa,tipo:c.tipo,plazo:c.numCuotas,
     pagadas:c.pagadas,total:c.total,interes:c.interes,cuota:c.cuota,
-    fechaInicio:c.fechaInicio,fechaCierre:coDateTimeISO(),
+    fechaInicio:c.fechaInicio,fechaCierre,
     moraCobradaTotal:c.moraCobradaTotal||0,
     comisionEventos:c.comisionEventos||[],
-    cuotasData:c.cuotasData||[]
+    cuotasData:c.cuotasData||[],
+    notaArchivada:(c.notas||'').trim(),
+    resumenCierre
   });
 
   // BUGFIX: preservar comisión histórica (archivar todos, pero mantener los NO liquidados
@@ -6361,15 +6877,16 @@ function confirmarNuevoCiclo(){
   if(usaCuotasManuales){
     const manualTotal=cuota1+cuota2;
     arr=[
-      {num:1,fecha:fecha1,fechaISO:fecha1,cuota:cuota1,capital:0,interes:0,saldo:Math.max(0,manualTotal-cuota1)},
-      {num:2,fecha:fecha2,fechaISO:fecha2,cuota:cuota2,capital:0,interes:0,saldo:0}
+      {num:1,fecha:labelFromUTCDate(coUTCDateFromKey(fecha1)),fechaISO:fecha1,cuota:cuota1,capital:0,interes:0,saldo:Math.max(0,manualTotal-cuota1),manual:true},
+      {num:2,fecha:labelFromUTCDate(coUTCDateFromKey(fecha2)),fechaISO:fecha2,cuota:cuota2,capital:0,interes:0,saldo:0,manual:true}
     ];
     total=manualTotal; cuota=cuota1; cuotaUltima=cuota2; interes=0; tl='manual';
   } else {
-    ({arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaStr,rd,diasCustom));
+    ({arr,total,cuota,cuotaUltima,interes,diasCuota}=genCuotas(capital,tasa,plazo,tipo,fechaCronograma,rd,diasCustom));
     tl={diario:'día',semanal:'semana',quincenal:'quincena',mensual:'mes',personalizado:`cada ${diasCuota}d`}[tipo]||'cuota';
   }
-  c.capital=capital;c.tasa=tasa;c.tipo=tipo;c.plazo=plazo;c.numCuotas=plazo;
+  const plazoFinal=arr.length;
+  c.capital=capital;c.tasa=tasa;c.tipo=tipo;c.plazo=plazoFinal;c.numCuotas=plazoFinal;
   c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
   c.tipoLabel=tl;c.cuotasData=arr;c.fechaInicio=fechaStr;c.moraDia=moraDia;
   c.pagadas=0;c.ultimoPago=null;c.moraBaseDate=null;c.abonoPendiente=0;
@@ -6382,6 +6899,7 @@ function confirmarNuevoCiclo(){
   delete c.numCuotasOriginal;
   c.cargosManuales=[];
   c.creado=coDateTimeISO(); // nuevo ciclo = nueva fecha base para regla 15 días anticipado
+  c.notas=''; // la nota del ciclo cerrado vive en notaArchivada; no se presenta como vigente
   // Mantener eventos pendientes de liquidar al cobrador + acumular mora histórica para Finanzas
   c.comisionEventos=pendientesPorLiquidar;
   c.moraHistoricaAcumulada=(c.moraHistoricaAcumulada||0)+moraPrevia;
@@ -6389,7 +6907,7 @@ function confirmarNuevoCiclo(){
   // Registrar salida en pool si corresponde
   moverPool('salida',capital,`Ciclo nuevo: ${c.nombre}`,c.nombre);
 
-  save();
+  saveCliente(c);
   log({tipo:'nuevo_ciclo',cliente:c.nombre,monto:capital,ts:Date.now(),autor:'Admin',nota:`Ciclo ${c.ciclos.length+1}`});
   registrarCajaAuto('desembolso_prestamo',capital,`Nuevo ciclo: ${c.nombre}`,`prestamo:${c.id}:ciclo${c.ciclos.length}`,{clienteId:c.id,cliente:c.nombre});
   cerrar('modal-nuevo-ciclo');
@@ -6403,9 +6921,9 @@ function abrirDetalleCiclo(clienteId,cicloIdx){
   if(!c)return;
   const ciclo=cicloIdx===-1?{
     cicloNum:(c.ciclos||[]).length+1,capital:c.capital,tasa:c.tasa,tipo:c.tipo,
-    plazo:c.numCuotas,pagadas:c.pagadas,total:c.total,interes:c.interes,cuota:c.cuota,
-    fechaInicio:c.fechaInicio,moraCobradaTotal:c.moraCobradaTotal||0,
-    cuotasData:c.cuotasData||[],activo:true
+     plazo:c.numCuotas,pagadas:c.pagadas,total:c.total,interes:c.interes,cuota:c.cuota,
+     fechaInicio:c.fechaInicio,moraCobradaTotal:c.moraCobradaTotal||0,
+     cuotasData:c.cuotasData||[],notaArchivada:c.notas||'',activo:true
   }:(c.ciclos||[])[cicloIdx];
   if(!ciclo)return;
   document.getElementById('ciclo-titulo').textContent=`${c.nombre} — Ciclo ${ciclo.cicloNum||cicloIdx+1}`;
@@ -6426,6 +6944,7 @@ function abrirDetalleCiclo(clienteId,cicloIdx){
       }).join('')}
     </table>`;
   }
+  const fichaHtml=`${ciclo.resumenCierre?`<div class="ibox green" style="font-size:12px"><div style="font-weight:700">📊 Cumplimiento al cerrar</div>${htmlResumenCierreCiclo(ciclo.resumenCierre)}</div>`:''}${ciclo.notaArchivada?`<div class="ibox amber" style="font-size:12px"><strong>🗃 Nota operativa archivada:</strong> ${htmlSafe(ciclo.notaArchivada)}</div>`:''}`;
   document.getElementById('ciclo-body').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       ${estadoBadge}
@@ -6437,6 +6956,7 @@ function abrirDetalleCiclo(clienteId,cicloIdx){
       <div class="metric green"><div class="ml">Pagadas</div><div class="mv">${ciclo.pagadas||0}/${ciclo.plazo}</div></div>
       <div class="metric"><div class="ml">Mora cobrada</div><div class="mv" style="color:var(--blue)">${fmt(ciclo.moraCobradaTotal||0)}</div></div>
     </div>
+    ${fichaHtml}
     ${cuotasHtml}`;
   document.getElementById('modal-ciclo').classList.add('open');
 }
@@ -6477,11 +6997,13 @@ function procesarSolicitudRenovacion(soliId){
   _clienteCicloActivo=c.id;
   document.getElementById('nuevo-ciclo-info').textContent=`Solicitud de ${c.nombre} · Ciclo ${((c.ciclos||[]).length)+2}`;
   document.getElementById('nc-fecha').value=hoy();
+  document.getElementById('nc-fecha').min=hoy();
   document.getElementById('nc-capital').value=s.capitalSolicitado||c.capital||200000;
   document.getElementById('nc-tasa').value=c.tasa||20;
   document.getElementById('nc-tipo').value=c.tipo||'diario';
   document.getElementById('nc-plazo').value=c.numCuotas||15;
   document.getElementById('nc-mora').value=c.moraDia||3000;
+  ['nc-cuota-1','nc-cuota-2','nc-fecha-1','nc-fecha-2'].forEach(id=>document.getElementById(id).value='');
   window._soliPendienteRenovacion=soliId;
   previewNuevoCiclo();
   document.getElementById('modal-nuevo-ciclo').classList.add('open');
