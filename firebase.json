@@ -6,6 +6,7 @@
       "database.rules.json",
       ".firebaserc",
       "**/.*",
+      ".github/**",
       ".git/**",
       "**/.git/**",
       ".firebase/**",
