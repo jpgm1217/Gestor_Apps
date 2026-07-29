@@ -108,11 +108,9 @@ function firebaseStub() {
   window.firebase = {
     apps: [],
     initializeApp() { this.apps.push({}); return {}; },
-    app: () => ({ functions: () => ({}) }),
     appCheck: appCheckFactory,
     database: () => database,
-    auth: authFactory,
-    functions: true
+    auth: authFactory
   };
 }
 

@@ -64,6 +64,18 @@ npx serve .
 
 Después abre la dirección local que muestre la terminal.
 
+## Estructura del repositorio
+
+- `apps/`: aplicaciones integradas del portal.
+- `aurea/`: fuente de la PWA de Aurea.
+- `tests/`: pruebas automáticas de inventario, producción, ventas, cartera e imágenes.
+- `scripts/`: sincronización de Aurea con su repositorio independiente.
+- `.github/workflows/`: validación automática antes de publicar.
+
+Los paquetes instalados, cachés de Firebase, logs, respaldos privados y
+resultados de Playwright son archivos locales generados. Están excluidos
+mediante `.gitignore` y no se suben a GitHub.
+
 ## Firebase
 
 El proyecto configurado es `gomez-hub`.

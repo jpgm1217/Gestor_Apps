@@ -5,4 +5,13 @@ node_modules/
 .env.*
 *.log
 .DS_Store
+Thumbs.db
 test-results/
+playwright-report/
+coverage/
+.vscode/
+.idea/
+aurea-antes-del-cambio*.json
+aurea-pre-*.json
+*-firebase-adminsdk-*.json
+*service-account*.json

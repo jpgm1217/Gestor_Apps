@@ -12,7 +12,6 @@
       ".firebase/**",
       "**/.firebase/**",
       "**/node_modules/**",
-      "functions/**",
       "scripts/**",
       "tests/**",
       "test-results/**",
@@ -28,10 +27,6 @@
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       }
     ]
-  },
-  "functions": {
-    "source": "functions",
-    "runtime": "nodejs22"
   },
   "database": {
     "rules": "database.rules.json"
