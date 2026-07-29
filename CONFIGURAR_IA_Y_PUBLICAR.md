@@ -74,8 +74,9 @@ firebase deploy --only database
 firebase deploy --only functions:generateAureaDesignImage
 ```
 
-No despliegues todavía la función mientras App Check no tenga una clave web
-registrada y `enforceAppCheck` no esté activado en la callable.
+La PWA usa la clave pública `aurea-web` de reCAPTCHA Enterprise y la callable
+tiene `enforceAppCheck: true`. Publica primero Hosting y comprueba que App Check
+recibe solicitudes válidas; después despliega la función.
 
 Después prueba:
 

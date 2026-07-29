@@ -99,7 +99,8 @@ firebase functions:list
 
 No escribas la clave de OpenAI en GitHub, HTML ni JavaScript.
 Cuando la terminal pida `AUREA_ALLOWED_EMAILS`, escribe los dos correos de Google
-separados por coma. No despliegues la función hasta activar y exigir App Check.
+separados por coma. La PWA ya inicializa App Check con la clave Enterprise
+`aurea-web` y la callable exige un token válido; publica primero el frontend.
 
 El estudio creativo permite guardar hasta cuatro referencias de estilo, subir
 la foto real del producto y conversar sobre la imagen generada. Las correcciones

@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'gomez-hub-';
-const CACHE = `${CACHE_PREFIX}v30-aurea-ai-auth`;
+const CACHE = `${CACHE_PREFIX}v31-aurea-app-check`;
 
 self.addEventListener('install', () => self.skipWaiting());
 

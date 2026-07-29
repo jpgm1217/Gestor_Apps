@@ -134,6 +134,7 @@ exports.generateAureaDesignImage = onCall({
   region: 'us-central1',
   timeoutSeconds: 240,
   memory: '1GiB',
+  enforceAppCheck: true,
   secrets: [OPENAI_API_KEY, AUREA_ALLOWED_EMAILS]
 }, async request => {
   if (!request.auth?.uid) {
