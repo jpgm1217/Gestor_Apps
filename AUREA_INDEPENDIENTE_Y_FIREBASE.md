@@ -80,33 +80,30 @@ Realtime Database. Antes de usar información real:
 No despliegues reglas nuevas hasta definir las cuentas que deben entrar; una
 regla incorrecta puede bloquear la aplicación o dejar los datos expuestos.
 
-## 5. Generación de imágenes con IA
+## 5. Generación de imágenes con ChatGPT sin Blaze
 
-Esta parte requiere servicios facturables:
+El flujo actual aprovecha la suscripción de ChatGPT y no requiere Cloud
+Functions, Storage, una clave API ni el plan Blaze:
 
-1. Cambia el proyecto al plan **Blaze** y configura alertas de presupuesto.
-2. Crea o habilita Firebase Storage.
-3. Configura Google Authentication con los correos autorizados, agrega
-   `jpgm1217.github.io` a los dominios autorizados y activa App Check.
-4. En PowerShell ejecuta:
+1. En Aurea registra el diseño y, si existe, sube la foto real del producto.
+2. Pulsa **Preparar en ChatGPT**.
+3. Adjunta en ChatGPT la foto real y las referencias visuales.
+4. Pega el prompt, genera la escena sin letras y descárgala.
+5. Regresa a Aurea y pulsa **Importar resultado**.
+6. Para corregir, escribe el cambio en Aurea, copia la instrucción, pégala en
+   la misma conversación e importa la nueva versión.
+7. Pulsa **Descargar publicidad** para aplicar la marca y el WhatsApp exactos.
+
+La automatización directa dentro de Aurea es opcional y sí requiere Blaze,
+Storage y facturación independiente de la API de OpenAI:
 
 ```powershell
 firebase functions:secrets:set OPENAI_API_KEY
 firebase functions:secrets:set AUREA_ALLOWED_EMAILS
 firebase deploy --only functions:generateAureaDesignImage
-firebase functions:list
 ```
 
-No escribas la clave de OpenAI en GitHub, HTML ni JavaScript.
-Cuando la terminal pida `AUREA_ALLOWED_EMAILS`, escribe los dos correos de Google
-separados por coma. La PWA ya inicializa App Check con la clave Enterprise
-`aurea-web` y la callable exige un token válido; publica primero el frontend.
-
-El estudio creativo permite guardar hasta cuatro referencias de estilo, subir
-la foto real del producto y conversar sobre la imagen generada. Las correcciones
-usan el contexto de la versión anterior. El logo, los textos comerciales y el
-WhatsApp se agregan mediante la plantilla de Aurea para evitar errores de
-ortografía o números deformados en la imagen generada.
+No escribas claves de OpenAI en GitHub, HTML ni JavaScript.
 
 ## 6. Instalar en el celular
 

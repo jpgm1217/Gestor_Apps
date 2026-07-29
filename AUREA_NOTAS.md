@@ -57,7 +57,11 @@ El PIN evita el acceso casual, pero no reemplaza autenticación y reglas cerrada
 
 ## V3
 - Corregido el acceso local a `aurea/index.html`.
-- Integración segura de OpenAI mediante Firebase Functions y Secret Manager.
-- Generación de imágenes con GPT Image y almacenamiento en Firebase Storage.
-- Modelo, calidad y tamaño parametrizables.
-- Autenticación anónima técnica, sin pantalla adicional para el usuario.
+- Acceso privado con Google Authentication, PIN compartido y App Check.
+- Reglas de Realtime Database limitadas a los correos autorizados.
+- Flujo sin Blaze que usa la suscripción de ChatGPT: copiar prompt, importar
+  resultados, preparar correcciones y conservar hasta seis versiones.
+- Plantilla determinista para logo, textos comerciales, beneficios y WhatsApp.
+- Formato y tema de la publicidad configurables.
+- La automatización mediante Firebase Functions, Storage y OpenAI API queda
+  disponible como ampliación opcional con facturación.

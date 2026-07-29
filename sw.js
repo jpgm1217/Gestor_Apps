@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'gomez-hub-';
-const CACHE = `${CACHE_PREFIX}v31-aurea-app-check`;
+const CACHE = `${CACHE_PREFIX}v32-aurea-chatgpt-manual`;
 
 self.addEventListener('install', () => self.skipWaiting());
 
