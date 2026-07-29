@@ -1,0 +1,19 @@
+{
+  "name": "gomezhub-aurea-functions",
+  "description": "Firebase Functions para Aurea",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0",
+    "openai": "^6.9.0"
+  },
+  "private": true
+}
