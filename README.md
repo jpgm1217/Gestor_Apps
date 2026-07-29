@@ -1,7 +1,8 @@
 # Gestor Apps
 
 Portal personal de aplicaciones web con el módulo independiente **Aurea** para
-inventario, diseños, compras, ventas, clientes y gastos.
+materiales, diseños, producción por lotes, inventario terminado, ventas,
+abonos, clientes y gastos.
 
 ## Enlaces
 
@@ -27,6 +28,18 @@ inventario, diseños, compras, ventas, clientes y gastos.
 
 Aurea es una PWA: se instala desde el navegador y se abre como una aplicación.
 Este repositorio todavía no genera un archivo APK, AAB o IPA nativo.
+
+## Operación de Aurea
+
+El flujo estable es:
+
+```text
+comprar materiales → guardar receta → fabricar → vender → cobrar
+```
+
+También existe **Fabricar y vender bajo pedido**. Consulta
+[AUREA_GUIA_OPERATIVA.md](AUREA_GUIA_OPERATIVA.md) para inventario inicial,
+unidades de medida, costos por lote, abonos y anulaciones.
 
 ## Publicación independiente
 
@@ -60,16 +73,17 @@ firebase use gomez-hub
 firebase deploy --only hosting
 ```
 
-La generación de imágenes usa una Cloud Function y requiere el plan Blaze,
-Google Authentication, App Check y los secretos `OPENAI_API_KEY` y
-`AUREA_ALLOWED_EMAILS`. Consulta
-`CONFIGURAR_IA_Y_PUBLICAR.md` antes de activarla.
+El estudio creativo funciona con el ChatGPT del usuario: Aurea prepara el
+prompt, abre ChatGPT y permite importar y corregir versiones. Este flujo manual
+no necesita el plan Blaze ni una clave de OpenAI. Google Authentication, App
+Check y las reglas privadas de Realtime Database sí protegen los datos.
 
 ## Seguridad
 
 El PIN de cuatro dígitos de Aurea evita acceso casual en la interfaz, pero no
 reemplaza Firebase Authentication ni reglas privadas de Realtime Database.
-El repositorio incluye reglas privadas iniciales para la cuenta propietaria.
-Antes de desplegarlas agrega el segundo correo autorizado y termina App Check.
+El repositorio incluye reglas privadas para la cuenta propietaria y validación
+del esquema operativo. Antes de agregar otra persona, incluye su correo
+verificado en las reglas y vuelve a desplegarlas.
 La ruta heredada `deudas_jv_v1` conserva por compatibilidad sus permisos
 anteriores y debe migrarse después a autenticación real.

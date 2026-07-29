@@ -1,0 +1,22 @@
+name: Aurea QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  functional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUREA_TEST_IMAGE: aurea/assets/logo-aurea.jpg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test

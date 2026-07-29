@@ -4,7 +4,62 @@
       "v1": {
         "data": {
           ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
-          ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'"
+          ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
+          ".validate": "newData.child('schemaVersion').val() == 2 && newData.child('revision').isNumber() && ((!data.child('revision').isNumber() && newData.child('revision').val() == 1) || (data.child('revision').isNumber() && newData.child('revision').val() == data.child('revision').val() + 1)) && newData.child('settings').exists() && newData.child('materials').exists()",
+          "materials": {
+            "$index": {
+              "stock": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "cost": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "minStock": { ".validate": "newData.isNumber() && newData.val() >= 0" }
+            }
+          },
+          "designs": {
+            "$index": {
+              "finishedStock": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "finishedUnitCost": { ".validate": "newData.isNumber() && newData.val() >= 0" }
+            }
+          },
+          "productions": {
+            "$index": {
+              ".validate": "newData.hasChildren(['id', 'designId', 'quantityProduced', 'availableQuantity', 'unitCost', 'status', 'source'])",
+              "quantityProduced": { ".validate": "newData.isNumber() && newData.val() > 0" },
+              "availableQuantity": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= newData.parent().child('quantityProduced').val()" },
+              "unitCost": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "componentsSnapshot": {
+                "$component": {
+                  ".validate": "newData.hasChildren(['materialId', 'totalQty', 'unitCost']) && newData.child('totalQty').isNumber() && newData.child('totalQty').val() > 0 && newData.child('unitCost').isNumber() && newData.child('unitCost').val() >= 0"
+                }
+              }
+            }
+          },
+          "sales": {
+            "$index": {
+              ".validate": "newData.hasChildren(['id', 'quantity', 'total', 'totalCost', 'status', 'inventoryMode'])",
+              "quantity": { ".validate": "newData.isNumber() && newData.val() > 0" },
+              "total": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "totalCost": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "payments": {
+                "$payment": {
+                  ".validate": "newData.hasChildren(['id', 'amount', 'status']) && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && (newData.child('status').val() == 'Aplicado' || newData.child('status').val() == 'Anulado')"
+                }
+              },
+              "refunds": {
+                "$refund": {
+                  ".validate": "newData.hasChildren(['id', 'amount', 'status']) && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && (newData.child('status').val() == 'Aplicado' || newData.child('status').val() == 'Anulado')"
+                }
+              },
+              "lotAllocations": {
+                "$allocation": {
+                  ".validate": "newData.hasChildren(['productionId', 'qty', 'unitCost', 'totalCost']) && newData.child('qty').isNumber() && newData.child('qty').val() > 0 && newData.child('unitCost').isNumber() && newData.child('unitCost').val() >= 0 && newData.child('totalCost').isNumber() && newData.child('totalCost').val() >= 0"
+                }
+              },
+              "componentsSnapshot": {
+                "$component": {
+                  ".validate": "newData.hasChildren(['materialId', 'qty']) && newData.child('qty').isNumber() && newData.child('qty').val() > 0"
+                }
+              }
+            }
+          }
         },
         "config": {
           "pinHash": {
