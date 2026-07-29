@@ -4,7 +4,7 @@
   "private": true,
   "description": "Portal GomezHub y PWA Aurea",
   "scripts": {
-    "test": "playwright test aurea-functional-audit.spec.js aurea-manual-chatgpt.spec.js --config=tests/playwright.audit.config.js",
+    "test": "playwright test aurea-functional-audit.spec.js aurea-manual-chatgpt.spec.js aurea-onboarding.spec.js --config=tests/playwright.audit.config.js",
     "test:functional": "playwright test aurea-functional-audit.spec.js --config=tests/playwright.audit.config.js"
   },
   "devDependencies": {
