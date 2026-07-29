@@ -13,6 +13,8 @@
       "**/node_modules/**",
       "functions/**",
       "scripts/**",
+      "tests/**",
+      "test-results/**",
       "**/*.md",
       "**/*.log",
       "*.zip"
