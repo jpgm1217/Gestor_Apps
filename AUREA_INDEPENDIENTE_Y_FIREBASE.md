@@ -71,10 +71,11 @@ Realtime Database. Antes de usar información real:
 
 1. Firebase Console → proyecto **gomez-hub**.
 2. **Build → Authentication → Get started**.
-3. Activa el proveedor de acceso que usarán las cuentas autorizadas.
+3. Activa el proveedor **Google**.
 4. En **Settings → Authorized domains**, agrega `jpgm1217.github.io`.
-5. Sustituye las reglas públicas de Realtime Database por reglas basadas en
-   usuarios autorizados.
+5. Agrega el segundo correo permitido a `database.rules.json`.
+6. Publica las reglas únicamente después de publicar el frontend con acceso
+   Google: `firebase deploy --only database`.
 
 No despliegues reglas nuevas hasta definir las cuentas que deben entrar; una
 regla incorrecta puede bloquear la aplicación o dejar los datos expuestos.
@@ -85,16 +86,26 @@ Esta parte requiere servicios facturables:
 
 1. Cambia el proyecto al plan **Blaze** y configura alertas de presupuesto.
 2. Crea o habilita Firebase Storage.
-3. Configura Authentication.
+3. Configura Google Authentication con los correos autorizados, agrega
+   `jpgm1217.github.io` a los dominios autorizados y activa App Check.
 4. En PowerShell ejecuta:
 
 ```powershell
 firebase functions:secrets:set OPENAI_API_KEY
+firebase functions:secrets:set AUREA_ALLOWED_EMAILS
 firebase deploy --only functions:generateAureaDesignImage
 firebase functions:list
 ```
 
 No escribas la clave de OpenAI en GitHub, HTML ni JavaScript.
+Cuando la terminal pida `AUREA_ALLOWED_EMAILS`, escribe los dos correos de Google
+separados por coma. No despliegues la función hasta activar y exigir App Check.
+
+El estudio creativo permite guardar hasta cuatro referencias de estilo, subir
+la foto real del producto y conversar sobre la imagen generada. Las correcciones
+usan el contexto de la versión anterior. El logo, los textos comerciales y el
+WhatsApp se agregan mediante la plantilla de Aurea para evitar errores de
+ortografía o números deformados en la imagen generada.
 
 ## 6. Instalar en el celular
 

@@ -61,12 +61,15 @@ firebase deploy --only hosting
 ```
 
 La generación de imágenes usa una Cloud Function y requiere el plan Blaze,
-Firebase Authentication y el secreto `OPENAI_API_KEY`. Consulta
+Google Authentication, App Check y los secretos `OPENAI_API_KEY` y
+`AUREA_ALLOWED_EMAILS`. Consulta
 `CONFIGURAR_IA_Y_PUBLICAR.md` antes de activarla.
 
 ## Seguridad
 
 El PIN de cuatro dígitos de Aurea evita acceso casual en la interfaz, pero no
 reemplaza Firebase Authentication ni reglas privadas de Realtime Database.
-Antes de almacenar información sensible se deben cerrar las reglas y autorizar
-solamente las cuentas que usarán la aplicación.
+El repositorio incluye reglas privadas iniciales para la cuenta propietaria.
+Antes de desplegarlas agrega el segundo correo autorizado y termina App Check.
+La ruta heredada `deudas_jv_v1` conserva por compatibilidad sus permisos
+anteriores y debe migrarse después a autenticación real.

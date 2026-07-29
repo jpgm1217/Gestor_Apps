@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "aurea": {
+      "v1": {
+        "data": {
+          ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
+          ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'"
+        },
+        "config": {
+          "pinHash": {
+            ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
+            ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'"
+          }
+        },
+        "aiUsage": {
+          ".read": false,
+          ".write": false
+        }
+      }
+    },
+    "deudas_jv_v1": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}
