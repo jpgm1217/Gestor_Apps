@@ -51,3 +51,33 @@ test('la guía se puede usar cómodamente desde un celular', async ({ page }) =>
   await expect(page.locator('#modal')).toBeVisible();
   await expect(page.locator('#modal')).toContainText('No necesitas aprender todo el primer día');
 });
+
+test('la lista de precios públicos es fácil de consultar y no se mezcla con inventario', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('http://127.0.0.1:4173/aurea/');
+
+  await page.locator('[data-view="prices"]').click();
+  await expect(page.locator('#view-prices')).toHaveClass(/active/);
+  await expect(page.locator('#public-price-list .public-price-card')).toHaveCount(6);
+  await expect(page.locator('#public-price-list .public-price-row')).toHaveCount(23);
+  await expect(page.locator('#view-prices')).toContainText('Esta lista no modifica inventario, costos ni ventas');
+  await expect(page.locator('#view-prices')).toContainText('Detalle en oro laminado 18K');
+  await expect(page.locator('#view-prices')).toContainText('Balín en oro 18K certificado');
+  await expect(page.locator('#view-prices')).toContainText('203.000');
+
+  await page.locator('#public-price-line').selectOption('certified');
+  await expect(page.locator('#public-price-list .public-price-card')).toHaveCount(1);
+  await expect(page.locator('#public-price-list')).toContainText('Disponible liso o diamantado al mismo precio');
+
+  await page.locator('#public-price-line').selectOption('');
+  await page.locator('#public-price-search').fill('italiano');
+  await expect(page.locator('#public-price-list .public-price-card')).toHaveCount(1);
+  await expect(page.locator('#public-price-list')).toContainText('6 mm agotado');
+
+  await page.locator('#public-price-search').fill('');
+  await page.locator('.public-poster-card').click();
+  await expect(page.locator('.public-poster-card img')).toBeVisible();
+  await expect.poll(() => page.locator('.public-poster-card img').evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/aurea-public-prices-mobile.png', fullPage: true });
+});
