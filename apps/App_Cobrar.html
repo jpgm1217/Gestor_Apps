@@ -609,6 +609,58 @@ async function registrarCajaCobrador(subtipo,monto,desc,refKey,extra={}){
   return mov;
 }
 
+// ── ACTIVIDAD DEL COBRADOR: NUNCA SE PIERDE ──
+// Caso real (Leidy López, 31/07/2026 10:51): el cobrador registró la cuota 2/2, la plata entró a
+// caja y el cliente quedó en pagadas=2… pero el aviso NUNCA apareció en Actividad. El motivo:
+// esta escritura era el ÚLTIMO await de la cadena y era la única sin reintento. Con la señal mala
+// de esa mañana (los dos movimientos de caja tardaron 13 segundos entre sí) el push se quedó en el
+// aire y el pago se volvió invisible para el admin.
+// Ahora: clave propia (reintentar es idempotente, no duplica), dos reintentos y, si aun así falla,
+// la entrada queda en una bandeja local que se vacía sola al reconectar o al abrir la app.
+const ACT_OUTBOX_KEY='cr_actividad_pendiente';
+function leerOutboxActividad(){
+  try{const v=JSON.parse(localStorage.getItem(ACT_OUTBOX_KEY)||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}
+}
+function guardarOutboxActividad(arr){
+  try{localStorage.setItem(ACT_OUTBOX_KEY,JSON.stringify(arr.slice(-100)));}catch(e){}
+}
+function encolarActividad(key,item){
+  const cola=leerOutboxActividad().filter(x=>x.key!==key);
+  cola.push({key,item});
+  guardarOutboxActividad(cola);
+}
+// Escribe la actividad con clave determinística. Devuelve true si quedó en Firebase.
+async function logActividadCobrador(item){
+  const key='act_'+(item.ts||Date.now())+'_'+Math.floor(Math.random()*100000);
+  if(!fbOk||!db){encolarActividad(key,item);return false;}
+  for(let intento=1;intento<=3;intento++){
+    try{
+      await db.ref('actividad/'+key).set(item);
+      return true;
+    }catch(e){
+      console.error('Error registrando actividad (intento '+intento+'):',e);
+      if(intento<3)await new Promise(r=>setTimeout(r,600*intento));
+    }
+  }
+  encolarActividad(key,item);
+  if(typeof notify==='function')notify('⚠ El cobro quedó guardado, pero el aviso al admin no salió. Se reenviará solo al recuperar señal.','err');
+  return false;
+}
+// Vacía la bandeja pendiente. Se llama al conectar y al abrir la app.
+async function vaciarOutboxActividad(){
+  if(!fbOk||!db)return;
+  const cola=leerOutboxActividad();
+  if(!cola.length)return;
+  const quedan=[];
+  for(const pend of cola){
+    try{await db.ref('actividad/'+pend.key).set(pend.item);}
+    catch(e){quedan.push(pend);}
+  }
+  guardarOutboxActividad(quedan);
+  const enviadas=cola.length-quedan.length;
+  if(enviadas>0&&typeof notify==='function')notify(`${enviadas} aviso(s) pendiente(s) enviados al admin ✓`,'ok');
+}
+
 async function updateClienteCobrador(c,updates,arrayFields=[]){
   if(!fbOk||!db||!c?.id)return;
   const arrSet=new Set(arrayFields);
@@ -709,9 +761,13 @@ function initFirebase(){
     db=firebase.database(app);fbOk=true;
     // Conexión real — no asumir, escuchar Firebase
     db.ref('.info/connected').on('value',snap=>{
-      setConn(snap.val()===true);
+      const online=snap.val()===true;
+      setConn(online);
+      // Al recuperar señal, reenviar los avisos que se quedaron en el aire.
+      if(online)vaciarOutboxActividad();
     });
     escuchar();
+    vaciarOutboxActividad();
   }catch(e){
     setConn(false);
     cargarClientesLocalesCobrador();
@@ -2016,7 +2072,7 @@ async function _confirmarExtensionCobradorImpl(){
     const stamp=Date.now();
     if(moraEnEste>0)await registrarCajaCobrador('mora_cobrada',moraEnEste,`Mora extensión ${c.nombre}`,`ext_cob:${c.id}:${c.pagadas+1}:mora:${stamp}`,{clienteId:c.id,cliente:c.nombre,...meta});
     if(interesEnEste>0)await registrarCajaCobrador('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre}`,`ext_cob:${c.id}:${c.pagadas+1}:int:${stamp}`,{clienteId:c.id,cliente:c.nombre,...meta});
-    await db.ref('actividad').push({tipo:'extension_interes',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Cobrador',...meta,nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}`});
+    await logActividadCobrador({tipo:'extension_interes',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Cobrador',...meta,nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}`});
     notify(`Extensión registrada — próx. pago: ${fechaExtension} ✓`,'ok');
     renderRuta();renderTodos();renderDia();
   }catch(e){
@@ -2132,7 +2188,7 @@ async function _confirmarAbonoCobradorImpl(){
       await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre,...meta});
       if(partes.ajuste>0)await registrarCajaCobrador('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
       if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `abono_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre,...meta});
-      await db.ref('actividad').push({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:v,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',...meta,nota:m>0?`abono completo + mora ${fmt(m)}`:'abono completo'});
+      await logActividadCobrador({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:v,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',...meta,nota:m>0?`abono completo + mora ${fmt(m)}`:'abono completo'});
       const cobro={id:c.id,nombre:c.nombre,monto:v,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||'',...meta};
       cobrosHoy.push(cobro);
       localStorage.setItem('cobros_hoy',JSON.stringify(cobrosHoy));
@@ -2193,7 +2249,7 @@ async function _confirmarAbonoCobradorImpl(){
       if(deltaPartes.capitalDelta>0)await registrarCajaCobrador('recuperacion_capital', deltaPartes.capitalDelta, `Capital parcial ${c.nombre}`, `abono_cob_parcial:${c.id}:${c.pagadas+1}:cap:${stamp}`, {clienteId:c.id, cliente:c.nombre,...meta});
       if(deltaPartes.interesDelta>0)await registrarCajaCobrador('interes_cobrado', deltaPartes.interesDelta, `Interés parcial ${c.nombre}`, `abono_cob_parcial:${c.id}:${c.pagadas+1}:int:${stamp}`, {clienteId:c.id, cliente:c.nombre,...meta});
       if(deltaPartes.ajusteDelta>0)await registrarCajaCobrador('cuota_extra_cobrada', deltaPartes.ajusteDelta, `Cuota extra/ajuste parcial ${c.nombre}`, `abono_cob_parcial:${c.id}:${c.pagadas+1}:ajuste:${stamp}`, {clienteId:c.id, cliente:c.nombre,...meta});
-      await db.ref('actividad').push({tipo:'abono',clienteId:c.id,cliente:c.nombre,monto:v,ts:Date.now(),autor:'Cobrador',...meta,nota:`Abono parcial — ${abonoEnMora>0?'mora '+fmt(abonoEnMora)+', ':''}cuota ${fmt(abonoEnCuota)}, faltan ${fmt(falta)}${moraRest>0?' (incl. mora restante '+fmt(moraRest)+')':''}`});
+      await logActividadCobrador({tipo:'abono',clienteId:c.id,cliente:c.nombre,monto:v,ts:Date.now(),autor:'Cobrador',...meta,nota:`Abono parcial — ${abonoEnMora>0?'mora '+fmt(abonoEnMora)+', ':''}cuota ${fmt(abonoEnCuota)}, faltan ${fmt(falta)}${moraRest>0?' (incl. mora restante '+fmt(moraRest)+')':''}`});
       notify(`Abono ${fmt(v)} · ${abonoEnMora>0?'mora '+fmt(abonoEnMora)+', ':''}faltan ${fmt(falta)}${moraRest>0?' (mora restante '+fmt(moraRest)+')':''} ✓`,'ok');
       renderRuta();renderTodos();renderDia();
     }catch(e){
@@ -2221,7 +2277,7 @@ async function registrarNoPagoCobrador(id){
   try{
     // FIX HIGH-7: usar push() para append-only en vez de set() del array completo (race-safe)
     await db.ref('clientes/'+c.id+'/historialNoPago').push(entrada);
-    await db.ref('actividad').push({tipo:'no_pago',clienteId:c.id,cliente:c.nombre,ts:Date.now(),autor:'Cobrador',registradoPor:'Cobrador',mora:m,nota:'Visita sin pago'});
+    await logActividadCobrador({tipo:'no_pago',clienteId:c.id,cliente:c.nombre,ts:Date.now(),autor:'Cobrador',registradoPor:'Cobrador',mora:m,nota:'Visita sin pago'});
     notify(`Visita sin pago registrada — ${c.nombre}`,'ok');
     renderRuta();
   }catch(e){
@@ -2231,6 +2287,22 @@ async function registrarNoPagoCobrador(id){
 }
 
 
+// ── Guarda contra registrar dos veces el mismo cobro ──
+// El mismo cobro marcado por el cobrador y después por el admin fue lo que descuadró a Jamer:
+// entraron $240.000 a caja que el cliente nunca pagó. Aquí se corta del lado de la calle, que es
+// donde más fácil se repite (se marca, no carga por señal, y se vuelve a marcar).
+function confirmarSiHayDobleRegistro(c,minutos=240){
+  const ts=Date.parse(c&&c.ultimoPago||'');
+  if(!Number.isFinite(ts))return true;
+  const transcurridos=Math.round((Date.now()-ts)/60000);
+  if(transcurridos<0||transcurridos>minutos)return true;
+  return confirm(`⚠ ESTE COBRO YA PUEDE ESTAR REGISTRADO\n\n`+
+    `${c.nombre} tiene un pago marcado hace ${transcurridos} minuto(s) `+
+    `(${coDateLabel(ts)} ${coTimeLabel(ts)}) y va en ${c.pagadas}/${c.numCuotas}.\n\n`+
+    `Si es la MISMA plata, dale Cancelar: ya quedó guardada aunque la pantalla no la haya mostrado.\n`+
+    `Solo sigue si el cliente está pagando OTRA cuota.\n\n¿Registrar otra cuota?`);
+}
+
 async function confirmarPago(){
   // FIX CRIT-4: lock real con try/finally inline (también revierte en catch dentro)
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
@@ -2238,6 +2310,7 @@ async function confirmarPago(){
   const c=clientes.find(x=>x.id===pendingPago);if(!c){_busyConfirm=false;return;}
   const meta=metaPagoCobrador('confirm');
   cerrarConfirm();
+  if(!confirmarSiHayDobleRegistro(c)){_busyConfirm=false;return;}
   if(!fbOk||!db){notify('Sin conexión Firebase','err');_busyConfirm=false;return;}
   await refreshPctFresh(); // FIX F6: pct comisión actualizado antes registrar evento
   const m=Math.max(0,Math.round(parseFloat(document.getElementById('confirm-mora')?.value)||0)); // COP entero
@@ -2275,7 +2348,7 @@ async function confirmarPago(){
     await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre,...meta});
     if(partes.ajuste>0)await registrarCajaCobrador('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
     if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre,...meta});
-    await db.ref('actividad').push({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',...meta,nota:m>0?`mora ${fmt(m)}`:''});
+    await logActividadCobrador({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',...meta,nota:m>0?`mora ${fmt(m)}`:''});
     // Guardar cobro local
     const h=hoy();
     const cobro={id:c.id,nombre:c.nombre,monto:total,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||'',...meta};
