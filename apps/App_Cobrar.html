@@ -1090,8 +1090,12 @@ function alertasGananciasCobrador(){
   }
   const totalEventosLiquidado=items.filter(x=>x.evento.liquidado).reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
   const totalLiquidaciones=liquidaciones.reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
-  if(Math.abs(totalEventosLiquidado-totalLiquidaciones)>1){
-    issues.push({tipo:'red',msg:'El histórico de liquidaciones no cuadra con los eventos liquidados',sub:`Eventos: ${fmt(totalEventosLiquidado)} · Historial: ${fmt(totalLiquidaciones)}`});
+  // El saldo a favor es plata ya abonada que todavía no se aplicó a ningún cobro: entra en el
+  // historial pero aún no en los eventos liquidados. Sin restarlo, la alerta salía en rojo por esa
+  // diferencia aunque las cuentas estuvieran bien.
+  const credito=Math.max(0,Math.round(window._creditoCobrador||0));
+  if(Math.abs((totalEventosLiquidado+credito)-totalLiquidaciones)>1){
+    issues.push({tipo:'red',msg:'El histórico de liquidaciones no cuadra con los eventos liquidados',sub:`Eventos: ${fmt(totalEventosLiquidado)}${credito?` + saldo a favor ${fmt(credito)}`:''} · Historial: ${fmt(totalLiquidaciones)}`});
   }
   const ultima=[...liquidaciones].sort((a,b)=>b.ts-a.ts)[0];
   if(ultima){
@@ -1399,9 +1403,44 @@ function legacyResumenComision(c){
   const total=Math.round(interesCobrado*pct/100)+Math.round(moraCobrada*pct/100);
   return {pct,interesCobrado,moraCobrada,total};
 }
+// Al renovar un préstamo, los cobros del ciclo que se cierra se archivan dentro de c.ciclos[] y
+// dejan de estar en c.comisionEventos. Esta app solo miraba el arreglo vigente, así que esos
+// cobros desaparecían de la cuenta del cobrador y su total salía por debajo del que ve el admin.
+// Se junta lo archivado con lo vigente igual que eventosHistoricosCliente() en la app de admin:
+// los ciclos en orden y el vigente de último, para que ambas apps den exactamente el mismo número.
+// Regla extra: si CUALQUIER copia del evento dice liquidado, gana liquidado. Un mismo cobro puede
+// quedar guardado con estados contradictorios entre ciclos, y ante la duda nunca se le debe volver
+// a mostrar como pendiente algo que ya se le pagó.
+function eventosHistoricosCobrador(c){
+  const map=new Map();
+  const clave=(e,fb)=>e&&e.id?e.id:`${(e&&e.ts)||0}_${(e&&e.nota)||''}_${fb}`;
+  // Misma clave que usa el admin para reconocer un cobro rescatado de un ciclo archivado.
+  const claveArchivo=e=>!e?'':(e.id?'id:'+e.id:
+    ['ts:'+(Number(e.ts)||0),String(e.nota||''),Math.round(e.comision||0),Math.round(e.interes||0)].join('¦'));
+  const meter=(e,k)=>{
+    const prev=map.get(k);
+    const liquidado=!!(e.liquidado||(prev&&prev.liquidado));
+    map.set(k,Object.assign({},e,{liquidado}));
+  };
+  // Un cobro rescatado recibe un id nuevo pero guarda su clave original: sin traducirla, el
+  // archivado y el rescatado se contarían como dos cobros y la comisión saldría duplicada.
+  const alias=new Map();
+  (Array.isArray(c.comisionEventos)?c.comisionEventos:[]).forEach((e,i)=>{
+    if(e&&e.claveOriginal)alias.set(e.claveOriginal,clave(e,`a${i}`));
+  });
+  (Array.isArray(c.ciclos)?c.ciclos:[]).forEach((cy,ci)=>{
+    (cy&&Array.isArray(cy.comisionEventos)?cy.comisionEventos:[])
+      .filter(e=>e&&!e.duplicadoAnulado)
+      .forEach((e,i)=>meter(e,alias.get(claveArchivo(e))||clave(e,`c${ci}_${i}`)));
+  });
+  (Array.isArray(c.comisionEventos)?c.comisionEventos:[])
+    .filter(e=>e&&!e.duplicadoAnulado).forEach((e,i)=>meter(e,clave(e,`a${i}`)));
+  return Array.from(map.values()).sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
 function comisionEventosCliente(c){
   // Un evento anulado queda guardado como auditoría, pero no vuelve a sumar comisión ni interés.
-  if(Array.isArray(c.comisionEventos)&&c.comisionEventos.length)return c.comisionEventos.filter(e=>e&&!e.duplicadoAnulado);
+  const historicos=eventosHistoricosCobrador(c);
+  if(historicos.length)return historicos;
   const legacy=legacyResumenComision(c);
   if(legacy.total<=0)return [];
   const tsBase=Date.parse(c.ultimoPago||c.creado||coDateTimeISO())||Date.now();
