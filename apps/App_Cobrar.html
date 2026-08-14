@@ -1577,12 +1577,15 @@ function abrirDetalleClienteCobrador(id){
   const h=hoy(),pag=c.pagadas>=c.numCuotas,m=mora(c),d=diasMora(c),sd=saldo(c);
   const pendientes=(window._misSolicitudes||[]).filter(s=>s.estado==='pendiente'&&s.clienteId===c.id);
   const renovPendiente=pendientes.find(s=>s.tipoSolicitud==='renovacion');
-  const próximas=(c.cuotasData||[]).map((q,i)=>({...q,fechaProg:fechaCobroProgramada(c,q,i),extendida:fechaCobroProgramada(c,q,i)!==q.fechaISO})).filter(q=>q.num>c.pagadas).slice(0,8);
+  const próximas=(c.cuotasData||[]).map((q,i)=>{
+    const fechaProg=fechaRutaCobrador(c,q,i);
+    return {...q,fechaProg,extendida:fechaProg>q.fechaISO,adelantada:fechaProg<q.fechaISO};
+  }).filter(q=>q.num>c.pagadas).slice(0,8);
   const filas=próximas.length?próximas.map(q=>{
     const fechaRef=q.fechaProg||q.fechaISO;
     const estado=fechaRef===h?'Hoy':fechaRef<h?'Vencida':'Pendiente';
     const color=fechaRef===h?'var(--gold)':fechaRef<h?'var(--red)':'var(--text2)';
-    const fechaTxt=q.extendida?labelFromUTCDate(coUTCDateFromKey(fechaRef))+' dif.':q.fecha;
+    const fechaTxt=q.adelantada?labelFromUTCDate(coUTCDateFromKey(fechaRef))+' adel.':q.extendida?labelFromUTCDate(coUTCDateFromKey(fechaRef))+' dif.':q.fecha;
     return `<tr><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}</td><td style="padding:5px 3px;font-size:11px;color:${color}">${estado}</td></tr>`;
   }).join(''):'<tr><td colspan="4" style="padding:8px 4px;font-size:11px;color:var(--text3)">Sin cuotas pendientes</td></tr>';
   // Accesos directos al cliente (siempre visibles)
@@ -1679,7 +1682,7 @@ function diasAtrasoRuta(c,h){
   if(c.esInterno||c.pagadas>=c.numCuotas)return null;
   const q=c.cuotasData&&c.cuotasData[c.pagadas];
   if(!q)return null;
-  const due=fechaCobroProgramada(c,q,c.pagadas);
+  const due=fechaRutaCobrador(c,q,c.pagadas);
   if(!due)return null;
   return Math.floor((coUTCDateFromKey(h||hoy())-coUTCDateFromKey(due))/DAY_MS);
 }
@@ -1694,8 +1697,18 @@ function fechaCobroProgramada(c,q,i){
   if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>fecha)fecha=c.graciaHasta;
   return fecha;
 }
+// Excepción única: las cuotas que vencen el sábado 15/08/2026 entran a la ruta del
+// cobrador el viernes 14/08/2026. No se modifica cuotasData ni la base de mora, y una cuota
+// diferida por gracia conserva su nueva fecha. Ninguna otra cuota o fecha queda afectada.
+const CUOTA_ADELANTADA_ORIGINAL='2026-08-15';
+const CUOTA_ADELANTADA_RUTA='2026-08-14';
+function fechaRutaCobrador(c,q,i){
+  const fecha=fechaCobroProgramada(c,q,i);
+  const esCuotaActiva=i===(c.pagadas||0);
+  return esCuotaActiva&&fecha===CUOTA_ADELANTADA_ORIGINAL?CUOTA_ADELANTADA_RUTA:fecha;
+}
 function tieneCuotaEnFecha(c,fecha){
-  return !!(c.cuotasData&&c.cuotasData.some((q,i)=>q.num>c.pagadas&&fechaCobroProgramada(c,q,i)===fecha));
+  return !!(c.cuotasData&&c.cuotasData.some((q,i)=>q.num>c.pagadas&&fechaRutaCobrador(c,q,i)===fecha));
 }
 function gestionadoEnFecha(c,fecha){
   return sameCoDate(c.ultimoPago,fecha)||!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,fecha)));
@@ -2442,7 +2455,7 @@ function mapaAgendaCobros(){
   clientes.filter(c=>!c.esInterno&&c.pagadas<c.numCuotas).forEach(c=>{
     (c.cuotasData||[]).forEach((q,i)=>{
       if(q.num>c.pagadas){
-        const fecha=fechaCobroProgramada(c,q,i);
+        const fecha=fechaRutaCobrador(c,q,i);
         if(!fecha)return;
         if(!mapa[fecha])mapa[fecha]=[];
         const moraAplicable=fecha<=hoyStr?mora(c):0;
@@ -2456,7 +2469,8 @@ function mapaAgendaCobros(){
           telefono:c.telefono||'',
           cuotaNum:q.num,
           totalCuotas:c.numCuotas||0,
-          extendida:fecha!==q.fechaISO
+          extendida:fecha>q.fechaISO,
+          adelantada:fecha<q.fechaISO
         });
       }
     });
@@ -2556,7 +2570,7 @@ function renderAgendaDetalle(fecha,mapa){
       '<div style="font-size:14px;font-weight:700;color:var(--green)">'+fmt(total)+'</div>'+
     '</div>'+
     items.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="abrirDetalleClienteCobrador('${x.id}')">`+
-      `<div><div style="font-size:13px;font-weight:600;color:var(--text)">${x.nombre}</div><div style="font-size:11px;color:var(--text3)">${x.zona||x.negocio||'Sin zona'} · cuota ${x.cuotaNum}/${x.totalCuotas}${x.extendida?' · diferida':''}</div></div>`+
+      `<div><div style="font-size:13px;font-weight:600;color:var(--text)">${x.nombre}</div><div style="font-size:11px;color:var(--text3)">${x.zona||x.negocio||'Sin zona'} · cuota ${x.cuotaNum}/${x.totalCuotas}${x.adelantada?' · adelantada solo esta vez':x.extendida?' · diferida':''}</div></div>`+
       `<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:${x.mora>0?'var(--red)':'var(--green)'}">${fmt((x.cuota||0)+(x.mora>0?x.mora:0))}</div>${x.mora>0?'<div style="font-size:10px;color:var(--red)">Incluye mora</div>':'<div style="font-size:10px;color:var(--text3)">Programado</div>'}</div>`+
     '</div>').join('');
 }
