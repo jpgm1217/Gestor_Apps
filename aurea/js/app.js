@@ -69,11 +69,28 @@ const DEFAULT_MATERIALS = [
 const PRICE_LINES = Object.freeze([
   { value: 'certified', label: 'Oro 18K' },
   { value: 'laminated', label: 'Oro laminado 18K' },
-  { value: 'neoprene', label: 'Neopreno argollado' }
+  { value: 'neoprene', label: 'Neopreno argollado' },
+  { value: 'addon', label: 'Dijes y adicionales' }
 ]);
-const PRICE_BEADS = Object.freeze(['certificado', 'liso', 'diamantado', 'italiano', 'balin-x', 'neopreno']);
+const PRICE_BEADS = Object.freeze(['certificado', 'liso', 'diamantado', 'italiano', 'balin-x', 'neopreno', 'dije']);
 const DEFAULT_PRICE_QUANTITIES = Object.freeze([3, 5, 7, 10, 12, 15, 18, 20]);
 const DEFAULT_PRICE_LABOR = 15000;
+const DEFAULT_PRICE_MODELS = Object.freeze([
+  {
+    id: 'siete-nudos',
+    name: 'Manilla 7 Nudos',
+    note: 'Modelo fijo: se calcula con 6 balines.',
+    quantities: [6],
+    addons: []
+  },
+  {
+    id: 'san-benito',
+    name: 'Manilla San Benito',
+    note: 'Combinaciones pares desde 2 hasta 16 balines.',
+    quantities: [2, 4, 6, 8, 10, 12, 14, 16],
+    addons: ['dije-san-benito']
+  }
+]);
 
 // Precios al público. Los de oro 18K vienen de "Precios_Manillas_Oro18K.xlsx"
 // (costo promedio + 30% de margen). Son editables desde la pestaña Precios.
@@ -147,12 +164,43 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     note: 'Consulta los colores disponibles antes de confirmar.',
     braceletTable: false,
     prices: [['6 mm', 5500], ['8 mm', 6500]]
+  },
+  {
+    id: 'dije-san-benito',
+    name: 'Dije San Benito',
+    material: 'Se suma al precio de la manilla San Benito',
+    line: 'addon',
+    bead: 'dije',
+    note: 'El precio cambia según el tamaño del balín de la manilla.',
+    braceletTable: false,
+    prices: [['3 mm', 15000], ['4 mm', 15000], ['5 mm', 15000], ['6 mm', 15000], ['7 mm', 15000], ['8 mm', 15000]]
   }
 ]);
 
+// Siembra unica para datos ya guardados en Firebase. Sube el numero cuando haya
+// que agregar algo nuevo de fabrica a catalogos que ya existen.
+// 2 = dije San Benito como adicional de la manilla San Benito.
+const PRICE_CATALOG_SEED = 2;
+
+function seedPriceCatalog(catalog, appliedSeed) {
+  if (number(appliedSeed) >= PRICE_CATALOG_SEED) return catalog;
+  const template = DEFAULT_PRICE_FAMILIES.find(family => family.id === 'dije-san-benito');
+  if (template && !catalog.families.some(family => family.id === template.id)) {
+    catalog.families = [...catalog.families, { ...template, prices: template.prices.map(row => [...row]) }];
+  }
+  catalog.models = catalog.models.map(model => (
+    model.id === 'san-benito' && !(model.addons || []).length
+      ? { ...model, addons: ['dije-san-benito'] }
+      : model
+  ));
+  return catalog;
+}
+
 const defaultPriceCatalog = () => ({
+  seed: PRICE_CATALOG_SEED,
   labor: DEFAULT_PRICE_LABOR,
   quantities: [...DEFAULT_PRICE_QUANTITIES],
+  models: DEFAULT_PRICE_MODELS.map(model => ({ ...model, quantities: [...model.quantities], addons: [...(model.addons || [])] })),
   families: DEFAULT_PRICE_FAMILIES.map(family => ({ ...family, prices: family.prices.map(row => [...row]) }))
 });
 
@@ -198,6 +246,8 @@ let editingExpenseId = null;
 let editingPurchaseId = null;
 let editingPriceFamilyId = null;
 let priceFamilyDraft = null;
+let editingPriceModelId = null;
+let priceModelDraft = null;
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -316,11 +366,39 @@ function normalizePriceCatalog(raw) {
     .filter(value => value >= 1 && value <= 200))]
     .sort((a, b) => a - b)
     .slice(0, 10);
-  return {
+  const modelsSource = Array.isArray(source.models) && source.models.length ? source.models : fallback.models;
+  const usedModelIds = new Set();
+  const models = modelsSource
+    .filter(item => item && typeof item === 'object' && (item.id || item.name))
+    .map((item, index) => {
+      let id = cleanCode(item.id || item.name).toLowerCase() || `modelo-${index + 1}`;
+      while (usedModelIds.has(id)) id = `${id.slice(0, 25)}-${index + 1}`;
+      usedModelIds.add(id);
+      const modelQuantities = [...new Set((Array.isArray(item.quantities) ? item.quantities : [])
+        .map(value => Math.floor(number(value)))
+        .filter(value => value >= 1 && value <= 200))]
+        .sort((a, b) => a - b)
+        .slice(0, 20);
+      const modelAddons = [...new Set((Array.isArray(item.addons) ? item.addons : [])
+        .map(value => cleanCode(value).toLowerCase())
+        .filter(Boolean))].slice(0, 6);
+      return {
+        id,
+        name: String(item.name || 'Sin nombre').trim().slice(0, 60) || 'Sin nombre',
+        note: String(item.note || '').trim().slice(0, 180),
+        quantities: modelQuantities,
+        addons: modelAddons
+      };
+    })
+    .filter(model => model.quantities.length)
+    .slice(0, 20);
+  const catalog = seedPriceCatalog({
     labor: Math.max(0, Math.round(number(source.labor ?? fallback.labor))),
     quantities: quantities.length ? quantities : [...fallback.quantities],
+    models: models.length ? models : fallback.models,
     families: families.length ? families : fallback.families
-  };
+  }, source.seed);
+  return { seed: PRICE_CATALOG_SEED, ...catalog };
 }
 
 function normalizeState(raw) {
@@ -1176,6 +1254,7 @@ function renderPublicPrices() {
     </article>
   `).join('') : '<div class="empty public-price-empty"><b>Sin resultados</b>Prueba con otro nombre o tamaño.</div>';
   renderBraceletPrices();
+  renderPriceModels();
   renderPricePoster();
 }
 
@@ -1211,12 +1290,240 @@ function renderBraceletPrices() {
     + (neoprene > 0 ? ` Si la manilla lleva neoprenos, suma ${money(neoprene)} por cada uno.` : '');
 }
 
-function openPriceFamily(id = '') {
+const priceModels = () => (S.priceCatalog?.models || []);
+const getPriceModel = id => priceModels().find(model => model.id === id) || null;
+const beadSizeLabel = size => {
+  const match = String(size || '').match(/\d+(?:[.,]\d+)?/);
+  return match ? `#${match[0].replace(',', '.')}` : String(size || 'Balín');
+};
+// Precio del adicional que corresponde a un tamano de balin.
+// Busca el tamano exacto; si la familia tiene una sola fila es un valor fijo;
+// si no, usa el tamano mayor que no pase del balin.
+function addonPriceForSize(family, size) {
+  const rows = family?.prices || [];
+  if (!rows.length) return 0;
+  const label = String(size || '').trim().toLowerCase();
+  const exact = rows.find(([rowSize]) => String(rowSize).trim().toLowerCase() === label);
+  if (exact) return number(exact[1]);
+  if (rows.length === 1) return number(rows[0][1]);
+  const target = Number.parseFloat(String(size).replace(',', '.'));
+  const numeric = rows
+    .map(([rowSize, price]) => [Number.parseFloat(String(rowSize).replace(',', '.')), number(price)])
+    .filter(([value]) => Number.isFinite(value))
+    .sort((a, b) => a[0] - b[0]);
+  if (!Number.isFinite(target) || !numeric.length) return number(rows[0][1]);
+  let chosen = numeric[0][1];
+  numeric.forEach(([value, price]) => { if (value <= target) chosen = price; });
+  return chosen;
+}
+
+const addonFamilies = () => priceFamilies().filter(family => family.line === 'addon' && family.prices.length);
+const modelAddonFamilies = model => (model?.addons || [])
+  .map(id => getPriceFamily(id))
+  .filter(family => family && family.prices.length);
+const modelAddonTotal = (model, size) => modelAddonFamilies(model)
+  .reduce((total, family) => total + addonPriceForSize(family, size), 0);
+
+const priceRowsDescending = family => [...(family?.prices || [])].sort((a, b) => {
+  const aSize = Number.parseFloat(String(a[0]).replace(',', '.')) || 0;
+  const bSize = Number.parseFloat(String(b[0]).replace(',', '.')) || 0;
+  return bSize - aSize;
+});
+
+function modelAddonChips(model) {
+  const included = modelAddonFamilies(model);
+  if (!included.length) return '';
+  return `<div class="model-addon-chips">${included.map(family => {
+    const values = family.prices.map(([, price]) => number(price));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return `<button type="button" class="model-addon-chip" onclick="openPriceFamily('${esc(family.id)}')">
+      <span class="public-price-bead ${esc(family.bead)}" aria-hidden="true"></span>
+      <span><b>${esc(family.name)}</b><small>${min === max ? money(min) : `${money(min)} a ${money(max)}`} · toca para cambiar el precio</small></span>
+    </button>`;
+  }).join('')}</div>`;
+}
+
+function modelAddonSummary(model, labor) {
+  const included = modelAddonFamilies(model);
+  if (!included.length) {
+    return `Incluye ${money(labor)} de mano de obra. Dijes, neoprenos y otros adicionales se suman aparte.`;
+  }
+  const detail = included.map(family => {
+    const values = family.prices.map(([, price]) => number(price));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return `${esc(family.name)} (${min === max ? money(min) : `${money(min)} a ${money(max)} segun el balin`})`;
+  }).join(' y ');
+  return `Incluye ${money(labor)} de mano de obra y ${detail}. Neoprenos y otros adicionales se suman aparte.`;
+}
+
+function renderPriceModels() {
+  const list = $('#model-price-list');
+  const addons = $('#model-price-addons');
+  if (!list || !addons) return;
+  const models = priceModels();
+  const families = priceFamilies().filter(family => family.braceletTable && family.prices.length);
+  const labor = number(S.priceCatalog?.labor);
+
+  if (!models.length || !families.length) {
+    list.innerHTML = '<div class="empty model-price-empty"><b>Falta información</b>Agrega al menos una manilla y una familia de balines.</div>';
+  } else {
+    list.innerHTML = models.map(model => {
+      const quantities = model.quantities;
+      const quantityText = quantities.length === 1
+        ? `${quantities[0]} balines`
+        : `${quantities[0]} a ${quantities.at(-1)} balines · ${quantities.join(', ')}`;
+      return `<article class="model-price-card" data-price-model="${esc(model.id)}">
+        <header class="model-price-head">
+          <div>
+            <span class="model-price-kicker">${esc(quantityText)}</span>
+            <h4>${esc(model.name)}</h4>
+            <p>${esc(model.note || 'Precios calculados con el catálogo vigente.')}</p>
+          </div>
+          <button class="public-price-edit" type="button" onclick="openPriceModel('${esc(model.id)}')">Editar</button>
+        </header>
+        <div class="model-family-list">
+          ${families.map((family, familyIndex) => `<details class="model-family ${esc(family.line)}" data-model-family="${esc(family.id)}" ${familyIndex < 2 ? 'open' : ''}>
+            <summary>
+              <span class="public-price-bead ${esc(family.bead)}" aria-hidden="true"></span>
+              <span><b>${esc(family.name)}</b><small>${esc(priceLineLabel(family.line))} · ${esc(family.material)}</small></span>
+            </summary>
+            <div class="model-price-scroll">
+              <table class="model-price-table">
+                <thead><tr><th scope="col">Balín</th>${quantities.map(qty => `<th scope="col">${qty}</th>`).join('')}</tr></thead>
+                <tbody>${priceRowsDescending(family).map(([size, unitPrice]) => {
+                  const addonTotal = modelAddonTotal(model, size);
+                  return `<tr>
+                  <th scope="row">${esc(beadSizeLabel(size))}</th>
+                  ${quantities.map(qty => `<td data-size="${esc(size)}" data-qty="${qty}">${money(number(unitPrice) * qty + labor + addonTotal)}</td>`).join('')}
+                </tr>`;
+                }).join('')}</tbody>
+              </table>
+            </div>
+          </details>`).join('')}
+        </div>
+        <p class="model-price-formula">${modelAddonSummary(model, labor)}</p>
+        ${modelAddonChips(model)}
+      </article>`;
+    }).join('');
+  }
+
+  const neoprenes = priceFamilies().filter(family => family.bead === 'neopreno' && family.prices.length);
+  addons.innerHTML = `<div class="model-addon-head"><div><span class="guide-label">Adicionales</span><h4>Neoprenos</h4></div><p>Suma el valor por cada neopreno que lleve la manilla.</p></div>
+    <div class="model-addon-grid">${neoprenes.length ? neoprenes.flatMap(family => family.prices.map(([size, price]) => `
+      <div class="model-addon-row" data-addon-family="${esc(family.id)}" data-addon-size="${esc(size)}">
+        <div><b>${esc(family.name)}</b><span>${esc(family.material)} · ${esc(size)}</span></div>
+        <strong>+ ${money(price)} c/u</strong>
+      </div>`)).join('') : '<div class="empty"><b>Sin neoprenos</b>Agrega sus precios en una familia del catálogo.</div>'}</div>`;
+}
+
+function openPriceModel(id = '') {
+  const existing = id ? getPriceModel(id) : null;
+  editingPriceModelId = existing ? existing.id : null;
+  priceModelDraft = existing
+    ? { ...existing, quantities: [...existing.quantities], addons: [...(existing.addons || [])] }
+    : { id: '', name: '', note: '', quantities: [6], addons: [] };
+  openModal(`<div class="modal-head"><h3>${existing ? 'Editar' : 'Nueva'} manilla de la lista</h3><button class="modal-close" onclick="closePriceModel()">×</button></div>
+    <div class="form-grid two">
+      <div class="field"><label>Nombre del modelo</label><input class="input" id="pm-name" maxlength="60" value="${esc(priceModelDraft.name)}" placeholder="Ej. Manilla Virgen del Carmen"></div>
+      <div class="field"><label>Cantidades de balines</label><input class="input" id="pm-quantities" inputmode="numeric" value="${esc(priceModelDraft.quantities.join(', '))}" placeholder="Ej. 2, 4, 6, 8"></div>
+      <div class="field full"><label>Descripción</label><input class="input" id="pm-note" maxlength="180" value="${esc(priceModelDraft.note)}" placeholder="Ej. Modelo fijo con 6 balines."></div>
+    </div>
+    <p class="help">Escribe todas las cantidades que ofrece el modelo separadas por coma. La lista calculará cada tamaño en oro y oro laminado.</p>
+
+    <div class="pm-addons">
+      <label class="pm-addons-title">Adicionales incluidos en el precio</label>
+      ${addonFamilies().length ? addonFamilies().map(family => {
+        const values = family.prices.map(([, price]) => number(price));
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        return `<label class="pm-addon-row">
+          <input type="checkbox" class="pm-addon" value="${esc(family.id)}" ${(priceModelDraft.addons || []).includes(family.id) ? 'checked' : ''}>
+          <span><b>${esc(family.name)}</b><small>${min === max ? money(min) : `${money(min)} a ${money(max)} según el tamaño del balín`}</small></span>
+        </label>`;
+      }).join('') : '<p class="help">Todavía no hay dijes ni adicionales. Créalos abajo con <b>＋ Nueva familia</b> eligiendo la línea <b>Dijes y adicionales</b>.</p>'}
+      <p class="help">Lo que marques aquí se suma a cada precio de la tabla, según el tamaño del balín.</p>
+    </div>
+
+    <div class="modal-actions">
+      ${existing ? '<button class="btn btn-danger" onclick="deletePriceModel()">Eliminar</button>' : ''}
+      <button class="btn btn-outline" onclick="closePriceModel()">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePriceModel()">Guardar</button>
+    </div>`);
+}
+
+function closePriceModel() {
+  editingPriceModelId = null;
+  priceModelDraft = null;
+  closeModal();
+}
+
+function savePriceModel() {
+  const name = String($('#pm-name')?.value || '').trim();
+  const note = String($('#pm-note')?.value || '').trim();
+  const quantities = [...new Set((String($('#pm-quantities')?.value || '').match(/\d+/g) || [])
+    .map(value => Math.floor(number(value)))
+    .filter(value => value >= 1 && value <= 200))]
+    .sort((a, b) => a - b)
+    .slice(0, 20);
+  if (!name) { toast('Ponle un nombre a la manilla'); return; }
+  if (!quantities.length) { toast('Escribe al menos una cantidad de balines'); return; }
+  const models = priceModels().map(model => ({ ...model, quantities: [...model.quantities] }));
+  const index = models.findIndex(model => model.id === editingPriceModelId);
+  let id = editingPriceModelId;
+  if (!id) {
+    id = cleanCode(name).toLowerCase() || `modelo-${shortId(uid('modelo')).toLowerCase()}`;
+    let suffix = 2;
+    const base = id;
+    while (models.some(model => model.id === id)) { id = `${base.slice(0, 25)}-${suffix}`; suffix += 1; }
+  }
+  const addons = $$('.pm-addon').filter(item => item.checked).map(item => item.value);
+  const next = { id, name: name.slice(0, 60), note: note.slice(0, 180), quantities, addons };
+  if (index >= 0) models[index] = next;
+  else models.push(next);
+  S.priceCatalog = normalizePriceCatalog({ ...S.priceCatalog, models });
+  closePriceModel();
+  persist();
+  toast('Lista de la manilla guardada');
+}
+
+function deletePriceModel() {
+  if (!editingPriceModelId) return;
+  const models = priceModels();
+  if (models.length <= 1) { toast('Debe quedar al menos una manilla en la lista'); return; }
+  if (!confirm('¿Quitar esta manilla de la lista rápida? Los precios por balín no se modificarán.')) return;
+  S.priceCatalog = normalizePriceCatalog({
+    ...S.priceCatalog,
+    models: models.filter(model => model.id !== editingPriceModelId)
+  });
+  closePriceModel();
+  persist();
+  toast('Manilla retirada de la lista');
+}
+
+// Tamanos con los que arranca un dije nuevo: los mismos del balin, para que el
+// precio por tamano calce sin que el usuario tenga que escribirlos.
+function defaultAddonSizes() {
+  const reference = getPriceFamily('certificado') || priceFamilies().find(family => family.braceletTable);
+  const sizes = (reference?.prices || []).map(([size]) => size);
+  return (sizes.length ? sizes : ['3 mm', '4 mm', '5 mm', '6 mm', '7 mm', '8 mm']).map(size => [size, 0]);
+}
+
+function openPriceFamily(id = '', presetLine = '') {
   const existing = id ? getPriceFamily(id) : null;
   editingPriceFamilyId = existing ? existing.id : null;
-  priceFamilyDraft = existing
-    ? { ...existing, prices: existing.prices.map(row => [...row]) }
-    : { id: '', name: '', material: '', line: 'certified', bead: 'liso', note: '', braceletTable: true, prices: [['', 0]] };
+  if (existing) {
+    priceFamilyDraft = { ...existing, prices: existing.prices.map(row => [...row]) };
+  } else if (presetLine === 'addon') {
+    priceFamilyDraft = {
+      id: '', name: '', material: 'Se suma al precio de la manilla', line: 'addon', bead: 'dije',
+      note: 'El precio cambia según el tamaño del balín de la manilla.',
+      braceletTable: false, prices: defaultAddonSizes()
+    };
+  } else {
+    priceFamilyDraft = { id: '', name: '', material: '', line: 'certified', bead: 'liso', note: '', braceletTable: true, prices: [['', 0]] };
+  }
   renderPriceFamilyModal();
 }
 
@@ -1295,6 +1602,7 @@ function savePriceFamily() {
   if (!draft) return;
   const name = String(draft.name || '').trim();
   if (!name) { toast('Ponle un nombre a la familia'); return; }
+  if (draft.line === 'addon') draft.braceletTable = false;
   const rows = draft.prices
     .map(([size, price]) => [String(size || '').trim(), Math.max(0, Math.round(number(price)))])
     .filter(([size]) => size);
@@ -1370,7 +1678,7 @@ function savePriceSettings() {
 }
 
 function resetPriceCatalog() {
-  if (!confirm('¿Restaurar la lista de precios a los valores de fábrica? Se perderán los precios que hayas escrito.')) return;
+  if (!confirm('¿Restaurar precios y modelos a los valores de fábrica? Se perderán los cambios que hayas escrito en esta sección.')) return;
   S.priceCatalog = defaultPriceCatalog();
   persist();
   renderPublicPrices();
@@ -2432,6 +2740,7 @@ function posterBackground(context, width, height) {
 }
 
 function drawPosterBead(context, cx, cy, radius, bead) {
+  if (bead === 'dije') { drawPosterMedal(context, cx, cy, radius); return; }
   const gradient = context.createRadialGradient(cx - radius * 0.34, cy - radius * 0.4, radius * 0.08, cx, cy, radius);
   if (bead === 'neopreno') {
     gradient.addColorStop(0, '#5a5a5a');
@@ -2485,6 +2794,37 @@ function drawPosterBead(context, cx, cy, radius, bead) {
   context.lineWidth = Math.max(1, radius * 0.07);
   context.beginPath();
   context.arc(cx, cy, radius, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawPosterMedal(context, cx, cy, radius) {
+  const face = context.createRadialGradient(cx - radius * 0.3, cy - radius * 0.35, radius * 0.1, cx, cy, radius);
+  face.addColorStop(0, '#fff0a8');
+  face.addColorStop(0.45, '#d9a239');
+  face.addColorStop(1, '#7d4a08');
+  context.save();
+  context.beginPath();
+  context.ellipse(cx, cy + radius * 0.16, radius * 0.82, radius, 0, 0, Math.PI * 2);
+  context.fillStyle = face;
+  context.fill();
+  context.strokeStyle = 'rgba(245,214,140,.75)';
+  context.lineWidth = Math.max(1, radius * 0.11);
+  context.stroke();
+  // cruz grabada
+  context.strokeStyle = 'rgba(72,40,4,.62)';
+  context.lineWidth = Math.max(1.5, radius * 0.15);
+  context.beginPath();
+  context.moveTo(cx, cy - radius * 0.34);
+  context.lineTo(cx, cy + radius * 0.66);
+  context.moveTo(cx - radius * 0.34, cy + radius * 0.08);
+  context.lineTo(cx + radius * 0.34, cy + radius * 0.08);
+  context.stroke();
+  // argolla
+  context.strokeStyle = 'rgba(240,205,119,.85)';
+  context.lineWidth = Math.max(1, radius * 0.12);
+  context.beginPath();
+  context.arc(cx, cy - radius * 0.92, radius * 0.2, 0, Math.PI * 2);
   context.stroke();
   context.restore();
 }
@@ -2793,6 +3133,129 @@ async function drawBraceletPoster(canvas) {
   return canvas;
 }
 
+function posterModelSelection() {
+  const models = priceModels();
+  const families = priceFamilies().filter(family => family.braceletTable && family.prices.length);
+  if (!models.length || !families.length) return null;
+  const modelSelect = $('#poster-model');
+  const familySelect = $('#poster-model-family');
+  const modelId = models.some(model => model.id === modelSelect?.value) ? modelSelect.value : models[0].id;
+  const familyId = families.some(family => family.id === familySelect?.value) ? familySelect.value : families[0].id;
+  if (modelSelect) {
+    modelSelect.innerHTML = models.map(model =>
+      `<option value="${esc(model.id)}" ${model.id === modelId ? 'selected' : ''}>${esc(model.name)}</option>`).join('');
+  }
+  if (familySelect) {
+    familySelect.innerHTML = families.map(family =>
+      `<option value="${esc(family.id)}" ${family.id === familyId ? 'selected' : ''}>${esc(family.name)}</option>`).join('');
+  }
+  return { model: models.find(m => m.id === modelId), family: families.find(f => f.id === familyId) };
+}
+
+async function drawModelPoster(canvas) {
+  const selection = posterModelSelection();
+  if (!selection) throw new Error('Agrega una manilla y una familia de balines');
+  const { model, family } = selection;
+  const catalog = S.priceCatalog;
+  const labor = number(catalog.labor);
+  const quantities = model.quantities;
+  const rows = priceRowsDescending(family);
+  const addons = modelAddonFamilies(model);
+
+  const width = Math.min(1400, Math.max(1000, 250 + quantities.length * 132));
+  const pad = 60;
+  const labelWidth = 130;
+  const cellWidth = (width - pad * 2 - labelWidth) / quantities.length;
+  const rowHeight = 62;
+  const headerHeight = Math.round(width * 0.2) + 44 + Math.round(width * 0.155);
+  const tableHeight = rowHeight * (rows.length + 1);
+  const height = Math.round(headerHeight + 90 + tableHeight + (addons.length ? 56 : 0) + 300);
+
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  posterBackground(context, width, height);
+  const logo = await loadCanvasImage('assets/logo-aurea.jpg');
+  let y = drawPosterHeader(context, width, logo, model.name, `${family.name} · mano de obra incluida`);
+
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(21);
+  context.fillText('Cuántos balines lleva la manilla', width / 2, y + 14);
+  context.textAlign = 'left';
+  y += 54;
+
+  const tableX = pad;
+  context.fillStyle = 'rgba(255,255,255,.03)';
+  context.beginPath();
+  context.roundRect(tableX, y, width - pad * 2, tableHeight, 18);
+  context.fill();
+  context.strokeStyle = 'rgba(140,101,49,.55)';
+  context.lineWidth = 1.5;
+  context.stroke();
+
+  context.save();
+  context.beginPath();
+  context.roundRect(tableX, y, width - pad * 2, rowHeight, [18, 18, 0, 0]);
+  context.clip();
+  const headFill = context.createLinearGradient(tableX, y, tableX + width, y + rowHeight);
+  headFill.addColorStop(0, '#17110d');
+  headFill.addColorStop(1, '#33240f');
+  context.fillStyle = headFill;
+  context.fillRect(tableX, y, width - pad * 2, rowHeight);
+  context.restore();
+
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_GOLD;
+  context.font = posterSans(20, '700');
+  context.fillText('BALÍN', tableX + labelWidth / 2, y + rowHeight * 0.62);
+  quantities.forEach((quantity, index) => {
+    context.fillText(String(quantity), tableX + labelWidth + cellWidth * index + cellWidth / 2, y + rowHeight * 0.62);
+  });
+
+  rows.forEach(([size, unitPrice], index) => {
+    const rowY = y + rowHeight * (index + 1);
+    const addonTotal = modelAddonTotal(model, size);
+    if (index % 2 === 0) {
+      context.fillStyle = 'rgba(255,255,255,.035)';
+      context.fillRect(tableX, rowY, width - pad * 2, rowHeight);
+    }
+    context.fillStyle = POSTER_GOLD;
+    context.font = posterFont(25, '700');
+    context.fillText(beadSizeLabel(size), tableX + labelWidth / 2, rowY + rowHeight * 0.63);
+    context.fillStyle = POSTER_CREAM;
+    context.font = posterSans(22);
+    quantities.forEach((quantity, column) => {
+      context.fillText(
+        posterMoney(number(unitPrice) * quantity + labor + addonTotal),
+        tableX + labelWidth + cellWidth * column + cellWidth / 2,
+        rowY + rowHeight * 0.63
+      );
+    });
+    context.strokeStyle = 'rgba(140,101,49,.3)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(tableX, rowY);
+    context.lineTo(tableX + width - pad * 2, rowY);
+    context.stroke();
+  });
+
+  y += tableHeight + 46;
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(19);
+  context.fillText(`Incluye ${posterMoney(labor)} de mano de obra.`, width / 2, y);
+  if (addons.length) {
+    y += 32;
+    context.fillStyle = POSTER_GOLD;
+    context.font = posterSans(19, '700');
+    context.fillText(`Incluye ${addons.map(item => item.name).join(' y ')}.`, width / 2, y);
+  }
+  context.textAlign = 'left';
+
+  drawPosterFooter(context, width, y + 10, height, 'Precios sujetos a disponibilidad. No incluye envío.');
+  return canvas;
+}
+
 function currentPosterMode() {
   return $('.poster-tab.active')?.dataset.poster || 'prices';
 }
@@ -2804,7 +3267,11 @@ async function renderPricePoster() {
   const status = $('#price-poster-status');
   try {
     if (status) status.textContent = 'Armando el afiche…';
-    await (currentPosterMode() === 'bracelet' ? drawBraceletPoster(canvas) : drawPricePoster(canvas));
+    const mode = currentPosterMode();
+    $('#poster-pickers')?.classList.toggle('hidden', mode !== 'model');
+    if (mode === 'model') await drawModelPoster(canvas);
+    else if (mode === 'bracelet') await drawBraceletPoster(canvas);
+    else await drawPricePoster(canvas);
     if (status) status.textContent = 'Se arma solo con los precios de arriba.';
   } catch (error) {
     if (status) status.textContent = error.message || 'No fue posible armar el afiche';
@@ -2823,13 +3290,18 @@ async function downloadPricePoster(mode, buttonId = '#download-price-poster-btn'
   if (button) { button.classList.add('loading'); button.textContent = 'Preparando…'; }
   try {
     const canvas = document.createElement('canvas');
-    await (target === 'bracelet' ? drawBraceletPoster(canvas) : drawPricePoster(canvas));
+    if (target === 'model') await drawModelPoster(canvas);
+    else if (target === 'bracelet') await drawBraceletPoster(canvas);
+    else await drawPricePoster(canvas);
     const blob = await new Promise((resolve, reject) =>
       canvas.toBlob(item => item ? resolve(item) : reject(new Error('No fue posible preparar la descarga')), 'image/jpeg', 0.94));
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `aurea-${target === 'bracelet' ? 'precio-manillas' : 'catalogo-precios'}-${new Date().toISOString().slice(0, 10)}.jpg`;
+    const slug = target === 'model'
+      ? cleanCode(posterModelSelection()?.model?.name || 'modelo').toLowerCase()
+      : (target === 'bracelet' ? 'precio-manillas' : 'catalogo-precios');
+    link.download = `aurea-${slug}-${new Date().toISOString().slice(0, 10)}.jpg`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
     toast('Afiche descargado');
@@ -3550,6 +4022,10 @@ function bindEvents() {
   $('#public-price-line').onchange = renderPublicPrices;
   $('#bracelet-price-family').onchange = renderBraceletPrices;
   $('#add-price-family-btn').onclick = () => openPriceFamily();
+  $('#add-price-model-btn').onclick = () => openPriceModel();
+  $('#add-price-addon-btn').onclick = () => openPriceFamily('', 'addon');
+  $('#poster-model').onchange = renderPricePoster;
+  $('#poster-model-family').onchange = renderPricePoster;
   $('#price-settings-btn').onclick = openPriceSettings;
   $('#reset-prices-btn').onclick = resetPriceCatalog;
   $('#price-poster-card').ontoggle = renderPricePoster;
@@ -3621,6 +4097,7 @@ Object.assign(window, {
   openUserGuide, guideGo, runSetupAction,
   closeModal, openMaterial, saveMaterial, toggleMaterial, deleteMaterial,
   openPriceFamily, closePriceFamily, savePriceFamily, deletePriceFamily,
+  openPriceModel, closePriceModel, savePriceModel, deletePriceModel,
   addPriceRow, removePriceRow, openPriceSettings, savePriceSettings, resetPriceCatalog,
   openPurchase, savePurchase, annulPurchase,
   changeComponentQty, removeComponent,

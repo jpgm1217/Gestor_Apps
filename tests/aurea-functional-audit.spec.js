@@ -35,6 +35,46 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test('lista rápida calcula 7 Nudos, San Benito y adicionales con el catálogo vigente', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('http://127.0.0.1:4173/aurea/');
+  await expect(page.locator('.top-price-button')).toBeVisible();
+  await expect(page.locator('.top-price-button')).toContainText('Lista de precios');
+  await expect(page.locator('.quick-prices')).toContainText('VER LISTA DE PRECIOS');
+  await page.locator('.top-price-button').click();
+  await expect(page.locator('#view-prices')).toHaveClass(/active/);
+
+  const sevenKnots = page.locator('[data-price-model="siete-nudos"]');
+  const sanBenito = page.locator('[data-price-model="san-benito"]');
+  expect(await page.evaluate(() => Boolean(
+    document.querySelector('#model-price-section').compareDocumentPosition(document.querySelector('#public-price-list'))
+      & Node.DOCUMENT_POSITION_FOLLOWING
+  ))).toBe(true);
+  await expect(sevenKnots).toContainText('Manilla 7 Nudos');
+  await expect(sevenKnots).toContainText('6 balines');
+  await expect(sevenKnots.locator('[data-model-family="certificado"] [data-size="8 mm"][data-qty="6"]')).toContainText('867.000');
+  await expect(sevenKnots.locator('[data-model-family="liso"] [data-size="3 mm"][data-qty="6"]')).toContainText('33.000');
+
+  await expect(sanBenito).toContainText('Manilla San Benito');
+  await expect(sanBenito).toContainText('2 a 16 balines');
+  // San Benito incluye el dije: 16 x 142.000 + 15.000 mano de obra + 15.000 dije
+  await expect(sanBenito.locator('[data-model-family="certificado"] [data-size="8 mm"][data-qty="16"]')).toContainText('2.302.000');
+  await expect(sanBenito.locator('[data-model-family="liso"] [data-size="8 mm"][data-qty="16"]')).toContainText('286.000');
+  await expect(sanBenito.locator('.model-price-formula')).toContainText('Dije San Benito');
+  // 7 Nudos no lleva dije, su formula no lo menciona
+  await expect(sevenKnots.locator('.model-price-formula')).not.toContainText('Dije San Benito');
+
+  await expect(page.locator('[data-addon-family="neopreno-oro"]')).toContainText('4.000');
+  await expect(page.locator('[data-addon-family="neopreno"][data-addon-size="8 mm"]')).toContainText('6.500');
+
+  await page.locator('#add-price-model-btn').click();
+  await page.locator('#pm-name').fill('Manilla personalizada');
+  await page.locator('#pm-quantities').fill('3, 6, 9');
+  await page.locator('#pm-note').fill('Modelo de prueba');
+  await page.evaluate(() => window.savePriceModel());
+  await expect(page.locator('[data-price-model="manilla-personalizada"]')).toContainText('3 a 9 balines · 3, 6, 9');
+});
+
 test('compra, fabrica, vende dos, abona, cancela y anula el lote sin corromper inventarios', async ({ page }) => {
   await page.goto('http://127.0.0.1:4173/aurea/?view=inventory');
   await expect(page.locator('#auth-screen')).toHaveClass(/hidden/);
