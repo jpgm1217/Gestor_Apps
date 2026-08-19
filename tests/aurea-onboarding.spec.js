@@ -63,7 +63,7 @@ test('la lista de precios públicos es fácil de consultar y no se mezcla con in
   await expect(page.locator('#view-prices')).toContainText('no modifica inventario, costos ni ventas');
   await expect(page.locator('#view-prices')).toContainText('Detalle en oro laminado 18K');
   await expect(page.locator('#view-prices')).toContainText('Balín en oro 18K');
-  await expect(page.locator('#view-prices')).toContainText('142.000');
+  await expect(page.locator('#view-prices')).toContainText('130.000');
 
   await page.locator('#public-price-line').selectOption('certified');
   await expect(page.locator('#public-price-list .public-price-card')).toHaveCount(2);
@@ -113,18 +113,18 @@ test('el afiche se genera desde los precios guardados y se puede descargar', asy
   await expect.poll(() => page.locator('#price-poster-canvas').evaluate(canvas => canvas.toDataURL().length)).not.toBe(before);
 });
 
-test('la tabla de manilla completa aplica la fórmula del Excel de oro 18K', async ({ page }) => {
+test('la tabla de manilla completa aplica la fórmula de oro 18K', async ({ page }) => {
   await page.goto('http://127.0.0.1:4173/aurea/');
   await page.locator('[data-view="prices"]').click();
 
-  // Excel "Manillas comunes": 3 balines #3 = 69.000, 20 balines #8 = 2.855.000
+  // 3 balines #3 = 3 x 18.000 + 15.000 | 20 balines #8 = 20 x 130.000 + 15.000
   await expect(page.locator('#bracelet-price-family')).toHaveValue('certificado');
   const goldRows = page.locator('#bracelet-price-table tbody tr');
   await expect(goldRows).toHaveCount(6);
   await expect(goldRows.first().locator('td').first()).toHaveText('$ 69.000');
-  await expect(goldRows.last().locator('td').last()).toHaveText('$ 2.855.000');
+  await expect(goldRows.last().locator('td').last()).toHaveText('$ 2.615.000');
   await expect(page.locator('#bracelet-price-formula')).toContainText('$ 15.000 de mano de obra');
-  await expect(page.locator('#bracelet-price-formula')).toContainText('suma $ 4.000 por cada uno');
+  await expect(page.locator('#bracelet-price-formula')).toContainText('suma $ 6.500 por cada uno');
 
   // El neopreno de oro no debe aparecer como fila de manilla completa
   await expect(page.locator('#bracelet-price-family option')).toHaveCount(5);
@@ -168,10 +168,10 @@ test('la manilla San Benito suma el dije y el adicional es parametrizable', asyn
   const cell = (card, size, qty) => card.locator(`[data-model-family="certificado"] td[data-size="${size}"][data-qty="${qty}"]`);
 
   // 7 Nudos no lleva dije: 6 balines de 8 mm = 6 x 142.000 + 15.000 mano de obra
-  await expect(cell(nudos, '8 mm', 6)).toHaveText('$ 867.000');
+  await expect(cell(nudos, '8 mm', 6)).toHaveText('$ 795.000');
 
   // San Benito suma 15.000 del dije encima de lo mismo
-  await expect(cell(benito, '8 mm', 6)).toHaveText('$ 882.000');
+  await expect(cell(benito, '8 mm', 6)).toHaveText('$ 810.000');
   await expect(cell(benito, '3 mm', 2)).toHaveText('$ 66.000');
   await expect(benito.locator('.model-price-formula')).toContainText('Dije San Benito');
 
@@ -185,15 +185,15 @@ test('la manilla San Benito suma el dije y el adicional es parametrizable', asyn
   await page.locator('#modal').getByRole('button', { name: 'Guardar' }).click();
 
   await expect(cell(benito, '3 mm', 2)).toHaveText('$ 63.000');
-  await expect(cell(benito, '8 mm', 6)).toHaveText('$ 897.000');
-  await expect(cell(nudos, '8 mm', 6)).toHaveText('$ 867.000');
+  await expect(cell(benito, '8 mm', 6)).toHaveText('$ 825.000');
+  await expect(cell(nudos, '8 mm', 6)).toHaveText('$ 795.000');
   await expect(benito.locator('.model-price-formula')).toContainText('$ 12.000 a $ 30.000');
 
   // Se puede quitar el dije del modelo desde el editor
   await benito.getByRole('button', { name: 'Editar' }).click();
   await page.locator('.pm-addon[value="dije-san-benito"]').uncheck();
   await page.locator('#modal').getByRole('button', { name: 'Guardar' }).click();
-  await expect(cell(benito, '8 mm', 6)).toHaveText('$ 867.000');
+  await expect(cell(benito, '8 mm', 6)).toHaveText('$ 795.000');
 });
 
 test('el dije se siembra en catálogos ya guardados sin pisar lo editado', async ({ page }) => {

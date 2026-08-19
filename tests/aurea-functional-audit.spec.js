@@ -52,20 +52,20 @@ test('lista rápida calcula 7 Nudos, San Benito y adicionales con el catálogo v
   ))).toBe(true);
   await expect(sevenKnots).toContainText('Manilla 7 Nudos');
   await expect(sevenKnots).toContainText('6 balines');
-  await expect(sevenKnots.locator('[data-model-family="certificado"] [data-size="8 mm"][data-qty="6"]')).toContainText('867.000');
-  await expect(sevenKnots.locator('[data-model-family="liso"] [data-size="3 mm"][data-qty="6"]')).toContainText('33.000');
+  await expect(sevenKnots.locator('[data-model-family="certificado"] [data-size="8 mm"][data-qty="6"]')).toContainText('795.000');
+  await expect(sevenKnots.locator('[data-model-family="liso"] [data-size="3 mm"][data-qty="6"]')).toContainText('69.000');
 
   await expect(sanBenito).toContainText('Manilla San Benito');
   await expect(sanBenito).toContainText('2 a 16 balines');
-  // San Benito incluye el dije: 16 x 142.000 + 15.000 mano de obra + 15.000 dije
-  await expect(sanBenito.locator('[data-model-family="certificado"] [data-size="8 mm"][data-qty="16"]')).toContainText('2.302.000');
-  await expect(sanBenito.locator('[data-model-family="liso"] [data-size="8 mm"][data-qty="16"]')).toContainText('286.000');
+  // San Benito incluye el dije: 16 x 130.000 + 15.000 mano de obra + 15.000 dije
+  await expect(sanBenito.locator('[data-model-family="certificado"] [data-size="8 mm"][data-qty="16"]')).toContainText('2.110.000');
+  await expect(sanBenito.locator('[data-model-family="liso"] [data-size="8 mm"][data-qty="16"]')).toContainText('350.000');
   await expect(sanBenito.locator('.model-price-formula')).toContainText('Dije San Benito');
   // 7 Nudos no lleva dije, su formula no lo menciona
   await expect(sevenKnots.locator('.model-price-formula')).not.toContainText('Dije San Benito');
 
-  await expect(page.locator('[data-addon-family="neopreno-oro"]')).toContainText('4.000');
-  await expect(page.locator('[data-addon-family="neopreno"][data-addon-size="8 mm"]')).toContainText('6.500');
+  await expect(page.locator('[data-addon-family="neopreno-oro"]')).toContainText('6.500');
+  await expect(page.locator('[data-addon-family="neopreno"][data-addon-size="8 mm"]')).toContainText('8.500');
 
   await page.locator('#add-price-model-btn').click();
   await page.locator('#pm-name').fill('Manilla personalizada');

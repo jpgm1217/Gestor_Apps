@@ -15,3 +15,5 @@ aurea-antes-del-cambio*.json
 aurea-pre-*.json
 *-firebase-adminsdk-*.json
 *service-account*.json
+aurea-respaldo-*.json
+backup_prestamos*.json

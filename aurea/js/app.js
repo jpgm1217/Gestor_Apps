@@ -92,8 +92,9 @@ const DEFAULT_PRICE_MODELS = Object.freeze([
   }
 ]);
 
-// Precios al público. Los de oro 18K vienen de "Precios_Manillas_Oro18K.xlsx"
-// (costo promedio + 30% de margen). Son editables desde la pestaña Precios.
+// Precios al público de fábrica, tomados del respaldo del 2026-08-19 (los que el
+// negocio tiene vigentes). Son editables desde la pestaña Precios; esto es lo que
+// restaura el botón "Restaurar precios de fábrica" y lo que ve una instalación nueva.
 const DEFAULT_PRICE_FAMILIES = Object.freeze([
   {
     id: 'certificado',
@@ -103,7 +104,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'certificado',
     note: 'Oro auténtico con respaldo del lote del proveedor.',
     braceletTable: true,
-    prices: [['3 mm', 18000], ['4 mm', 32000], ['5 mm', 46000], ['6 mm', 72000], ['7 mm', 100000], ['8 mm', 142000]]
+    prices: [['3 mm', 18000], ['4 mm', 31000], ['5 mm', 42000], ['6 mm', 65000], ['7 mm', 90000], ['8 mm', 130000]]
   },
   {
     id: 'neopreno-oro',
@@ -113,7 +114,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'neopreno',
     note: 'Se cobra por unidad dentro de la manilla.',
     braceletTable: false,
-    prices: [['Unidad', 4000]]
+    prices: [['Unidad', 6500]]
   },
   {
     id: 'liso',
@@ -123,7 +124,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'liso',
     note: 'Un clásico que combina con todo.',
     braceletTable: true,
-    prices: [['3 mm', 3000], ['4 mm', 4000], ['5 mm', 7000], ['6 mm', 9000], ['8 mm', 16000]]
+    prices: [['3 mm', 9000], ['4 mm', 10000], ['5 mm', 13000], ['6 mm', 16000], ['8 mm', 20000]]
   },
   {
     id: 'diamantado',
@@ -133,7 +134,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'diamantado',
     note: 'Brillo que transforma cada detalle.',
     braceletTable: true,
-    prices: [['3 mm', 3500], ['4 mm', 4500], ['5 mm', 8500], ['6 mm', 11500], ['8 mm', 16000]]
+    prices: [['3 mm', 10000], ['4 mm', 11000], ['5 mm', 14000], ['6 mm', 17000], ['8 mm', 21000]]
   },
   {
     id: 'italiano',
@@ -143,7 +144,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'italiano',
     note: '6 mm agotado en el proveedor.',
     braceletTable: true,
-    prices: [['3 mm', 3500], ['4 mm', 4500], ['5 mm', 8000]]
+    prices: [['3 mm', 11000], ['4 mm', 12000], ['5 mm', 15000]]
   },
   {
     id: 'balin-x',
@@ -153,7 +154,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'balin-x',
     note: 'Una textura diferente para un diseño único.',
     braceletTable: true,
-    prices: [['6 mm', 9000], ['8 mm', 13000]]
+    prices: [['6 mm', 20000], ['8 mm', 26000]]
   },
   {
     id: 'neopreno',
@@ -163,7 +164,7 @@ const DEFAULT_PRICE_FAMILIES = Object.freeze([
     bead: 'neopreno',
     note: 'Consulta los colores disponibles antes de confirmar.',
     braceletTable: false,
-    prices: [['6 mm', 5500], ['8 mm', 6500]]
+    prices: [['6 mm', 6500], ['8 mm', 8500]]
   },
   {
     id: 'dije-san-benito',
