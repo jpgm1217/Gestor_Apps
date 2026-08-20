@@ -1194,7 +1194,13 @@ function cronogramaDesalineado(c){
   const efec=pend.map((q,i)=>(i===0&&c.graciaHasta&&c.graciaHasta>q.fechaISO)?c.graciaHasta:q.fechaISO);
   let invertido=false;
   for(let i=1;i<efec.length;i++)if(efec[i]<=efec[i-1])invertido=true;
-  const fueraAncla=pend.filter(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO)).length;
+  // Una fecha puesta a mano (cuota manual, cuota extra o fecha movida una por una) es una
+  // DECISIÓN, no un descuadre: diagnosticoCalendarioEstandar() ya las manda a "protegidos" y el
+  // alineador masivo no las toca. Esta alerta no aplicaba la misma regla y le pedía a Estefania
+  // mover al 01/10 el pago único que se pactó para el 15/09, una y otra vez. Lo que sí sigue
+  // siendo un error pase lo que pase — y por eso se revisa aparte — es el cronograma invertido.
+  const fueraAncla=pend.filter(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO)
+    &&!(q&&(q.manual||q.extra||q.fechaEditada))).length;
   const graciaFuera=!!(c.graciaHasta&&graciaActiva(c)&&!fechaCumpleCalendarioEstandar(c.tipo,c.graciaHasta));
   if(!invertido&&!fueraAncla&&!graciaFuera)return null;
   const nuevas=fechasCorridasExtension(c);
@@ -2644,6 +2650,17 @@ function verCliente(id,soliId=null){
       <div style="margin-top:6px;line-height:1.7">${d.nuevas.map((f,i)=>`cuota ${nums[i]}: <span style="opacity:.7">${d.efec[i]}</span> → <strong>${f}</strong>`).join('<br>')}</div>
       <button class="btn btn-amber btn-full btn-sm" style="margin-top:8px" onclick="alinearCronogramaCliente('${c.id}')">📅 Corregir al 15 / fin de mes</button>
     </div>`;})()}
+    ${(()=>{const d=cuotasManualesRepetidas(c);if(!d)return '';const lb=labelFromUTCDate(coUTCDateFromKey(d.fecha));return `<div class="ibox red" style="font-size:12px;margin-bottom:8px">
+      <div style="font-weight:700;margin-bottom:4px">📅 Pago único partido en ${d.cuotasAntes} cuotas</div>
+      <div>El plan manual quedó con ${d.cuotasAntes} cuotas de <strong>${fmt(d.monto)}</strong>, todas el <strong>${lb}</strong>. El préstamo figura en ${fmt(d.totalAntes)} cuando el capital es ${fmt(c.capital)}, y las cuotas no tienen desglose: el día que pague, el interés no entra a caja como interés.</div>
+      <div style="margin-top:6px;line-height:1.7">${d.cuotasAntes} × ${fmt(d.monto)} → <strong>1 × ${fmt(d.monto)}</strong> el ${lb}<br>total <span style="opacity:.7">${fmt(d.totalAntes)}</span> → <strong>${fmt(d.monto)}</strong> · desglose <strong>capital ${fmt(d.capital)} + interés ${fmt(d.interes)}</strong></div>
+      <button class="btn btn-amber btn-full btn-sm" style="margin-top:8px" onclick="unificarCuotasManuales('${c.id}')">📅 Dejar una sola cuota</button>
+    </div>`;})()}
+    ${(()=>{const d=cuadreCapitalDuplicado(c);if(!d)return '';return `<div class="ibox amber" style="font-size:12px;margin-bottom:8px">
+      <div style="font-weight:700;margin-bottom:4px">🧹 Capital duplicado en caja: ${fmt(d.monto)}</div>
+      <div>El cronograma dice que se le han recuperado <strong>${fmt(d.debido)}</strong> de capital, pero la caja registra <strong>${fmt(d.cajaCap)}</strong>. El auto-cuadre repuso capital que ya estaba.</div>
+      <button class="btn btn-amber btn-full btn-sm" style="margin-top:8px" onclick="quitarCuadreCapitalDuplicado('${c.id}')">🧹 Quitar ${fmt(d.monto)} de caja</button>
+    </div>`;})()}
     ${(()=>{const h=comisionesHuerfanasCliente(c);if(!h.length)return '';const t=h.reduce((s,e)=>s+Math.max(0,Math.round(e.comision||0)),0);return `<div class="ibox amber" style="font-size:12px;margin-bottom:8px">
       <div style="font-weight:700;margin-bottom:4px">💸 Comisión suelta: ${fmt(t)}</div>
       <div>Hay ${h.length} comisión(es) de cuotas que ya no figuran pagadas (${h.map(e=>htmlSafe(e.nota)).join(', ')}). Le están sumando al cobrador plata que no entró.</div>
@@ -2654,6 +2671,13 @@ function verCliente(id,soliId=null){
     ${(()=>{const i=(c.pagadas||0)-1;const q=(c.cuotasData||[])[i];
       if(i<0||!q||q.extra||c.pagadas>=c.numCuotas)return '';   // las extra tienen su propio botón; la última cuota no tiene a dónde pasar la diferencia
       return `<button class="btn btn-ghost btn-full btn-sm" style="margin-bottom:8px" onclick="corregirCuotaCobrada('${c.id}',${i})">✏️ Pagó menos/más de la cuota ${q.num} (registrada ${fmt(q.cuota)})</button>`;})()}
+    ${(()=>{const uc=ultimoCicloCerrado(c);if(!uc)return '';
+      const cd=(uc.ciclo.cuotasData||[]).map((q,i)=>({q,i})).filter(({i})=>i<Math.max(0,uc.ciclo.pagadas||0));
+      if(!cd.length)return '';
+      // Solo el último ciclo cerrado: sus refKeys de caja (pago:...:cN:...) son inequívocas.
+      return `<details style="margin-bottom:8px"><summary style="font-size:11px;color:var(--text3);cursor:pointer;padding:4px 0">✏️ Corregir una cuota del ciclo ${uc.num} (cerrado)</summary>`+
+        cd.map(({q,i})=>`<button class="btn btn-ghost btn-full btn-sm" style="margin-top:6px" onclick="corregirCuotaCicloCerrado('${c.id}',${i})">Cuota ${q.num} · ${q.fecha} · registrada ${fmt(q.cuota)}</button>`).join('')+
+        `</details>`;})()}
     ${c.pagadas>0?`<button class="btn btn-ghost btn-full btn-sm" style="margin-bottom:8px;border-color:var(--red);color:var(--red)" onclick="revertirUltimoPago('${c.id}')">↩ Revertir cuota ${c.pagadas}/${c.numCuotas} (se registró por error)</button>`:''}
     <button class="btn btn-blue btn-full btn-sm" style="margin-bottom:8px" onclick="abrirCuotaExtra('${c.id}')">➕ Cuota extra manual</button>
     <button class="btn btn-amber btn-full btn-sm" style="margin-bottom:8px" onclick="abrirMoraManual('${c.id}')">🧾 Registrar mora cobrada (aparte · no avanza cuota)</button>
@@ -3640,6 +3664,292 @@ async function corregirMontoCuotaExtra(id,cuotaIdx){
        ts:Date.now(),autor:'Admin',registradoPor:'Admin',
        nota:`Cuota extra ${q.num} corregida de ${fmt(actual)} a ${fmt(real)}${mov?' (caja ajustada)':' (caja SIN ajustar)'}`});
   notify(`Cuota extra ${q.num} corregida a ${fmt(real)} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+}
+
+// ══════════════════════════════════════════════
+// PLAN MANUAL QUE QUEDÓ REPETIDO (pago único convertido en dos cuotas)
+// ══════════════════════════════════════════════
+// Caso real (Estefania Arias, 15/08/2026): se pactó UN solo pago de $240.000 para el 15/09, pero
+// el modal de nuevo ciclo exige las dos cuotas manuales (guardarNuevoCiclo corta si cuota1 o
+// cuota2 vienen en cero), así que se escribió el mismo monto y la misma fecha dos veces. El ciclo
+// quedó con el total del préstamo al doble ($480.000 sobre $200.000 de capital) y las dos cuotas
+// venciendo el mismo día — cronograma invertido, con mora corriendo sobre una cuota fantasma.
+// Y hay un segundo daño menos visible: las cuotas manuales nacen con capital 0 e interés 0. El día
+// que pague, partesCuotaIndex le asigna TODO el capital del préstamo y CERO interés, y la ganancia
+// se registra en caja como "cuota extra". El interés del ciclo nunca aparece como interés.
+// Esto une las cuotas repetidas en una sola y le devuelve el desglose real (capital + interés).
+// Solo aplica si NO se ha cobrado nada del ciclo: si ya hay una cuota pagada, hay plata de por
+// medio y el camino es revertir esa cuota primero.
+function cuotasManualesRepetidas(c){
+  if(!c||Math.max(0,c.pagadas||0)>0)return null;
+  const cd=Array.isArray(c.cuotasData)?c.cuotasData:[];
+  if(cd.length<2)return null;
+  if(!cd.every(q=>q&&q.manual))return null;          // solo planes manuales, nunca un cronograma generado
+  const fecha=cd[0].fechaISO,monto=Math.round(cd[0].cuota||0);
+  if(!fecha||monto<=0)return null;
+  // La firma del error es que TODAS caen el mismo día por el mismo valor. Dos cuotas manuales con
+  // fechas distintas son un plan legítimo y aquí no se tocan.
+  if(!cd.every(q=>q.fechaISO===fecha&&Math.round(q.cuota||0)===monto))return null;
+  const capital=Math.max(0,Math.min(monto,Math.round(c.capital||0)));
+  return {fecha,monto,capital,interes:monto-capital,
+          cuotasAntes:cd.length,totalAntes:Math.round(c.total||0),intAntes:Math.round(c.interes||0)};
+}
+async function unificarCuotasManuales(id){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const d=cuotasManualesRepetidas(c);
+  if(!d){notify('Este cliente no tiene cuotas manuales repetidas','err');return;}
+  const label=labelFromUTCDate(coUTCDateFromKey(d.fecha));
+  if(!confirm(`📅 Dejar UNA sola cuota — ${c.nombre}\n\n`+
+    `Hoy dice:\n`+
+    `  ${d.cuotasAntes} cuotas de ${fmt(d.monto)}, todas el ${label}\n`+
+    `  Total del préstamo: ${fmt(d.totalAntes)}\n`+
+    `  Desglose de la cuota: capital ${fmt(0)} + interés ${fmt(0)}\n\n`+
+    `Va a quedar:\n`+
+    `  1 cuota de ${fmt(d.monto)} el ${label}\n`+
+    `  Total del préstamo: ${fmt(d.monto)}\n`+
+    `  Desglose de la cuota: capital ${fmt(d.capital)} + interés ${fmt(d.interes)}\n\n`+
+    `No se ha cobrado nada de este ciclo, así que NO se toca la caja ni la comisión del cobrador.\n\n¿Continuar?`))return;
+  const q=c.cuotasData[0];
+  q.num=1;q.capital=d.capital;q.interes=d.interes;q.saldo=0;
+  c.cuotasData=[q];
+  c.numCuotas=1;c.plazo=1;
+  c.total=d.monto;c.interes=d.interes;c.cuota=d.monto;c.cuotaUltima=d.monto;
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'unificar_cuotas_manuales',tipoLabel:'Plan manual unificado',
+    monto:-(d.totalAntes-d.monto),
+    motivo:`${d.cuotasAntes} cuotas manuales de ${fmt(d.monto)} el ${label} → 1 sola. Total ${fmt(d.totalAntes)} → ${fmt(d.monto)}; desglose capital ${fmt(d.capital)} + interés ${fmt(d.interes)}`,
+    autor:'Admin'});
+  await saveClienteFields(c,['cuotasData','numCuotas','plazo','total','interes','cuota','cuotaUltima','historialAjustes']);
+  log({tipo:'unificar_cuotas_manuales',clienteId:c.id,cliente:c.nombre,monto:d.monto,ts:Date.now(),
+       autor:'Admin',registradoPor:'Admin',
+       nota:`Pago único ${fmt(d.monto)} el ${label} · total ${fmt(d.totalAntes)} → ${fmt(d.monto)} · capital ${fmt(d.capital)} + interés ${fmt(d.interes)}`});
+  notify(`${c.nombre}: una sola cuota de ${fmt(d.monto)} el ${label} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();
+}
+
+// ══════════════════════════════════════════════
+// CUOTA DE UN CICLO YA CERRADO QUE SE COBRÓ POR OTRO MONTO
+// ══════════════════════════════════════════════
+// Caso real (Valentina Zapata, 20/08/2026): la cuota 2 del ciclo 3 estaba en $120.000 y se le
+// cobraron $110.000 por pagar antes de la fecha. Se descubrió después de cerrar el ciclo y abrir
+// uno nuevo, así que corregirCuotaCobrada() no sirve: trabaja sobre el ciclo vigente y además
+// necesita una cuota siguiente a la que pasarle la diferencia. En un ciclo cerrado no hay a dónde
+// pasarla — la plata ya es definitiva y lo que hubo fue un descuento.
+// Por eso aquí hay que decir QUÉ absorbe la diferencia, y no es lo mismo:
+//   · interés → fue un descuento sobre la ganancia y la comisión del cobrador baja con ella.
+//   · capital → quedó capital sin recuperar y la comisión no se mueve.
+// Se limita al ÚLTIMO ciclo cerrado: sus refKeys de caja (pago:...:cN:...) apuntan sin ambigüedad.
+function ultimoCicloCerrado(c){
+  const cy=Array.isArray(c&&c.ciclos)?c.ciclos:[];
+  if(!cy.length)return null;
+  return {ciclo:cy[cy.length-1],idx:cy.length-1,num:cy.length};
+}
+// El evento de comisión de esa cuota vive en dos sitios: la copia archivada dentro del ciclo y —
+// si quedó sin liquidar — la copia viva en c.comisionEventos. Hay que corregir las dos o la
+// próxima lectura vuelve a mostrar el valor viejo.
+function eventosComisionCuotaCiclo(c,uc,cuotaNo){
+  const re=new RegExp(`^Cuota ${cuotaNo}/`);
+  const enCiclo=(Array.isArray(uc.ciclo.comisionEventos)?uc.ciclo.comisionEventos:[])
+    .filter(e=>e&&e.origen==='cobro'&&!e.duplicadoAnulado&&re.test(String(e.nota||'')));
+  if(!enCiclo.length)return {principal:null,copias:[]};
+  const principal=enCiclo[enCiclo.length-1];
+  const copias=[principal];
+  (Array.isArray(c.comisionEventos)?c.comisionEventos:[]).forEach(e=>{
+    if(e&&e.id&&e.id===principal.id&&e!==principal)copias.push(e);
+  });
+  return {principal,copias};
+}
+function movsCajaCuotaCicloCerrado(c,cicloNum,cuotaNo){
+  const bases=[`pago:${c.id}:c${cicloNum}:${cuotaNo}:`,`pago_cob:${c.id}:c${cicloNum}:${cuotaNo}:`];
+  // Las refKeys viejas no llevan número de ciclo, así que solo pueden ser del primero (misma
+  // salvedad que refKeysCuota: incluirlas siempre se llevaría por delante cobros de otros ciclos).
+  if(cicloNum===1)bases.push(`pago:${c.id}:${cuotaNo}:`,`pago_cob:${c.id}:${cuotaNo}:`);
+  return (Array.isArray(caja)?caja:[]).filter(m=>m&&m.refKey&&bases.some(b=>m.refKey.startsWith(b)));
+}
+function diagnosticoCuotaCicloCerrado(c,cuotaIdx,real,absorbe){
+  const uc=ultimoCicloCerrado(c);
+  if(!uc)return{ok:false,error:'Este cliente no tiene ciclos cerrados'};
+  const cd=Array.isArray(uc.ciclo.cuotasData)?uc.ciclo.cuotasData:[];
+  const q=cd[cuotaIdx];
+  if(!q)return{ok:false,error:'Esa cuota no existe en el ciclo cerrado'};
+  if(cuotaIdx>=Math.max(0,uc.ciclo.pagadas||0))return{ok:false,error:'Esa cuota no figura cobrada'};
+  const actual=Math.round(q.cuota||0);
+  if(real===actual)return{ok:false,error:'El monto es el mismo, no hay nada que corregir'};
+  const dif=actual-real;                                   // >0 = entró de menos
+  const capAct=Math.round(q.capital||0),intAct=Math.round(q.interes||0);
+  let capNuevo=capAct,intNuevo=intAct;
+  if(absorbe==='interes'){
+    intNuevo=intAct-dif;
+    if(intNuevo<0)return{ok:false,error:`La diferencia (${fmt(Math.abs(dif))}) no cabe en el interés de la cuota (${fmt(intAct)}). Ábrela contra el capital.`};
+  }else{
+    capNuevo=capAct-dif;
+    if(capNuevo<0)return{ok:false,error:`La diferencia (${fmt(Math.abs(dif))}) no cabe en el capital de la cuota (${fmt(capAct)}).`};
+  }
+  const {principal,copias}=eventosComisionCuotaCiclo(c,uc,q.num);
+  if(intNuevo!==intAct&&principal&&principal.liquidado)
+    return{ok:false,error:`El interés de la cuota ${q.num} cambiaría, pero su comisión ya se le liquidó al cobrador. Resuélvelo por ajuste de comisiones.`};
+  const movs=movsCajaCuotaCicloCerrado(c,uc.num,q.num);
+  const movCap=movs.find(m=>m.subtipo==='recuperacion_capital')||null;
+  const movInt=movs.find(m=>m.subtipo==='interes_cobrado')||null;
+  const pct=principal?Math.round(principal.pct||0):pctCliente(c);
+  const moraEv=principal?Math.round(principal.mora||0):0;
+  const comAct=principal?Math.round(principal.comision||0):0;
+  const comNueva=Math.round(intNuevo*pct/100)+Math.round(moraEv*pct/100);
+  return{ok:true,uc,q,cuotaIdx,actual,real,dif,capAct,intAct,capNuevo,intNuevo,
+         principal,copias,movCap,movInt,pct,moraEv,comAct,comNueva};
+}
+async function corregirCuotaCicloCerrado(id,cuotaIdx){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const uc=ultimoCicloCerrado(c);
+  if(!uc){notify('Este cliente no tiene ciclos cerrados','err');return;}
+  const q=(uc.ciclo.cuotasData||[])[cuotaIdx];
+  if(!q){notify('Esa cuota no existe','err');return;}
+  const actual=Math.round(q.cuota||0);
+  const entrada=prompt(`Ciclo ${uc.num} (cerrado) · cuota ${q.num} de ${c.nombre} — ${q.fecha}\n\nQuedó registrada por ${fmt(actual)}.\n¿Cuánto se recibió en realidad?`,String(actual));
+  if(entrada===null)return;
+  const real=Math.max(0,Math.round(parseFloat(entrada)||0));
+  if(real<=0){notify('Monto inválido','err');return;}
+  const absorbe=confirm(`La diferencia de ${fmt(Math.abs(actual-real))} — ¿de dónde salió?\n\n`+
+    `Aceptar = del INTERÉS (fue un descuento sobre la ganancia; la comisión del cobrador cambia con ella)\n\n`+
+    `Cancelar = del CAPITAL (quedó capital sin recuperar; la comisión no se mueve)`)?'interes':'capital';
+  const d=diagnosticoCuotaCicloCerrado(c,cuotaIdx,real,absorbe);
+  if(!d.ok){notify(d.error,'err');return;}
+  const lineaCom=d.principal
+    ? `  Comisión del cobrador: ${fmt(d.comAct)} → ${fmt(d.comNueva)}${d.comAct===d.comNueva?' (igual)':''}\n`
+    : `  (no se encontró el evento de comisión de esta cuota)\n`;
+  if(!confirm(`✏️ Corregir la cuota ${q.num} del ciclo ${uc.num} — ${c.nombre}\n\n`+
+    `Hoy dice:\n`+
+    `  Cuota ${fmt(d.actual)} = capital ${fmt(d.capAct)} + interés ${fmt(d.intAct)}\n\n`+
+    `Va a quedar:\n`+
+    `  Cuota ${fmt(d.real)} = capital ${fmt(d.capNuevo)} + interés ${fmt(d.intNuevo)}\n`+
+    lineaCom+
+    `  Caja: ${d.movCap?'capital '+fmt(d.capAct)+' → '+fmt(d.capNuevo):'capital SIN movimiento'} · ${d.movInt?'interés '+fmt(d.intAct)+' → '+fmt(d.intNuevo):'interés SIN movimiento'}\n\n`+
+    `El ciclo ya está cerrado: la diferencia NO pasa a ninguna cuota siguiente.\n\n¿Continuar?`))return;
+  // 1) Cuota y totales del ciclo archivado
+  q.cuota=d.real;q.capital=d.capNuevo;q.interes=d.intNuevo;
+  q.montoCorregido={antes:d.actual,despues:d.real,absorbe,fecha:coDateTimeISO(),autor:'Admin'};
+  const cd=uc.ciclo.cuotasData||[];
+  uc.ciclo.total=cd.reduce((s,x)=>s+Math.round(x.cuota||0),0);
+  uc.ciclo.interes=cd.reduce((s,x)=>s+Math.round(x.interes||0),0);
+  // 2) Comisión: la copia archivada y la copia viva
+  d.copias.forEach(e=>{
+    e.interes=d.intNuevo;
+    e.comision=d.comNueva;
+    e.admin=Math.max(0,Math.round((d.intNuevo+d.moraEv)-d.comNueva));
+    e.montoCorregido={antes:d.comAct,despues:d.comNueva,fecha:coDateTimeISO(),autor:'Admin'};
+  });
+  // 3) Caja
+  if(d.movCap&&d.capNuevo!==d.capAct){
+    d.movCap.monto=d.capNuevo;
+    if(fbOk&&db)await db.ref('caja/'+d.movCap.id+'/monto').set(d.capNuevo).catch(()=>{});
+  }
+  if(d.movInt&&d.intNuevo!==d.intAct){
+    d.movInt.monto=d.intNuevo;
+    if(fbOk&&db)await db.ref('caja/'+d.movInt.id+'/monto').set(d.intNuevo).catch(()=>{});
+  }
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  // 4) Guardar. OJO: saveClienteFields(c,['ciclos']) NO sirve — mergeArray identifica cada
+  // elemento por id/cargoId o por [fecha,ts,tipo,monto,motivo,nota,autor], y un ciclo no tiene
+  // ninguno de esos campos: los 3 ciclos de Valentina dan la misma clave ("||quincenal||||") y la
+  // fusión los colapsaría en uno solo, borrando el historial. Se escribe la ruta exacta del ciclo.
+  const idx=clientes.findIndex(x=>x.id===c.id);
+  if(idx>=0)clientes[idx]=c;
+  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  if(fbOk&&db){
+    await db.ref('clientes/'+c.id+'/ciclos/'+uc.idx).update({
+      cuotasData:uc.ciclo.cuotasData,total:uc.ciclo.total,interes:uc.ciclo.interes,
+      comisionEventos:uc.ciclo.comisionEventos||[]
+    }).catch(e=>notify('Ciclo no sincronizado: '+e.message,'err'));
+  }
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'correccion_cuota_ciclo_cerrado',tipoLabel:'Cuota de ciclo cerrado corregida',
+    monto:-d.dif,
+    motivo:`Ciclo ${uc.num} cuota ${q.num}: ${fmt(d.actual)} → ${fmt(d.real)} (la diferencia salió del ${absorbe}). Capital ${fmt(d.capAct)}→${fmt(d.capNuevo)} · interés ${fmt(d.intAct)}→${fmt(d.intNuevo)} · comisión ${fmt(d.comAct)}→${fmt(d.comNueva)}`,
+    autor:'Admin'});
+  await saveClienteFields(c,['comisionEventos','historialAjustes']);
+  if(d.dif>0)moverPool('salida',d.dif,`Corrección ciclo ${uc.num} cuota ${q.num}`,c.nombre);
+  else moverPool('entrada',Math.abs(d.dif),`Corrección ciclo ${uc.num} cuota ${q.num}`,c.nombre);
+  await recalcularCreditoCobrador();
+  log({tipo:'correccion_cuota_ciclo_cerrado',clienteId:c.id,cliente:c.nombre,monto:d.real,cuota:q.num,
+       ts:Date.now(),autor:'Admin',registradoPor:'Admin',
+       nota:`Ciclo ${uc.num} cuota ${q.num}: ${fmt(d.actual)} → ${fmt(d.real)} sobre el ${absorbe} · comisión ${fmt(d.comAct)} → ${fmt(d.comNueva)}`});
+  notify(`Ciclo ${uc.num} cuota ${q.num} corregida a ${fmt(d.real)} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();renderComisiones();
+}
+
+// ══════════════════════════════════════════════
+// CAPITAL QUE EL AUTO-CUADRE METIÓ DOS VECES EN CAJA
+// ══════════════════════════════════════════════
+// detectarCuadreCaja() decide cuánto recuperar mirando SOLO el hueco de interés, y de ahí saca el
+// capital por regla de tres (gapInt × capital/interés). Nunca comprueba si ese capital ya está en
+// caja. Cuando el cobrador registra una cuota y solo se pierde el movimiento de interés — pasa con
+// la conexión — el cuadre repone el interés (bien) y vuelve a meter el capital (duplicado).
+// Caso real (Valentina Zapata, 15/08/2026 08:57): entró pago_cob:...:c3:1:cap por $100.000 y se
+// perdió el interés; a las 14:54 el cuadre agregó $100.000 de capital y $20.000 de interés. Los
+// $20.000 eran reales; los $100.000 ya estaban.
+// Se detecta contra el cronograma, que es el que dice cuánto capital se ha recuperado de verdad:
+// ciclo cerrado y completo = todo su capital; ciclo a medias = el capital de las cuotas pagadas.
+function capitalDebidoRecuperado(c){
+  const suma=(cd,pag,capTotal)=>{
+    const arr=Array.isArray(cd)?cd:[],p=Math.max(0,pag||0);
+    if(arr.length&&p>=arr.length)return Math.round(capTotal||0);   // ciclo completo: el capital prestado
+    return arr.slice(0,p).reduce((s,q)=>s+Math.round(q.capital||0),0);
+  };
+  let t=0;
+  (Array.isArray(c.ciclos)?c.ciclos:[]).forEach(cy=>{t+=suma(cy.cuotasData,cy.pagadas,cy.capital);});
+  (Array.isArray(c.historialPrestamos)?c.historialPrestamos:[]).forEach(h=>{t+=suma(h.cuotasData,h.pagadas,h.capital);});
+  t+=suma(c.cuotasData,c.pagadas,c.capital);
+  return t;
+}
+function cuadreCapitalDuplicado(c){
+  if(!c)return null;
+  const movs=(Array.isArray(caja)?caja:[]).filter(m=>m&&m.clienteId===c.id&&m.tipo==='ingreso'&&m.subtipo==='recuperacion_capital');
+  if(!movs.length)return null;
+  const cajaCap=movs.reduce((s,m)=>s+Math.round(m.monto||0),0);
+  const debido=capitalDebidoRecuperado(c);
+  const exceso=cajaCap-debido;
+  if(exceso<=5)return null;                       // margen para el ±$1 del redondeo de genCuotas
+  // Solo se quitan movimientos del auto-cuadre: un ingreso registrado a mano o por un cobro real
+  // no se borra nunca por esta vía.
+  const cands=movs.filter(m=>/^cuadre:/.test(String(m.refKey||''))).sort((a,b)=>Math.round(b.monto||0)-Math.round(a.monto||0));
+  const elegidos=[];let resto=exceso;
+  cands.forEach(m=>{const v=Math.round(m.monto||0);if(v>0&&v<=resto+5){elegidos.push(m);resto-=v;}});
+  if(!elegidos.length)return null;
+  return {cajaCap,debido,exceso,movs:elegidos,resto:Math.max(0,resto),
+          monto:elegidos.reduce((s,m)=>s+Math.round(m.monto||0),0)};
+}
+async function quitarCuadreCapitalDuplicado(id){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const d=cuadreCapitalDuplicado(c);
+  if(!d){notify('Este cliente no tiene capital duplicado por el auto-cuadre','err');return;}
+  const detalle=d.movs.map(m=>`  · ${coDateLabel(new Date(m.ts))} — ${m.desc||m.subtipo}: ${fmt(m.monto)}`).join('\n');
+  if(!confirm(`🧹 Quitar capital duplicado en caja — ${c.nombre}\n\n`+
+    `Según el cronograma se le han recuperado ${fmt(d.debido)} de capital.\n`+
+    `La caja registra ${fmt(d.cajaCap)} — sobran ${fmt(d.exceso)}.\n\n`+
+    `Se van a borrar ${d.movs.length} movimiento(s) del auto-cuadre por ${fmt(d.monto)}:\n${detalle}\n\n`+
+    (d.resto>0?`Quedarían ${fmt(d.resto)} de exceso que NO vienen del auto-cuadre: revísalos aparte.\n\n`:'')+
+    `El interés que repuso el mismo cuadre NO se toca: ese sí era plata real que faltaba.\nLa comisión del cobrador no se mueve.\n\n¿Continuar?`))return;
+  const ids=new Set(d.movs.map(m=>m.id));
+  for(const movId of ids){ if(fbOk&&db) await db.ref('caja/'+movId).remove().catch(()=>{}); }
+  for(let i=caja.length-1;i>=0;i--){ if(ids.has(caja[i].id))caja.splice(i,1); }
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'quitar_cuadre_duplicado',tipoLabel:'Capital duplicado retirado de caja',
+    monto:-d.monto,
+    motivo:`${d.movs.length} movimiento(s) de auto-cuadre por ${fmt(d.monto)}. Caja ${fmt(d.cajaCap)} → ${fmt(d.cajaCap-d.monto)} contra ${fmt(d.debido)} del cronograma`,
+    autor:'Admin'});
+  await saveClienteFields(c,['historialAjustes']);
+  log({tipo:'quitar_cuadre_duplicado',clienteId:c.id,cliente:c.nombre,monto:d.monto,ts:Date.now(),
+       autor:'Admin',registradoPor:'Admin',
+       nota:`Capital duplicado por el auto-cuadre retirado de caja: ${fmt(d.monto)} (${d.movs.length} movimiento(s))`});
+  notify(`${c.nombre}: ${fmt(d.monto)} de capital duplicado retirados de caja ✓`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
 }
 
