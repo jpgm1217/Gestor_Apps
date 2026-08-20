@@ -1094,9 +1094,21 @@ function baseCronogramaNuevo(fechaStr,refStr){
   const ref=refStr||hoy(),f=fechaStr||ref;
   return f<ref?ref:f;
 }
-function fechaCumpleCalendarioEstandar(tipo,fechaISO){
+// El tercer parámetro es el ancla PROPIA del cliente (c.ancla). alinearCalendariosEstandar() y
+// alinearCronogramaCliente() ya la venían guardando —Carolina, Manuel y Jamer la tienen escrita—
+// pero ninguna de estas funciones la leía: el ancla era un campo muerto y todo cliente quedaba
+// atado al ancla por defecto de su frecuencia. Por eso "mensual cobrando a fin de mes" era
+// inexpresable, y a Juan Diego (que paga los 30) la app lo daba por alineado en el día 1.
+// Sin c.ancla el comportamiento es idéntico al de antes.
+function fechaCumpleCalendarioEstandar(tipo,fechaISO,ancla){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaISO||'')))return false;
   const f=coUTCDateFromKey(fechaISO),d=f.getUTCDate();
+  const a=ancla&&ancla.tipo?ancla:null;
+  if(a){
+    if(a.tipo==='semanal')return f.getUTCDay()===Number(a.diaSemana);
+    const ult=ultimoDiaMesUTC(f.getUTCFullYear(),f.getUTCMonth());
+    return (a.dias||[]).some(x=>x===FIN_MES?d===ult:d===Number(x));
+  }
   if(tipo==='semanal')return f.getUTCDay()===6;
   if(tipo==='quincenal')return d===15||d===ultimoDiaMesUTC(f.getUTCFullYear(),f.getUTCMonth());
   if(tipo==='mensual')return d===1;
@@ -1107,7 +1119,7 @@ function diagnosticoCalendarioEstandar(lista){
   (Array.isArray(lista)?lista:[]).forEach(c=>{
     if(!c||c.pagadas>=c.numCuotas||!['semanal','quincenal','mensual'].includes(c.tipo))return;
     const pendientes=(c.cuotasData||[]).slice(Math.max(0,c.pagadas||0));
-    if(!pendientes.some(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO)))return;
+    if(!pendientes.some(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO,c.ancla)))return;
     if(pendientes.some(q=>q&&(q.extra||q.manual||q.fechaEditada))||graciaActiva(c)||c.moraBaseDate){
       protegidos.push(c);return;
     }
@@ -1121,7 +1133,7 @@ function fechasPendientesEstandar(c,refStr){
   const ref=refStr||hoy(),ayer=addDaysToKey(ref,-1);
   const ultimaPagada=pag>0&&c.cuotasData[pag-1]?.fechaISO||'';
   const base=ultimaPagada>ayer?ultimaPagada:ayer; // permite usar HOY si hoy es fecha estándar
-  return fechasAncladas(c.tipo,base,cantidad,anclaPorDefecto(c.tipo,base))||[];
+  return fechasAncladas(c.tipo,base,cantidad,(c&&c.ancla&&c.ancla.tipo)?c.ancla:anclaPorDefecto(c.tipo,base))||[];
 }
 // Extensión "solo interés": el cronograma se CORRE una casilla entera. La cuota que vencía pasa a
 // la siguiente fecha estándar (15 / fin de mes) y todas las que siguen se corren detrás de ella.
@@ -1135,7 +1147,7 @@ function fechasCorridasExtension(c,refStr){
   const ayer=addDaysToKey(refStr||hoy(),-1);
   const actual=cd[pag]&&cd[pag].fechaISO||'';
   const base=actual>ayer?actual:ayer;
-  return fechasAncladas(c.tipo,base,cantidad,anclaPorDefecto(c.tipo,base))||[];
+  return fechasAncladas(c.tipo,base,cantidad,(c&&c.ancla&&c.ancla.tipo)?c.ancla:anclaPorDefecto(c.tipo,base))||[];
 }
 // Escribe las fechas nuevas sobre las cuotas pendientes. Solo toca fechaISO/fecha: montos,
 // capital, interés y cuotas ya pagadas quedan intactos.
@@ -1199,9 +1211,9 @@ function cronogramaDesalineado(c){
   // alineador masivo no las toca. Esta alerta no aplicaba la misma regla y le pedía a Estefania
   // mover al 01/10 el pago único que se pactó para el 15/09, una y otra vez. Lo que sí sigue
   // siendo un error pase lo que pase — y por eso se revisa aparte — es el cronograma invertido.
-  const fueraAncla=pend.filter(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO)
+  const fueraAncla=pend.filter(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO,c.ancla)
     &&!(q&&(q.manual||q.extra||q.fechaEditada))).length;
-  const graciaFuera=!!(c.graciaHasta&&graciaActiva(c)&&!fechaCumpleCalendarioEstandar(c.tipo,c.graciaHasta));
+  const graciaFuera=!!(c.graciaHasta&&graciaActiva(c)&&!fechaCumpleCalendarioEstandar(c.tipo,c.graciaHasta,c.ancla));
   if(!invertido&&!fueraAncla&&!graciaFuera)return null;
   const nuevas=fechasCorridasExtension(c);
   if(nuevas.length!==pend.length)return null;
@@ -1294,6 +1306,52 @@ function eliminarCuotaExtraLocal(c,idx){
   c.total=Math.max(0,Math.round(c.total||0)-monto);
   return{ok:true,monto,numCuotas:c.numCuotas};
 }
+// ── Mover la fecha de UNA cuota, desde la ficha ──
+// editarFechaCuotaLocal() estaba escrita pero sin un solo botón que la llamara. Sin esto, correr
+// una cuota obligaba a regenerar el cronograma entero desde guardarEdicionCliente(), que además
+// solo funciona con cero cuotas pagadas y se lleva por delante las fechas ajustadas a mano.
+// Caso real (Juan Diego ruiz, 20/08/2026): su nota dice "paga los 30 de cada mes" y la cuota 1,
+// fechada el 01/08, la pagó el 31/07. La 2 quedaba el 01/09. Como está en "mensual" y el ancla de
+// mensual es el día 1, "Revisar y alinear pendientes" lo daba por alineado y no ofrecía nada.
+async function moverFechaCuota(id,idx){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const q=(c.cuotasData||[])[idx];
+  if(!q){notify('Esa cuota no existe','err');return;}
+  if(idx<Math.max(0,c.pagadas||0)){notify('Esa cuota ya está pagada: su fecha es historia y no se cambia','err');return;}
+  // Sugerencia: la próxima fecha de la ruta de la casa (15 y último día), que es donde cobra el
+  // cobrador aunque el cliente esté marcado como mensual.
+  const sugeridas=fechasAncladas('quincenal',addDaysToKey(hoy(),-1),2,{tipo:'quincenal',dias:[15,FIN_MES]})||[];
+  const entrada=prompt(
+    `Cuota ${q.num} de ${c.nombre} — ${fmt(q.cuota)}\n\n`+
+    `Vence hoy el ${q.fechaISO}.\n`+
+    `Ruta de la casa: ${sugeridas.join('  ·  ')}\n\n`+
+    `Escribe la fecha nueva (AAAA-MM-DD):`, q.fechaISO);
+  if(entrada===null)return;
+  const nueva=String(entrada).trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(nueva)){notify('Fecha inválida: usa el formato AAAA-MM-DD','err');return;}
+  if(nueva===q.fechaISO){notify('Es la misma fecha, no hay nada que cambiar','ok');return;}
+  const antesTodas=(c.cuotasData||[]).slice(Math.max(0,c.pagadas||0)).map(x=>x.fechaISO);
+  const aviso=nueva<hoy()?`\n⚠ Esa fecha ya pasó: la cuota va a nacer vencida y le empieza a correr mora.\n`:'';
+  if(!confirm(`📅 Mover la cuota ${q.num} de ${c.nombre}\n\n`+
+    `  ${q.fechaISO}  →  ${nueva}\n${aviso}\n`+
+    `Solo cambia la FECHA. El monto (${fmt(q.cuota)}), las cuotas ya pagadas, la caja y la comisión del cobrador no se tocan.\n\n`+
+    `Queda marcada como fecha puesta a mano, así que el alineador masivo no te la va a volver a mover.\n\n¿Continuar?`))return;
+  const r=editarFechaCuotaLocal(c,idx,nueva);
+  if(!r.ok){notify(r.error,'err');return;}
+  // La cuota que se está cobrando manda sobre la mora: si se corre, la mora arranca desde ahí.
+  if(idx===Math.max(0,c.pagadas||0))c.moraBaseDate=nueva;
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'mover_fecha_cuota',tipoLabel:'Fecha de cuota movida',monto:0,
+    motivo:`Cuota ${q.num}: ${r.anterior} → ${r.nueva}. Pendientes antes: ${antesTodas.join(', ')}`,autor:'Admin'});
+  await saveClienteFields(c,['cuotasData','moraBaseDate','historialAjustes']);
+  log({tipo:'mover_fecha_cuota',clienteId:c.id,cliente:c.nombre,ts:Date.now(),autor:'Admin',registradoPor:'Admin',
+       nota:`Cuota ${q.num}: ${r.anterior} → ${r.nueva}`});
+  notify(`Cuota ${q.num} movida al ${r.nueva} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();actualizarEstadoCalendarioEstandar();
+}
+
 function coNowDate(){return coUTCDateFromKey(coDateKey());}
 function startOfCoDaySerial(value){const p=coParts(value);return Date.UTC(+p.year,+p.month-1,+p.day);}
 function sameCoDate(value,refKey){
@@ -2587,7 +2645,12 @@ function verCliente(id,soliId=null){
     const fechaTxt=fechaProg&&fechaProg!==q.fechaISO?labelFromUTCDate(coUTCDateFromKey(fechaProg))+' dif.':q.fecha;
     const extraBadge=q.extra?'<span class="badge bgold" style="font-size:10px;margin-left:4px">Extra</span>':'';
     const btnQuitar=(q.extra&&i>=c.pagadas)?` <button onclick="quitarCuotaExtra('${c.id}',${i})" title="Quitar esta cuota extra" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;margin-left:4px;vertical-align:middle">🗑</button>`:'';
-    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}${extraBadge}</td><td style="padding:5px 3px">${b}${btnQuitar}</td></tr>`;
+    // Mover la fecha de una cuota pendiente. editarFechaCuotaLocal() existía escrita desde antes
+    // pero sin nadie que la llamara: no había forma de correr UNA cuota sin regenerar el
+    // cronograma entero. Es el caso de Juan Diego, que paga a fin de mes y figuraba el día 1.
+    const btnFecha=(!p)?` <button onclick="moverFechaCuota('${c.id}',${i})" title="Mover la fecha de esta cuota" style="background:none;border:none;cursor:pointer;font-size:12px;padding:0;margin-left:4px;vertical-align:middle">📅</button>`:'';
+    const editadaBadge=q.fechaEditada?'<span class="badge bgray" style="font-size:10px;margin-left:4px" title="Fecha puesta a mano">✎</span>':'';
+    return`<tr style="${p?'opacity:.4':v?'background:rgba(255,107,107,.04)':''}"><td style="padding:5px 3px;font-size:11px">${q.num}</td><td style="padding:5px 3px;font-size:11px">${fechaTxt}${editadaBadge}</td><td style="padding:5px 3px;font-size:11px;font-weight:600">${fmt(q.cuota)}${extraBadge}</td><td style="padding:5px 3px">${b}${btnQuitar}${btnFecha}</td></tr>`;
   }).join('');
   document.getElementById('modal-cli-body').innerHTML=`
     <div class="mtitle">${c.nombre}${c.refinanciado?` <span style="font-size:12px;font-weight:400;color:var(--amber)">🔄 Refinanciado×${c.conteoRefinanciaciones||1}</span>`:''}</div>
@@ -3750,17 +3813,34 @@ function ultimoCicloCerrado(c){
 // El evento de comisión de esa cuota vive en dos sitios: la copia archivada dentro del ciclo y —
 // si quedó sin liquidar — la copia viva en c.comisionEventos. Hay que corregir las dos o la
 // próxima lectura vuelve a mostrar el valor viejo.
-function eventosComisionCuotaCiclo(c,uc,cuotaNo){
-  const re=new RegExp(`^Cuota ${cuotaNo}/`);
-  const enCiclo=(Array.isArray(uc.ciclo.comisionEventos)?uc.ciclo.comisionEventos:[])
-    .filter(e=>e&&e.origen==='cobro'&&!e.duplicadoAnulado&&re.test(String(e.nota||'')));
-  if(!enCiclo.length)return {principal:null,copias:[]};
-  const principal=enCiclo[enCiclo.length-1];
+//
+// Identificarlo NO es buscar por prefijo. Un ciclo archivado guarda además los cobros rescatados
+// de ciclos anteriores, con su nota original: en el ciclo 3 de Valentina conviven "Cuota 2/2" (el
+// suyo, sin liquidar) y "Cuota 2/3" (rescatado del ciclo 2, ya liquidado). Una regex `^Cuota 2/`
+// caza los dos y quedarse con el último del arreglo es confiar en el orden que devuelva Firebase:
+// si llega al revés se toma el liquidado y la corrección se niega sola. Le pasa a 6 clientes.
+// Se filtra por tres cosas que sí distinguen: la nota EXACTA "Cuota N/M" con el M de este ciclo,
+// que no sea una copia rescatada, y que el interés del evento sea el de la cuota.
+// Si aun así queda más de un candidato, no se adivina: se devuelve `ambiguo` y la corrección para.
+function eventosComisionCuotaCiclo(c,uc,q){
+  const total=(uc.ciclo.cuotasData||[]).length;
+  const notaExacta=`Cuota ${q.num}/${total}`;
+  const intCuota=Math.round(q.interes||0);
+  const todos=(Array.isArray(uc.ciclo.comisionEventos)?uc.ciclo.comisionEventos:[])
+    .filter(e=>e&&e.origen==='cobro'&&!e.duplicadoAnulado&&String(e.nota||'').trim()===notaExacta);
+  if(!todos.length)return {principal:null,copias:[],ambiguo:false,candidatos:0};
+  // Las copias rescatadas traen el cobro de otro ciclo y ya vienen liquidadas.
+  const propios=todos.filter(e=>!e.claveOriginal&&!e.rescatadoDeCiclo);
+  let cand=propios.length?propios:todos;
+  const porInteres=cand.filter(e=>Math.round(e.interes||0)===intCuota);
+  if(porInteres.length)cand=porInteres;
+  if(cand.length!==1)return {principal:null,copias:[],ambiguo:true,candidatos:cand.length};
+  const principal=cand[0];
   const copias=[principal];
   (Array.isArray(c.comisionEventos)?c.comisionEventos:[]).forEach(e=>{
     if(e&&e.id&&e.id===principal.id&&e!==principal)copias.push(e);
   });
-  return {principal,copias};
+  return {principal,copias,ambiguo:false,candidatos:1};
 }
 function movsCajaCuotaCicloCerrado(c,cicloNum,cuotaNo){
   const bases=[`pago:${c.id}:c${cicloNum}:${cuotaNo}:`,`pago_cob:${c.id}:c${cicloNum}:${cuotaNo}:`];
@@ -3788,7 +3868,9 @@ function diagnosticoCuotaCicloCerrado(c,cuotaIdx,real,absorbe){
     capNuevo=capAct-dif;
     if(capNuevo<0)return{ok:false,error:`La diferencia (${fmt(Math.abs(dif))}) no cabe en el capital de la cuota (${fmt(capAct)}).`};
   }
-  const {principal,copias}=eventosComisionCuotaCiclo(c,uc,q.num);
+  const {principal,copias,ambiguo,candidatos}=eventosComisionCuotaCiclo(c,uc,q);
+  if(ambiguo)
+    return{ok:false,error:`La cuota ${q.num} tiene ${candidatos} eventos de comisión que se le parecen y no se puede saber cuál es. No se toca a ciegas: resuélvelo por ajuste de comisiones.`};
   if(intNuevo!==intAct&&principal&&principal.liquidado)
     return{ok:false,error:`El interés de la cuota ${q.num} cambiaría, pero su comisión ya se le liquidó al cobrador. Resuélvelo por ajuste de comisiones.`};
   const movs=movsCajaCuotaCicloCerrado(c,uc.num,q.num);
