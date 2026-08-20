@@ -15,6 +15,7 @@
       "scripts/**",
       "tests/**",
       "test-results/**",
+      "apps/backup_prestamos*.json",
       "package.json",
       "package-lock.json",
       "**/*.md",
