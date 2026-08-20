@@ -3988,6 +3988,19 @@ function capitalDebidoRecuperado(c){
   t+=suma(c.cuotasData,c.pagadas,c.capital);
   return t;
 }
+// El capital que el cronograma dice que devolvió el cliente, contra el que hay en caja.
+// Sirve para los dos lados: de más significa que algo se registró dos veces, de menos que un
+// cobro real nunca llegó a los libros. La tolerancia de $5 absorbe el ±$1 del redondeo de
+// genCuotas, que reparte capital/interés con Math.round por cuota.
+function capitalCajaVsCronograma(){
+  return (Array.isArray(clientes)?clientes:[]).map(c=>{
+    const cajaCap=(Array.isArray(caja)?caja:[])
+      .filter(m=>m&&m.clienteId===c.id&&m.tipo==='ingreso'&&m.subtipo==='recuperacion_capital')
+      .reduce((s,m)=>s+Math.round(m.monto||0),0);
+    const debido=capitalDebidoRecuperado(c);
+    return {c,cajaCap,debido,dif:cajaCap-debido};
+  }).filter(x=>Math.abs(x.dif)>5).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
+}
 function cuadreCapitalDuplicado(c){
   if(!c)return null;
   const movs=(Array.isArray(caja)?caja:[]).filter(m=>m&&m.clienteId===c.id&&m.tipo==='ingreso'&&m.subtipo==='recuperacion_capital');
@@ -5535,12 +5548,35 @@ function aplicarCorteCaja(){
 // Recupera en la caja los cobros que SÍ están en los eventos de comisión (fuente confiable y validada)
 // pero que se perdieron al guardar en caja (fallos de conexión). Conservador: solo confía en la comisión,
 // nunca inventa. Idempotente: una vez cuadrado, no agrega nada (el gap queda en 0).
+// Dos bugs de raíz corregidos el 20/08/2026, los dos por comparar peras con manzanas:
+//
+// 1) El capital se ADIVINABA. Cuando faltaba interés, daba por hecho que también faltaba el
+//    capital y lo calculaba por regla de tres (gapInt × capital/interés), sin mirar nunca si ese
+//    capital ya estaba en caja. Si de un cobro solo se perdía el movimiento de interés — pasa con
+//    la conexión — reponía el interés (bien) y METÍA EL CAPITAL OTRA VEZ. Valentina $100.000 el
+//    15/08, Laura usma $50.000 el 16/07. El "techo" no lo atrapaba porque medía contra todo lo
+//    prestado alguna vez, no contra lo que el cliente ya devolvió.
+//    Ahora el capital que falta se MIDE, igual que el interés: capitalDebidoRecuperado() dice
+//    cuánto capital han pagado de verdad los cronogramas, y se repone solo la diferencia real.
+//
+// 2) Comparaba un subconjunto contra el total. evInt salía solo de c.comisionEventos (el ciclo
+//    vigente) mientras cajaInt sumaba TODA la caja histórica del cliente. Al cerrar un ciclo el
+//    hueco se volvía negativo y el cuadre dejaba de ver cobros perdidos que sí existían: es la
+//    razón de que a Fadigna le sigan faltando $200.000 en caja. Ahora usa
+//    eventosHistoricosCliente(), que junta los ciclos y deduplica, para que los dos lados del
+//    resto midan lo mismo. Es la misma cuenta corta que ya se corrigió en creditoCobradorCorrecto().
 function detectarCuadreCaja(){
   const res=[];
   (clientes||[]).forEach(c=>{
-    // Solo eventos vigentes. Un duplicado anulado sigue guardado por trazabilidad, pero no
-    // representa plata cobrada (caso Santiago: el cuadre lo contó y recreó $10.000 falsos).
-    const evs=Array.isArray(c.comisionEventos)?c.comisionEventos.filter(e=>e&&!e.duplicadoAnulado):[];
+    // Histórico y deduplicado: los cobros archivados en c.ciclos también entraron a caja.
+    // Un duplicado anulado sigue guardado por trazabilidad, pero no representa plata cobrada
+    // (caso Santiago: el cuadre lo contó y recreó $10.000 falsos).
+    // Y SOLO origen 'cobro'. Un evento de origen 'reconciliacion' nació para alinear la comisión
+    // CON la caja —su propia nota lo dice—, así que usarlo para detectar un hueco en la caja es
+    // circular: se compara la caja contra un número que ya salió de la caja. Laura usma tiene uno
+    // de $30.000 más dos "Liquidación manual" repetidos, y por eso aparecía con un hueco de
+    // $10.000 que no existe; reponerlo habría inflado una caja que ya tiene plata de más.
+    const evs=(eventosHistoricosCliente(c)||[]).filter(e=>e&&!e.duplicadoAnulado&&e.origen==='cobro');
     if(!evs.length)return;
     const evInt=evs.reduce((s,e)=>s+Math.round(e.interes||0),0);
     const evMora=evs.reduce((s,e)=>s+Math.round(e.mora||0),0);
@@ -5548,17 +5584,11 @@ function detectarCuadreCaja(){
     const cajaInt=movs.filter(m=>m.subtipo==='interes_cobrado').reduce((s,m)=>s+(m.monto||0),0);
     const cajaMora=movs.filter(m=>m.subtipo==='mora_cobrada').reduce((s,m)=>s+(m.monto||0),0);
     const cajaCap=movs.filter(m=>m.subtipo==='recuperacion_capital').reduce((s,m)=>s+(m.monto||0),0);
-    const gapInt=evInt-cajaInt, gapMora=evMora-cajaMora;
-    let addInt=0,addMora=0,addCap=0;
-    // Techo de capital por ciclos: nunca recuperar por encima del total prestado (evita inflar)
-    const ciclosCap=(c.ciclos||[]).reduce((s,cy)=>s+(cy.capital||0),0)+(c.historialPrestamos||[]).reduce((s,h)=>s+(h.capital||0),0);
-    const capTecho=(c.capital||0)+ciclosCap;
-    if(gapInt>1000){
-      addInt=gapInt;
-      const ratio=(c.interes>0)?(c.capital/c.interes):0; // capital por peso de interés del ciclo actual
-      addCap=Math.min(Math.round(gapInt*ratio), Math.max(0,capTecho-cajaCap));
-    }
-    if(gapMora>1000)addMora=gapMora;
+    // Los tres huecos se miden, ninguno se deduce del otro.
+    const gapInt=evInt-cajaInt, gapMora=evMora-cajaMora, gapCap=capitalDebidoRecuperado(c)-cajaCap;
+    const addInt=gapInt>1000?gapInt:0;
+    const addMora=gapMora>1000?gapMora:0;
+    const addCap=gapCap>1000?gapCap:0;
     if(addInt||addMora||addCap){
       // fecha aproximada del cobro: el evento de comisión con interés más reciente
       const ts=evs.filter(e=>(e.interes||0)>0).reduce((mx,e)=>Math.max(mx,e.ts||0),0)||evs.reduce((mx,e)=>Math.max(mx,e.ts||0),0)||Date.now();
@@ -5580,7 +5610,11 @@ function abrirCuadreCaja(){
       totC+=it.addCap;totI+=it.addInt;totM+=it.addMora;
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px"><div style="font-weight:600">${it.c.nombre}</div><div style="text-align:right;color:var(--green)">+cap ${fmt(it.addCap)}${it.addInt?' · +int '+fmt(it.addInt):''}${it.addMora?' · +mora '+fmt(it.addMora):''}</div></div>`;
     }).join('');
-    if(body)body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Estos cobros están en la comisión (confiable) pero faltan en la caja. Se agregarán para que la caja cuadre con lo realmente cobrado:</div>${filas}<div style="margin-top:12px;font-weight:700;font-size:13px">Total a recuperar: ${fmt(totC+totI+totM)}</div>`;
+    if(body)body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Estos cobros figuran cobrados pero faltan en la caja. Se agregarán para que la caja cuadre con lo realmente cobrado:</div>${filas}<div style="margin-top:12px;font-weight:700;font-size:13px">Total a recuperar: ${fmt(totC+totI+totM)}</div>`+
+      `<div class="ibox amber" style="font-size:11px;line-height:1.6;margin-top:10px">⚠ Un hueco de capital significa una de dos cosas, y esto no las distingue:<br>
+       · el cobro fue real y se perdió el movimiento al guardar → agregarlo es lo correcto;<br>
+       · la cuota se marcó pagada sin que entrara la plata → agregarlo mete en caja un ingreso que nunca existió, y lo que toca es revertir la cuota en la ficha del cliente.<br>
+       Antes de aplicar, contrasta cada cliente con su Actividad. Si dudas, no lo apliques.</div>`;
     if(btn)btn.style.display='';
   }
   document.getElementById('modal-cuadre').classList.add('open');
@@ -7442,6 +7476,28 @@ function revisionCompleta(){
       sub:`El monto de las cuotas está bien; lo que no cuadra es cómo se reparte entre capital e interés, `+
           `y eso es lo que se registra en caja. Nace del redondeo por cuota cuando el plazo no divide exacto. `+
           desglose.slice(0,3).map(x=>`${x.c.nombre}: capital ${x.dCap>0?'+':''}${x.dCap}, interés ${x.dInt>0?'+':''}${x.dInt}`).join(' · ')
+    });
+  }
+  // ── Vigilancia: el capital que dice el cronograma contra el que hay en caja ──
+  // Nació de la revisión del 20/08/2026, donde estos cinco descuadres estaban ahí desde hacía
+  // semanas y NADA los reportaba: había que ir cliente por cliente a mano para verlos.
+  // De más = el auto-cuadre repuso capital que ya estaba (Valentina $100.000, Laura $50.000).
+  // De menos = un cobro que el cobrador registró y nunca llegó a caja (Fadigna $200.000,
+  // Carolina $102.000). Es la prueba del dinero: el cronograma dice cuánto capital devolvió el
+  // cliente y la caja dice cuánto entró; si no dan igual, falta o sobra plata en los libros.
+  const capCaja=capitalCajaVsCronograma();
+  if(capCaja.length){
+    const sobra=capCaja.filter(x=>x.dif>0),falta=capCaja.filter(x=>x.dif<0);
+    const totSobra=sobra.reduce((s,x)=>s+x.dif,0),totFalta=falta.reduce((s,x)=>s+Math.abs(x.dif),0);
+    informativos.push({
+      tipo:'amber',
+      msg:`${capCaja.length} cliente(s) con el capital de la caja distinto al del cronograma`+
+          (totSobra?` — sobran ${fmt(totSobra)}`:'')+(totFalta?`${totSobra?' y':' —'} faltan ${fmt(totFalta)}`:''),
+      sub:(sobra.length?`DE MÁS (el auto-cuadre repuso capital que ya estaba; se quita desde la ficha con "Quitar capital duplicado"): `+
+            sobra.slice(0,3).map(x=>`${x.c.nombre} ${fmt(x.dif)}`).join(' · ')+'. ':'')+
+          (falta.length?`DE MENOS (un cobro que se registró pero nunca llegó a caja): `+
+            falta.slice(0,3).map(x=>`${x.c.nombre} ${fmt(Math.abs(x.dif))}`).join(' · ')+
+            (falta.length>3?` — y ${falta.length-3} más`:'')+'. Revísalos uno por uno contra la actividad del cliente antes de tocar nada.':'')
     });
   }
   // ── Vigilancia: cuota cobrada por un monto distinto al que entró a caja ──
