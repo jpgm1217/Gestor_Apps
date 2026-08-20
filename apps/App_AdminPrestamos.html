@@ -366,6 +366,15 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <div class="card">
     <div class="ct">Feed en tiempo real</div>
     <div style="font-size:11px;color:var(--text3);margin:-5px 0 10px">Aquí queda quién hizo la actividad, quién recibió el dinero y cómo pagó el cliente.</div>
+    <div id="act-resumen" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:10px"></div>
+    <div id="act-filtros" style="display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;padding-bottom:2px">
+      <button class="tab active" data-filtro="todo" onclick="setFiltroActividad('todo')">Todo</button>
+      <button class="tab" data-filtro="cobrador" onclick="setFiltroActividad('cobrador')">Cobrador</button>
+      <button class="tab" data-filtro="dinero" onclick="setFiltroActividad('dinero')">Con dinero</button>
+      <button class="tab" data-filtro="hoy" onclick="setFiltroActividad('hoy')">Hoy</button>
+    </div>
+    <input type="text" id="act-buscar" placeholder="Buscar por cliente…" oninput="setBusquedaActividad(this.value)" style="width:100%;margin-bottom:10px">
+    <button class="btn btn-ghost btn-full btn-sm" style="margin-bottom:10px" onclick="repararActividadFaltante()">🔎 Buscar cobros sin aviso y recuperarlos</button>
     <div id="feed-act"></div>
   </div>
 </div>
@@ -760,6 +769,28 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
 </div>
 
+<!-- MODAL COBRO CON FECHA Y MONTO REALES -->
+<div class="modal-overlay" id="modal-cobro-real" onclick="if(event.target===this)cerrar('modal-cobro-real')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">📆 Registrar cuota con fecha y monto reales</div>
+    <div id="cobro-real-info" class="ibox blue" style="margin-bottom:12px"></div>
+    <input type="hidden" id="cobro-real-cuota">
+    <div class="fr">
+      <div class="fg"><label class="fl">Fecha real del pago</label><input type="date" id="cobro-real-fecha" oninput="actualizarInfoCobroReal()"></div>
+      <div class="fg"><label class="fl">Monto de la cuota ($)</label><input type="number" id="cobro-real-monto" step="1000" min="0" oninput="actualizarInfoCobroReal()"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Mora cobrada ($)</label><input type="number" id="cobro-real-mora" step="1000" min="0" value="0" oninput="actualizarInfoCobroReal()"></div>
+      <div class="fg"><label class="fl">¿Quién recibió?</label><select id="cobro-real-quien"><option value="Admin">Admin</option><option value="Cobrador">Cobrador</option></select></div>
+    </div>
+    <div class="fg"><label class="fl">¿Cómo pagó?</label><select id="cobro-real-metodo"><option value="efectivo">💵 Efectivo</option><option value="transferencia">🏦 Transferencia</option></select></div>
+    <div style="font-size:11px;color:var(--text3);margin:10px 0 8px">Queda registrado en caja, comisión, pool y actividad con la fecha que elijas, no con la de hoy. Si el monto difiere del cronograma, la diferencia se ajusta contra el capital: el interés del ciclo no cambia.</div>
+    <button class="btn btn-primary btn-full" onclick="confirmarCobroReal()">✅ Registrar cuota</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-cobro-real')">Cancelar</button>
+  </div>
+</div>
+
 <!-- MODAL CLIENTE -->
 <div class="modal-overlay" id="modal-cli" onclick="if(event.target===this)cerrar('modal-cli')">
   <div class="modal"><div class="mhandle"></div><div id="modal-cli-body"></div></div>
@@ -1092,6 +1123,30 @@ function fechasPendientesEstandar(c,refStr){
   const base=ultimaPagada>ayer?ultimaPagada:ayer; // permite usar HOY si hoy es fecha estándar
   return fechasAncladas(c.tipo,base,cantidad,anclaPorDefecto(c.tipo,base))||[];
 }
+// Extensión "solo interés": el cronograma se CORRE una casilla entera. La cuota que vencía pasa a
+// la siguiente fecha estándar (15 / fin de mes) y todas las que siguen se corren detrás de ella.
+// A diferencia de fechasPendientesEstandar(), la base es la cuota PENDIENTE y no la última pagada:
+// así una extensión hecha antes del vencimiento también corre de verdad, en vez de dejar la misma
+// fecha. El tope con `ayer` evita proponer una fecha que ya pasó cuando la extensión llega tarde.
+function fechasCorridasExtension(c,refStr){
+  const pag=Math.max(0,c&&c.pagadas||0),cd=(c&&c.cuotasData)||[];
+  const cantidad=cd.length-pag;
+  if(cantidad<=0)return[];
+  const ayer=addDaysToKey(refStr||hoy(),-1);
+  const actual=cd[pag]&&cd[pag].fechaISO||'';
+  const base=actual>ayer?actual:ayer;
+  return fechasAncladas(c.tipo,base,cantidad,anclaPorDefecto(c.tipo,base))||[];
+}
+// Escribe las fechas nuevas sobre las cuotas pendientes. Solo toca fechaISO/fecha: montos,
+// capital, interés y cuotas ya pagadas quedan intactos.
+function aplicarFechasPendientes(c,nuevas,marca){
+  const pag=Math.max(0,c&&c.pagadas||0);
+  (nuevas||[]).forEach((f,i)=>{
+    const q=(c.cuotasData||[])[pag+i];if(!q)return;
+    q.fechaISO=f;q.fecha=labelFromUTCDate(coUTCDateFromKey(f));
+    if(marca)q[marca]=coDateTimeISO();
+  });
+}
 function actualizarEstadoCalendarioEstandar(){
   const el=document.getElementById('calendario-estandar-status');if(!el)return;
   const d=diagnosticoCalendarioEstandar(clientes);
@@ -1123,6 +1178,53 @@ async function alinearCalendariosEstandar(){
   }
   actualizarEstadoCalendarioEstandar();renderInicio();renderClientes();
   notify(`${propuestas.length} cronograma(s) alineados ✓`,'ok');
+}
+
+// diagnosticoCalendarioEstandar() deja fuera a propósito a los clientes con gracia, extensión o
+// fecha manual para no pisarlos en una corrida masiva. Estos dos son el camino para revisarlos y
+// arreglarlos de a uno: detectan el daño y lo muestran antes de escribir nada.
+// El caso típico es la extensión vieja, que movía graciaHasta sin tocar cuotasData: la cuota
+// corrida se mostraba tarde y la SIGUIENTE se quedaba quieta, venciendo antes que ella.
+function cronogramaDesalineado(c){
+  if(!c||c.pagadas>=c.numCuotas||!['semanal','quincenal','mensual'].includes(c.tipo))return null;
+  const pag=Math.max(0,c.pagadas||0);
+  const pend=(c.cuotasData||[]).slice(pag);
+  if(!pend.length)return null;
+  // Fechas tal como las ve el usuario hoy: la primera pendiente la puede tapar graciaHasta.
+  const efec=pend.map((q,i)=>(i===0&&c.graciaHasta&&c.graciaHasta>q.fechaISO)?c.graciaHasta:q.fechaISO);
+  let invertido=false;
+  for(let i=1;i<efec.length;i++)if(efec[i]<=efec[i-1])invertido=true;
+  const fueraAncla=pend.filter(q=>!fechaCumpleCalendarioEstandar(c.tipo,q.fechaISO)).length;
+  const graciaFuera=!!(c.graciaHasta&&graciaActiva(c)&&!fechaCumpleCalendarioEstandar(c.tipo,c.graciaHasta));
+  if(!invertido&&!fueraAncla&&!graciaFuera)return null;
+  const nuevas=fechasCorridasExtension(c);
+  if(nuevas.length!==pend.length)return null;
+  if(nuevas.every((f,i)=>f===efec[i]))return null;
+  return{antes:pend.map(q=>q.fechaISO),efec,nuevas,invertido,fueraAncla,graciaFuera};
+}
+async function alinearCronogramaCliente(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const d=cronogramaDesalineado(c);
+  if(!d){notify('El cronograma de este cliente ya está alineado ✓','ok');return;}
+  const nums=(c.cuotasData||[]).slice(c.pagadas||0).map(q=>q.num);
+  const filas=d.nuevas.map((f,i)=>`  cuota ${nums[i]}:  ${d.efec[i]}  →  ${f}`).join('\n');
+  if(!confirm(`📅 Corregir el cronograma de ${c.nombre}\n\n`+
+    (d.invertido?'⚠️ Hoy una cuota vence ANTES que la anterior, así que la app le va a cobrar mora que no debe.\n\n':'')+
+    `${filas}\n\n`+
+    `Quincenal: 15 y último día · Mensual: día 1 · Semanal: sábados.\n\n`+
+    `Solo cambian las FECHAS. Los montos, las cuotas ya pagadas, la comisión del cobrador y la caja no se tocan.\n\n¿Continuar?`))return;
+  aplicarFechasPendientes(c,d.nuevas,'fechaEstandarizada');
+  c.ancla=anclaPorDefecto(c.tipo,hoy());
+  c.graciaHasta=null;              // la fecha real ya vive en cuotasData; la gracia sobra y solo tapaba la cuota actual
+  c.moraBaseDate=d.nuevas[0];      // la mora arranca al día siguiente de la nueva fecha
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'alinear_calendario',tipoLabel:'Calendario estándar',monto:0,
+    motivo:`Pendientes: ${d.efec.join(', ')} → ${d.nuevas.join(', ')}${d.invertido?' (cronograma invertido)':''}`,autor:'Admin'});
+  await saveClienteFields(c,['cuotasData','ancla','graciaHasta','moraBaseDate','historialAjustes']);
+  log({tipo:'reanclar_fechas',clienteId:c.id,cliente:c.nombre,ts:Date.now(),autor:'Admin',
+       nota:`${d.efec.join(', ')} → ${d.nuevas.join(', ')} · ${c.tipo}`});
+  notify(`Cronograma de ${c.nombre} corregido ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();actualizarEstadoCalendarioEstandar();
 }
 
 // ── Ajustes hechos a mano sobre el cronograma ──
@@ -1622,7 +1724,9 @@ function escuchar(){
   });
   // Una sola fotografía ordenada permite distinguir la carga inicial de un evento realmente
   // nuevo. Así no se disparan 50 avisos viejos cada vez que el admin abre la aplicación.
-  db.ref('actividad').limitToLast(100).on('value',s=>{
+  // 400 y no 100: con ~30 clientes activos, 100 entradas se consumen en pocos días y la actividad
+  // de la semana anterior desaparecía de la pantalla sin ningún aviso de que estaba recortada.
+  db.ref('actividad').limitToLast(400).on('value',s=>{
     const d=s.val()||{};
     const prevKeys=new Set(actividad.map(a=>a._key).filter(Boolean));
     const nuevas=Object.entries(d).map(([key,val])=>({...val,_key:key})).sort((a,b)=>(b.ts||0)-(a.ts||0));
@@ -1809,8 +1913,9 @@ function saveClienteFields(c,fields){
 }
 function log(item){
   actividad.unshift(item);
-  // FIX P3.6: purga local >200 para evitar memory leak en sesiones largas
-  if(actividad.length>200)actividad.length=200;
+  // FIX P3.6: purga local para evitar memory leak en sesiones largas. Alineada con el limitToLast
+  // del listener: si se purga por debajo, el feed se recorta solo hasta que Firebase vuelva a emitir.
+  if(actividad.length>400)actividad.length=400;
   if(fbOk&&db)db.ref('actividad').push(item);
 }
 
@@ -2527,6 +2632,29 @@ function verCliente(id,soliId=null){
       <button class="btn btn-amber btn-sm" onclick="abrirAbono('${c.id}')">💵 Abono parcial</button>
       <button class="btn btn-red btn-sm" style="font-size:11px" onclick="registrarNoPago('${c.id}')">❌ No pagó</button>
     </div>
+    ${(()=>{const rs=resumenPagoTotal(c);if(!rs||rs.faltan<2)return '';return `<button class="btn btn-green btn-full btn-sm" style="margin-bottom:8px" onclick="pagoTotalRestante('${c.id}')">💰 Pagó TODO — ${rs.faltan} cuotas · ${fmt(rs.total)}</button>`;})()}
+    ${(()=>{const d=cronogramaAnteriorAlCiclo(c);if(!d)return '';return `<div class="ibox red" style="font-size:12px;margin-bottom:8px">
+      <div style="font-weight:700;margin-bottom:4px">📅 Cronograma imposible</div>
+      <div>La plata se entregó el <strong>${labelFromUTCDate(coUTCDateFromKey(d.desembolso))}</strong>, pero ${d.malas.length} cuota(s) tienen fecha anterior o igual a ese día. Nacieron vencidas y están generando mora que no existe.</div>
+      <button class="btn btn-amber btn-full btn-sm" style="margin-top:8px" onclick="repararCronogramaCiclo('${c.id}')">📅 Recalcular fechas desde el desembolso</button>
+    </div>`;})()}
+    ${(()=>{const d=cronogramaDesalineado(c);if(!d)return '';const nums=(c.cuotasData||[]).slice(c.pagadas||0).map(q=>q.num);return `<div class="ibox ${d.invertido?'red':'amber'}" style="font-size:12px;margin-bottom:8px">
+      <div style="font-weight:700;margin-bottom:4px">📅 ${d.invertido?'Cronograma invertido':'Fechas fuera del calendario'}</div>
+      <div>${d.invertido?'Una cuota vence <strong>antes</strong> que la anterior. El día que pague, la app le va a empezar a cobrar mora que no debe.':'Hay cuotas pendientes que no caen en las fechas estándar.'}</div>
+      <div style="margin-top:6px;line-height:1.7">${d.nuevas.map((f,i)=>`cuota ${nums[i]}: <span style="opacity:.7">${d.efec[i]}</span> → <strong>${f}</strong>`).join('<br>')}</div>
+      <button class="btn btn-amber btn-full btn-sm" style="margin-top:8px" onclick="alinearCronogramaCliente('${c.id}')">📅 Corregir al 15 / fin de mes</button>
+    </div>`;})()}
+    ${(()=>{const h=comisionesHuerfanasCliente(c);if(!h.length)return '';const t=h.reduce((s,e)=>s+Math.max(0,Math.round(e.comision||0)),0);return `<div class="ibox amber" style="font-size:12px;margin-bottom:8px">
+      <div style="font-weight:700;margin-bottom:4px">💸 Comisión suelta: ${fmt(t)}</div>
+      <div>Hay ${h.length} comisión(es) de cuotas que ya no figuran pagadas (${h.map(e=>htmlSafe(e.nota)).join(', ')}). Le están sumando al cobrador plata que no entró.</div>
+      <button class="btn btn-amber btn-full btn-sm" style="margin-top:8px" onclick="repararComisionesHuerfanas()">💸 Anular esas comisiones</button>
+    </div>`;})()}
+    ${c.pagadas<c.numCuotas?`<button class="btn btn-green btn-full btn-sm" style="margin-bottom:8px" onclick="abrirCobroReal('${c.id}')">📆 Registrar cuota con fecha y monto reales</button>`:''}
+    ${(()=>{const ex=cuotasExtraCobradas(c);if(!ex.length)return '';return ex.map(({q,i})=>`<button class="btn btn-ghost btn-full btn-sm" style="margin-bottom:8px" onclick="corregirMontoCuotaExtra('${c.id}',${i})">✏️ Corregir monto de la cuota extra ${q.num} (hoy ${fmt(q.cuota)})</button>`).join('');})()}
+    ${(()=>{const i=(c.pagadas||0)-1;const q=(c.cuotasData||[])[i];
+      if(i<0||!q||q.extra||c.pagadas>=c.numCuotas)return '';   // las extra tienen su propio botón; la última cuota no tiene a dónde pasar la diferencia
+      return `<button class="btn btn-ghost btn-full btn-sm" style="margin-bottom:8px" onclick="corregirCuotaCobrada('${c.id}',${i})">✏️ Pagó menos/más de la cuota ${q.num} (registrada ${fmt(q.cuota)})</button>`;})()}
+    ${c.pagadas>0?`<button class="btn btn-ghost btn-full btn-sm" style="margin-bottom:8px;border-color:var(--red);color:var(--red)" onclick="revertirUltimoPago('${c.id}')">↩ Revertir cuota ${c.pagadas}/${c.numCuotas} (se registró por error)</button>`:''}
     <button class="btn btn-blue btn-full btn-sm" style="margin-bottom:8px" onclick="abrirCuotaExtra('${c.id}')">➕ Cuota extra manual</button>
     <button class="btn btn-amber btn-full btn-sm" style="margin-bottom:8px" onclick="abrirMoraManual('${c.id}')">🧾 Registrar mora cobrada (aparte · no avanza cuota)</button>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
@@ -2972,30 +3100,123 @@ function marcarCargoCobrado(clienteId,cargoId){
 }
 
 // PAGOS
-function pagoNormal(id){
-  if(_busyConfirm){notify('Procesando, espera...','err');return;}
-  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
-  const c=clientes.find(x=>x.id===id);if(!c)return;
-  const meta=metaPagoAdmin();
-  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
-  // FIX NEW-10: warning si cliente elegible pago anticipado 10%
-  if(pagoAnticipadoElegible(c)){
-    const pa=montoPagoAnticipado(c);
-    if(!confirm(`⚠ Cliente elegible PAGO ANTICIPADO\n\nTotal con descuento 10%: ${fmt(pa.total)} (capital ${fmt(pa.capital)} + interés ${fmt(pa.interes)})\nEn vez de cobrar cuota normal por ${fmt(c.cuota)} ahora.\n\n¿Cobrar cuota normal de todos modos (cliente PIERDE el descuento del 10%)?`))return;
-  }
+// ── Guarda contra registrar dos veces el mismo cobro ──
+// Es lo que descuadró a Jamer: el cobrador marcó la cuota en la calle a las 19:07 y el admin la
+// volvió a marcar a las 21:45 del mismo día. Lo mismo casi pasa con Lina (08:13 cobrador → 08:14
+// admin). Nada lo impedía y nada lo avisaba: la segunda cuota entraba callada y sumaba plata que
+// nunca llegó. ultimoPago vive en el propio cliente, así que sirve igual en las dos apps.
+function avisoDobleRegistro(c,minutos=240){
+  const ts=Date.parse(c&&c.ultimoPago||'');
+  if(!Number.isFinite(ts))return null;
+  const transcurridos=Math.round((Date.now()-ts)/60000);
+  if(transcurridos<0||transcurridos>minutos)return null;
+  return{ts,transcurridos,cuando:coDateLabel(ts)+' '+coTimeLabel(ts)};
+}
+function confirmarSiHayDobleRegistro(c,quienVaARegistrar){
+  const a=avisoDobleRegistro(c);
+  if(!a)return true;
+  const detalle=(Array.isArray(actividad)?actividad:[])
+    .filter(x=>x&&x.tipo==='pago'&&(x.clienteId===c.id||x.cliente===c.nombre)&&Math.abs((x.ts||0)-a.ts)<=120000)
+    .sort((x,y)=>(y.ts||0)-(x.ts||0))[0];
+  const linea=detalle
+    ? `• Cuota ${detalle.cuota}/${detalle.total||'?'} · ${fmt(detalle.monto||0)} · lo registró ${detalle.registradoPor||detalle.autor}`
+    : `• Va en ${c.pagadas}/${c.numCuotas}`;
+  return confirm(`⚠ POSIBLE DOBLE REGISTRO — ${c.nombre}\n\n`+
+    `Ya se registró un pago hace ${a.transcurridos} minuto(s) (${a.cuando}):\n${linea}\n\n`+
+    `Si es el MISMO dinero, cancela: ya quedó registrado y volver a marcarlo suma plata que no entró.\n`+
+    `Solo continúa si el cliente pagó DOS cuotas distintas.\n\n¿Registrar otra cuota como ${quienVaARegistrar}?`);
+}
+
+// Núcleo de "cobrar una cuota". Lo comparten el pago normal y el pago total, así registrar las 3
+// cuotas de una queda EXACTAMENTE igual que darle 3 veces al botón: mismos refKey en caja, una
+// comisión por cuota para el cobrador y el mismo rastro en Actividad. Devuelve null si la cuota
+// ya venía cubierta por un abono previo.
+function aplicarCuotaPagada(c,meta){
   const cuotaNo=c.pagadas+1;
   const partes=partesPendientesCuota(c);
   const montoCuota=partes.cuota; // incluye ajustes/cuotas extra sin convertirlos en interés
-  if(montoCuota<=0){notify('La cuota ya está cubierta por un abono previo. Revisa el saldo antes de avanzar.','err');return;}
+  if(montoCuota<=0)return null;
   c.pagadas++;c.moraBaseDate=null;c.graciaHasta=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
-  saveClienteFields(c,['pagadas','moraBaseDate','graciaHasta','abonoPendiente','ultimoPago','comisionEventos']);
+  const guardado=saveClienteFields(c,['pagadas','moraBaseDate','graciaHasta','abonoPendiente','ultimoPago','comisionEventos']);
   // Alimentar pool con cuota cobrada
   alimentarPool(montoCuota,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
   registrarCajaAuto('interes_cobrado', partes.interes, `Interés cobrado ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:interes`, {clienteId:c.id, cliente:c.nombre,...meta});
   if(partes.ajuste>0)registrarCajaAuto('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
   log({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:montoCuota,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Admin',...meta});
+  return {cuotaNo,montoCuota,partes,guardado};
+}
+// "Pagó todo": salda de una vez las cuotas que le queden. Antes tocaba darle N veces a
+// "Cuota normal", que además de cansón es fácil de dejar a medias y descuadra al cliente.
+// Las cuotas se registran una por una en orden, esperando cada guardado, para que la comisión
+// del cobrador y los movimientos de caja queden idénticos a hacerlo a mano.
+function resumenPagoTotal(c){
+  if(!c||c.pagadas>=c.numCuotas)return null;
+  const faltan=c.numCuotas-c.pagadas;
+  let capital=0,interes=0,ajuste=0;
+  for(let i=c.pagadas;i<c.numCuotas;i++){
+    const p=partesCuotaIndex(c,i);
+    capital+=Math.max(0,Math.round(p.capital||0));
+    interes+=Math.max(0,Math.round(p.interes||0));
+    ajuste+=Math.max(0,Math.round((p.cuota||0)-(p.capital||0)-(p.interes||0)));
+  }
+  return {faltan,capital,interes,ajuste,total:saldo(c),comision:Math.round(interes*pctCliente(c)/100)};
+}
+async function pagoTotalRestante(id){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const meta=metaPagoAdmin();
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  if(!confirmarSiHayDobleRegistro(c,'Admin'))return;
+  const rs=resumenPagoTotal(c);
+  if(!rs){notify('Este cliente no tiene cuotas pendientes','err');return;}
+  if(pagoAnticipadoElegible(c)){
+    const pa=montoPagoAnticipado(c);
+    if(!confirm(`⚠ Cliente elegible PAGO ANTICIPADO\n\nCon el descuento del 10% pagaría ${fmt(pa.total)} en vez de ${fmt(rs.total)}.\n\n¿Cobrarle igual las ${rs.faltan} cuotas completas (PIERDE el descuento)?`))return;
+  }
+  const m=mora(c);
+  if(!confirm(`💰 ${c.nombre} paga TODO\n\n`+
+    `Cuotas a registrar: ${rs.faltan} (de la ${c.pagadas+1} a la ${c.numCuotas})\n`+
+    `────────────────────────\n`+
+    `Capital: ${fmt(rs.capital)}\n`+
+    `Interés: ${fmt(rs.interes)}\n`+
+    (rs.ajuste>0?`Cuotas extra/ajustes: ${fmt(rs.ajuste)}\n`:'')+
+    `TOTAL A RECIBIR: ${fmt(rs.total)}\n`+
+    `Comisión del cobrador: ${fmt(rs.comision)}\n`+
+    (m>0?`\n⚠ Tiene ${fmt(m)} de mora acumulada. Esto NO la cobra — regístrala aparte si se la vas a cobrar.\n`:'')+
+    `\nQueda registrado igual que darle ${rs.faltan} veces a "Cuota normal".\n\n¿Continuar?`))return;
+  let hechas=0,cobrado=0;
+  for(let i=0;i<rs.faltan;i++){
+    const r=aplicarCuotaPagada(c,meta);
+    if(!r)break;                 // una cuota ya cubierta por abono corta el resto
+    await r.guardado;            // serializa los guardados: si no, las escrituras se pisan
+    hechas++;cobrado+=r.montoCuota;
+  }
+  if(!hechas){notify('No se registró ninguna cuota: revisa el saldo y los abonos.','err');return;}
+  resolverSolicitudActiva('pago_registrado',`Pago total: ${hechas} cuota(s) registradas por admin`);
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+  if(c.pagadas>=c.numCuotas){
+    if(confirm(`✅ ${c.nombre} terminó de pagar — ${hechas} cuota(s) por ${fmt(cobrado)}.\n¿Crear un nuevo ciclo de préstamo?`)){abrirNuevoCiclo(c.id);return;}
+    notify(`${c.nombre} — préstamo completado ✓`,'ok');return;
+  }
+  notify(`${hechas} cuota(s) registradas · ${fmt(cobrado)} ✓`,'ok');
+}
+function pagoNormal(id){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const meta=metaPagoAdmin();
+  if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
+  if(!confirmarSiHayDobleRegistro(c,'Admin'))return;
+  // FIX NEW-10: warning si cliente elegible pago anticipado 10%
+  if(pagoAnticipadoElegible(c)){
+    const pa=montoPagoAnticipado(c);
+    if(!confirm(`⚠ Cliente elegible PAGO ANTICIPADO\n\nTotal con descuento 10%: ${fmt(pa.total)} (capital ${fmt(pa.capital)} + interés ${fmt(pa.interes)})\nEn vez de cobrar cuota normal por ${fmt(c.cuota)} ahora.\n\n¿Cobrar cuota normal de todos modos (cliente PIERDE el descuento del 10%)?`))return;
+  }
+  const r=aplicarCuotaPagada(c,meta);
+  if(!r){notify('La cuota ya está cubierta por un abono previo. Revisa el saldo antes de avanzar.','err');return;}
   resolverSolicitudActiva('pago_registrado',`Pago ${c.pagadas}/${c.numCuotas} registrado por admin`);
   // Última cuota — ofrecer nuevo ciclo
   if(c.pagadas>=c.numCuotas){
@@ -3010,6 +3231,476 @@ function pagoNormal(id){
   notify(`Pago ${c.pagadas}/${c.numCuotas} registrado ✓`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
 }
+
+// ══════════════════════════════════════════════
+// REVERTIR UNA CUOTA REGISTRADA POR ERROR
+// ══════════════════════════════════════════════
+// Caso real (Jamer Marín, 16–17/07/2026): el cronograma quedó corrido, las tres cuotas se veían
+// vencidas y se marcaron como pagadas tratando de cuadrarlo. El cliente solo había pagado UNA
+// ($120.000 + $4.000 de mora). Resultado: el ciclo se dio por cerrado debiendo dos cuotas,
+// $240.000 de plata que nunca entró sumando en caja y $16.000 de comisión de más al cobrador.
+// No existía ninguna forma de deshacerlo desde la app: la única salida era tocar la base a mano.
+// Esto revierte la ÚLTIMA cuota registrada y deja todo cuadrado: cuotas, caja, pool y comisión.
+// Nunca toca una comisión ya liquidada al cobrador — eso hay que resolverlo en la liquidación.
+function refKeysCuota(c,cuotaNo){
+  const ciclo=cicloDe(c);
+  const bases=[`pago:${c.id}:c${ciclo}:${cuotaNo}:`,`pago_cob:${c.id}:c${ciclo}:${cuotaNo}:`];
+  // Las refKeys viejas no llevan número de ciclo, así que solo pueden ser del primero. Incluirlas
+  // siempre haría que revertir la cuota 2 del ciclo 3 se llevara por delante la cuota 2 del ciclo 1
+  // (le pasó a Jamer en la prueba: barría $82.000 de un cobro real de junio).
+  if(ciclo===1)bases.push(`pago:${c.id}:${cuotaNo}:`,`pago_cob:${c.id}:${cuotaNo}:`,`pago_mora:${c.id}:${cuotaNo}:`);
+  return bases;
+}
+// Movimientos de caja que pertenecen a esa cuota exacta (por refKey, no por monto ni fecha).
+function movimientosCajaDeCuota(c,cuotaNo){
+  const bases=refKeysCuota(c,cuotaNo);
+  return (Array.isArray(caja)?caja:[]).filter(m=>m&&m.refKey&&bases.some(b=>m.refKey.startsWith(b)));
+}
+// El evento de comisión de esa cuota: el más reciente cuya nota apunte a ese número.
+function comisionEventoDeCuota(c,cuotaNo){
+  const evs=(Array.isArray(c.comisionEventos)?c.comisionEventos:[])
+    .filter(e=>e&&e.origen==='cobro'&&!e.duplicadoAnulado&&new RegExp(`^Cuota ${cuotaNo}/`).test(String(e.nota||'')));
+  return evs.length?evs[evs.length-1]:null;
+}
+function diagnosticoReversionPago(c){
+  if(!c)return{ok:false,error:'Cliente no encontrado'};
+  const cuotaNo=Math.max(0,c.pagadas||0);
+  if(cuotaNo<=0)return{ok:false,error:'Este cliente no tiene ninguna cuota registrada como pagada'};
+  const movs=movimientosCajaDeCuota(c,cuotaNo);
+  const evento=comisionEventoDeCuota(c,cuotaNo);
+  if(evento&&evento.liquidado)return{ok:false,error:`La comisión de la cuota ${cuotaNo} ya se le liquidó al cobrador. Revierte primero esa liquidación o haz el ajuste por comisiones.`};
+  const montoCaja=movs.reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+  return{ok:true,cuotaNo,movs,montoCaja,evento,comision:Math.max(0,Math.round(evento?.comision||0))};
+}
+async function revertirUltimoPago(id){
+  const c=clientes.find(x=>x.id===id);
+  const d=diagnosticoReversionPago(c);
+  if(!d.ok){notify(d.error,'err');return;}
+  const detalleCaja=d.movs.length
+    ? d.movs.map(m=>`  · ${m.desc||m.subtipo}: ${fmt(m.monto)}`).join('\n')
+    : '  · (no se encontraron movimientos de caja para esta cuota)';
+  if(!confirm(`↩ Revertir la cuota ${d.cuotaNo}/${c.numCuotas} de ${c.nombre}\n\n`+
+    `Úsalo SOLO si esa cuota se marcó por error y el cliente NO pagó esa plata.\n\n`+
+    `Se va a deshacer:\n`+
+    `• Cuotas pagadas: ${c.pagadas} → ${c.pagadas-1}\n`+
+    `• Salen de caja ${fmt(d.montoCaja)}:\n${detalleCaja}\n`+
+    `• Comisión del cobrador: −${fmt(d.comision)}\n\n`+
+    `La mora ya cobrada NO se toca (se registra aparte).\n\n¿Continuar?`))return;
+  const cuotaNo=d.cuotaNo;
+  // 1) Caja: borrar los ingresos que nunca entraron
+  const ids=new Set(d.movs.map(m=>m.id));
+  for(const movId of ids){ if(fbOk&&db) await db.ref('caja/'+movId).remove().catch(()=>{}); }
+  for(let i=caja.length-1;i>=0;i--){ if(ids.has(caja[i].id))caja.splice(i,1); }
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  // 2) Pool: compensar la entrada que se había alimentado con ese cobro
+  if(d.montoCaja>0)moverPool('salida',d.montoCaja,`Reversión cuota ${cuotaNo}`,c.nombre);
+  // 3) Comisión: ANULAR el evento, no borrarlo del arreglo.
+  // saveClienteFields fusiona los arreglos con lo que hay en Firebase haciendo UNIÓN, así que un
+  // elemento quitado localmente vuelve a aparecer desde el remoto: borrar es imposible por esa vía.
+  // Anularlo sí viaja (la fusión hace {...remoto,...local}) y además deja el rastro de auditoría.
+  // comisionEventosCliente() ya excluye los anulados de todo cálculo de comisión.
+  if(d.evento){
+    d.evento.duplicadoAnulado=true;
+    d.evento.anuladoTs=Date.now();
+    d.evento.anuladoNota=`Cuota ${cuotaNo} revertida por registro erróneo`;
+    d.evento.revertido=true;
+  }
+  // 4) Cliente: retroceder la cuota y recalcular el último pago real
+  c.pagadas=Math.max(0,(c.pagadas||0)-1);
+  c.abonoPendiente=0;
+  c.moraBaseDate=null;
+  const evsRestantes=(c.comisionEventos||[]).filter(e=>e&&e.origen==='cobro'&&!e.duplicadoAnulado);
+  c.ultimoPago=evsRestantes.length?coDateTimeISO(evsRestantes[evsRestantes.length-1].ts):null;
+  // Se reabrió un préstamo que figuraba terminado: hay que poder volver a cobrarlo.
+  c.liquidadoAnticipado=false;
+  await saveClienteFields(c,['pagadas','abonoPendiente','moraBaseDate','ultimoPago','comisionEventos','liquidadoAnticipado']);
+  log({tipo:'reversion_pago',clienteId:c.id,cliente:c.nombre,monto:d.montoCaja,cuota:cuotaNo,total:c.numCuotas,
+       ts:Date.now(),autor:'Admin',registradoPor:'Admin',
+       nota:`Cuota ${cuotaNo}/${c.numCuotas} revertida por registro erróneo · caja −${fmt(d.montoCaja)} · comisión −${fmt(d.comision)}`});
+  await recalcularCreditoCobrador();
+  notify(`Cuota ${cuotaNo} revertida · quedó en ${c.pagadas}/${c.numCuotas} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();renderComisiones();
+}
+
+// ══════════════════════════════════════════════
+// COMISIONES QUE QUEDARON SUELTAS TRAS REVERTIR UNA CUOTA
+// ══════════════════════════════════════════════
+// La primera versión de revertirUltimoPago quitaba el evento del arreglo y lo guardaba. No sirvió:
+// saveClienteFields fusiona los arreglos con Firebase haciendo unión, así que el evento volvía del
+// remoto. A Jamer le quedaron tres comisiones de cuotas que ya no figuran pagadas ($24.000 al
+// cobrador por plata que nunca entró). Esto las encuentra y las anula.
+// Solo mira el ciclo VIGENTE: los eventos anteriores al último desembolso son de ciclos cerrados y
+// siguen pendientes de liquidar con toda razón (a Jamer, la cuota 3 del ciclo 1 del 01/07).
+function comisionesHuerfanasCliente(c){
+  if(!c||!Array.isArray(c.comisionEventos))return [];
+  // Comparar por FECHA no sirve: lo normal es cobrar la última cuota y abrir el ciclo nuevo minutos
+  // después, el mismo día. Con corte por día, esa última cuota del ciclo anterior — que sigue
+  // pendiente de liquidar con toda razón — se marcaba como huérfana. Le pasaba a 6 clientes.
+  const tsCiclo=tsDesembolsoCiclo(c);
+  const pagadas=Math.max(0,c.pagadas||0);
+  return c.comisionEventos.filter(e=>{
+    if(!e||e.duplicadoAnulado||e.origen!=='cobro')return false;
+    const m=/^Cuota (\d+)\//.exec(String(e.nota||''));
+    if(!m)return false;                              // mora manual y ajustes: no son de cuota
+    if(tsCiclo&&(e.ts||0)<tsCiclo)return false;      // cobrado antes de abrir este ciclo
+    return Number(m[1])>pagadas;                     // cuota que hoy NO figura pagada
+  });
+}
+function diagnosticoComisionesHuerfanas(){
+  return (Array.isArray(clientes)?clientes:[])
+    .map(c=>({c,evs:comisionesHuerfanasCliente(c)}))
+    .filter(x=>x.evs.length);
+}
+async function repararComisionesHuerfanas(opts={}){
+  const items=diagnosticoComisionesHuerfanas();
+  if(!items.length){if(!opts.sinConfirmar)notify('No hay comisiones sueltas: todas corresponden a cuotas pagadas ✓','ok');return{anulados:0,total:0};}
+  const total=items.reduce((s,x)=>s+x.evs.reduce((t,e)=>t+Math.max(0,Math.round(e.comision||0)),0),0);
+  const detalle=items.map(x=>`• ${x.c.nombre} (va en ${x.c.pagadas}/${x.c.numCuotas}): `+
+    x.evs.map(e=>`${e.nota} ${fmt(e.comision)}`).join(', ')).join('\n');
+  if(!opts.sinConfirmar&&!confirm(`Hay ${items.reduce((s,x)=>s+x.evs.length,0)} comisión(es) de cuotas que ya NO figuran pagadas, por ${fmt(total)}:\n\n${detalle}\n\n`+
+    `Quedaron sueltas al revertir esas cuotas. Se van a anular para que dejen de contar como comisión del cobrador.\nEl registro NO se borra: queda marcado como anulado para poder auditarlo.\n\n¿Continuar?`))return{anulados:0,total:0};
+  let anulados=0;
+  for(const x of items){
+    x.evs.forEach(e=>{
+      e.duplicadoAnulado=true;e.anuladoTs=Date.now();e.revertido=true;
+      e.anuladoNota=`Cuota revertida — el cliente va en ${x.c.pagadas}/${x.c.numCuotas}`;
+      anulados++;
+    });
+    await saveClienteFields(x.c,['comisionEventos']);
+  }
+  log({tipo:'reparacion_comision_huerfana',cliente:'Sistema',monto:total,ts:Date.now(),autor:'Admin',
+       nota:`${anulados} comisión(es) de cuotas revertidas anuladas (${fmt(total)}): ${items.map(x=>x.c.nombre).join(' · ')}`});
+  await recalcularCreditoCobrador();
+  if(!opts.sinConfirmar)notify(`${anulados} comisión(es) sueltas anuladas · ${fmt(total)} ✓`,'ok');
+  renderClientes();renderComisiones();renderInicio();
+  return{anulados,total};
+}
+
+// ══════════════════════════════════════════════
+// REGISTRAR UN COBRO CON SU FECHA Y SU MONTO REALES
+// ══════════════════════════════════════════════
+// "Cuota normal" siempre registra con la fecha de HOY y por el monto exacto del cronograma. Para
+// meter de vuelta un cobro viejo — o uno que se recibió por un valor distinto, como un descuento
+// por pago anticipado — no había forma: tocaba registrarlo con fecha equivocada y después cuadrar
+// caja a mano. Esto registra la cuota tal como ocurrió: fecha real, monto real, quién recibió,
+// y deja el rastro completo en caja, comisión, pool y actividad.
+let _pendingCobroReal=null;
+// Marca de tiempo del mediodía en Colombia de esa fecha: cae siempre dentro del día correcto sin
+// depender de la hora del navegador, y deja el movimiento ordenado entre los del mismo día.
+function tsMediodiaCO(fechaISO){
+  const base=Date.parse(`${fechaISO}T12:00:00${CO_OFFSET}`);
+  return Number.isFinite(base)?base:Date.now();
+}
+function moraYaRegistrada(c,fechaISO){
+  const dia=coUTCDateFromKey(fechaISO);
+  return (Array.isArray(caja)?caja:[]).filter(m=>m&&m.clienteId===c.id&&m.subtipo==='mora_cobrada'&&
+    Math.abs(coUTCDateFromKey(coDateKey(m.ts))-dia)<=3*DAY_MS);
+}
+function abrirCobroReal(id){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  if(c.pagadas>=c.numCuotas){notify('Este préstamo ya tiene todas las cuotas registradas','err');return;}
+  _pendingCobroReal=id;
+  const cuotaNo=c.pagadas+1;
+  const partes=partesPendientesCuota(c);
+  document.getElementById('cobro-real-cuota').value=String(cuotaNo);
+  document.getElementById('cobro-real-fecha').value=(c.cuotasData?.[c.pagadas]?.fechaISO)||hoy();
+  document.getElementById('cobro-real-monto').value=partes.cuota||c.cuota||0;
+  document.getElementById('cobro-real-mora').value=0;
+  document.getElementById('cobro-real-quien').value='Admin';
+  actualizarInfoCobroReal();
+  cerrar('modal-cli');
+  document.getElementById('modal-cobro-real').classList.add('open');
+}
+function actualizarInfoCobroReal(){
+  const c=clientes.find(x=>x.id===_pendingCobroReal);if(!c)return;
+  const el=document.getElementById('cobro-real-info');if(!el)return;
+  const cuotaNo=c.pagadas+1;
+  const fecha=(document.getElementById('cobro-real-fecha')?.value||hoy());
+  const monto=Math.max(0,Math.round(parseFloat(document.getElementById('cobro-real-monto')?.value)||0));
+  const moraVal=Math.max(0,Math.round(parseFloat(document.getElementById('cobro-real-mora')?.value)||0));
+  const yaHayMora=moraYaRegistrada(c,fecha);
+  const moraTxt=yaHayMora.length
+    ? `<div style="color:var(--amber);margin-top:6px">⚠ Este cliente ya tiene <strong>${fmt(yaHayMora.reduce((s,m)=>s+m.monto,0))}</strong> de mora registrada cerca de esa fecha (${yaHayMora.map(m=>coDateLabel(m.ts)).join(', ')}). Si ya está contada, deja la mora en <strong>0</strong> para no cobrarla dos veces.</div>`
+    : '';
+  const yaEnCaja=movimientosCajaDeCuota(c,cuotaNo);
+  const cajaTxt=yaEnCaja.length
+    ? `<div style="color:var(--red);margin-top:6px">⚠ Ya hay ${fmt(yaEnCaja.reduce((s,m)=>s+m.monto,0))} en caja para la cuota ${cuotaNo}. Se va a marcar la cuota pero esos movimientos NO se duplican.</div>`
+    : '';
+  el.innerHTML=`<strong>${htmlSafe(c.nombre)}</strong> — se marcará la cuota <strong>${cuotaNo}/${c.numCuotas}</strong>`+
+    `<div style="margin-top:6px">Quedará registrado en total: <strong style="color:var(--green)">${fmt(monto+moraVal)}</strong>`+
+    `${moraVal>0?` (cuota ${fmt(monto)} + mora ${fmt(moraVal)})`:''}</div>`+
+    `<div style="color:var(--text3);margin-top:4px">Mora ya registrada aparte: ${fmt(yaHayMora.reduce((s,m)=>s+m.monto,0))}</div>`+
+    moraTxt+cajaTxt;
+}
+async function confirmarCobroReal(){
+  if(_busyConfirm){notify('Procesando, espera...','err');return;}
+  const c=clientes.find(x=>x.id===_pendingCobroReal);
+  if(!c){notify('Cliente no encontrado','err');return;}
+  if(c.pagadas>=c.numCuotas){notify('Este préstamo ya tiene todas las cuotas registradas','err');return;}
+  const fecha=(document.getElementById('cobro-real-fecha').value||'').trim();
+  const monto=Math.max(0,Math.round(parseFloat(document.getElementById('cobro-real-monto').value)||0));
+  const moraVal=Math.max(0,Math.round(parseFloat(document.getElementById('cobro-real-mora').value)||0));
+  const quien=document.getElementById('cobro-real-quien').value==='Cobrador'?'Cobrador':'Admin';
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){notify('Selecciona una fecha válida','err');return;}
+  if(monto<=0){notify('Ingresa el monto de la cuota','err');return;}
+  _busyConfirm=true;
+  try{
+    const cuotaNo=c.pagadas+1;
+    const ts=tsMediodiaCO(fecha);
+    const partes=partesPendientesCuota(c);
+    // El monto real manda: si difiere del cronograma, la diferencia se ajusta contra el capital
+    // (el interés del ciclo no cambia porque el cliente haya pagado un peso más o menos).
+    const interes=Math.min(partes.interes||0,monto);
+    const capital=Math.max(0,monto-interes);
+    if(!confirm(`Registrar la cuota ${cuotaNo}/${c.numCuotas} de ${c.nombre}\n\n`+
+      `Fecha real: ${labelFromUTCDate(coUTCDateFromKey(fecha))}\n`+
+      `Cuota: ${fmt(monto)}  (capital ${fmt(capital)} + interés ${fmt(interes)})\n`+
+      `Mora: ${fmt(moraVal)}\n`+
+      `────────────────\nTotal registrado: ${fmt(monto+moraVal)}\nRecibió: ${quien}\n\n¿Confirmar?`)){_busyConfirm=false;return;}
+    const ciclo=cicloDe(c);
+    const pre=quien==='Cobrador'?'pago_cob':'pago';
+    const meta={metodoPago:document.getElementById('cobro-real-metodo')?.value||'efectivo',recibidoPor:quien,registradoPor:'Admin'};
+    c.pagadas++;
+    c.ultimoPago=coDateTimeISO(ts);
+    c.abonoPendiente=0;c.moraBaseDate=null;c.graciaHasta=null;
+    const ev=registrarComisionEventoCliente(c,{interes,mora:moraVal,autor:quien,nota:`Cuota ${cuotaNo}/${c.numCuotas}`,ts});
+    if(moraVal>0){
+      registrarEventoMora(c,'cobrada',moraVal,`Cuota ${cuotaNo}/${c.numCuotas} (registro con fecha real)`,quien);
+      c.moraCobradaTotal=(c.moraCobradaTotal||0)+moraVal;
+    }
+    await saveClienteFields(c,['pagadas','ultimoPago','abonoPendiente','moraBaseDate','graciaHasta','comisionEventos','moraCobradaTotal','historialMora']);
+    // registrarCajaAuto arma el movimiento como {..., ts:Date.now(), ...extra}: el ts que va en
+    // `extra` pisa el de hoy, así que el movimiento nace ya fechado en el día real del cobro.
+    const creados=[];
+    if(capital>0)creados.push(registrarCajaAuto('recuperacion_capital',capital,`Recuperación capital ${c.nombre} · cuota ${cuotaNo}`,`${pre}:${c.id}:c${ciclo}:${cuotaNo}:capital`,{clienteId:c.id,cliente:c.nombre,ts,...meta}));
+    if(interes>0)creados.push(registrarCajaAuto('interes_cobrado',interes,`Interés cobrado ${c.nombre} · cuota ${cuotaNo}`,`${pre}:${c.id}:c${ciclo}:${cuotaNo}:interes`,{clienteId:c.id,cliente:c.nombre,ts,...meta}));
+    if(moraVal>0)creados.push(registrarCajaAuto('mora_cobrada',moraVal,`Mora cobrada ${c.nombre} · cuota ${cuotaNo}`,`${pre}:${c.id}:c${ciclo}:${cuotaNo}:mora`,{clienteId:c.id,cliente:c.nombre,ts,...meta}));
+    const bloqueados=creados.filter(m=>!m).length;
+    if(bloqueados)notify(`${bloqueados} movimiento(s) ya existían en caja para esa cuota: no se duplicaron.`,'err');
+    if(monto+moraVal>0)alimentarPool(monto+moraVal,c.nombre);
+    log({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:monto+moraVal,cuota:cuotaNo,total:c.numCuotas,
+         ts,autor:quien,...meta,nota:moraVal>0?`mora ${fmt(moraVal)} · registrado con fecha real`:'registrado con fecha real'});
+    await recalcularCreditoCobrador();
+    cerrar('modal-cobro-real');
+    notify(`Cuota ${cuotaNo}/${c.numCuotas} de ${c.nombre} registrada por ${fmt(monto+moraVal)} ✓`,'ok');
+    renderClientes();renderInicio();renderCaja();renderComisiones();renderActividad();
+  }catch(e){
+    console.error('confirmarCobroReal:',e);
+    notify('Error al registrar: '+e.message,'err');
+  }finally{_busyConfirm=false;}
+}
+
+// ══════════════════════════════════════════════
+// CORREGIR EL MONTO DE UNA CUOTA EXTRA YA COBRADA
+// ══════════════════════════════════════════════
+// Caso real (Lina María López, 31/07/2026): la cuota extra estaba puesta en $120.000, pero la pagó
+// antes de los 15 días y se le cobraron $110.000. Quedaban $10.000 de más en el cronograma y en
+// caja. Se limita a cuotas EXTRA (capital 0 e interés 0): ahí el monto es puro ajuste y no mueve
+// la comisión. En una cuota normal el cambio repartiría capital e interés y sí movería lo que se
+// le debe al cobrador, así que para esas el camino correcto es revertir y volver a registrar.
+function cuotasExtraCobradas(c){
+  if(!c||!Array.isArray(c.cuotasData))return [];
+  return c.cuotasData.map((q,i)=>({q,i}))
+    .filter(({q,i})=>q&&q.extra&&i<Math.max(0,c.pagadas||0));
+}
+function movimientoAjusteDeCuota(c,cuotaIdx){
+  const ciclo=cicloDe(c),num=cuotaIdx+1;
+  const bases=[`pago:${c.id}:c${ciclo}:${num}:ajuste`,`pago_cob:${c.id}:c${ciclo}:${num}:ajuste`];
+  return (Array.isArray(caja)?caja:[]).find(m=>m&&bases.includes(m.refKey))||null;
+}
+// ══════════════════════════════════════════════
+// CUOTA COBRADA POR UN MONTO DISTINTO AL QUE ENTRÓ
+// ══════════════════════════════════════════════
+// Caso real (Angélica Pérez, 10/08/2026): pagó $120.000 de una cuota de $150.000 pero se marcó
+// completa. Antes no había forma de corregirlo: o se revertía todo el pago, o los $30.000 que
+// faltaban se perdían y el cliente quedaba debiendo plata que la app ya no le iba a cobrar.
+// Aquí la diferencia NO se perdona: se le suma a la cuota siguiente, así el total del préstamo
+// no cambia y el faltante viaja con el cliente hasta que lo pague.
+// El interés se cobra primero y el faltante sale del capital: si el interés entró completo, la
+// comisión del cobrador no se toca. Solo si el pago no alcanzó ni para el interés se ajusta.
+function diagnosticoCorreccionCuota(c,idx,real){
+  const q=(c.cuotasData||[])[idx];
+  if(!q)return{ok:false,error:'Esa cuota no existe'};
+  if(idx>=Math.max(0,c.pagadas||0))return{ok:false,error:'Esa cuota todavía no está cobrada'};
+  const sig=(c.cuotasData||[])[idx+1];
+  if(!sig)return{ok:false,error:'Es la última cuota: no hay a dónde pasar la diferencia. Usa un cargo manual.'};
+  if(idx+1<Math.max(0,c.pagadas||0))return{ok:false,error:'La cuota siguiente ya está cobrada. Revierte pagos hasta dejarla pendiente.'};
+  const actual=Math.round(q.cuota||0);
+  const dif=actual-real;                       // >0 = entró de menos
+  if(!dif)return{ok:false,error:'El monto es el mismo, no hay nada que corregir'};
+  if(real>actual+ (sig.cuota||0))return{ok:false,error:'Ese monto deja la cuota siguiente en negativo. Revísalo.'};
+  const intOrig=Math.max(0,Math.round(q.interes||0));
+  const intReal=Math.min(intOrig,real);        // el interés se cubre primero
+  const capReal=Math.max(0,real-intReal);
+  const ev=comisionEventoDeCuota(c,q.num);
+  if(intReal!==intOrig&&ev&&ev.liquidado)
+    return{ok:false,error:`El interés de la cuota ${q.num} cambiaría, pero su comisión ya se le liquidó al cobrador. Resuélvelo por ajuste de comisiones.`};
+  return{ok:true,q,sig,idx,actual,real,dif,intOrig,intReal,capReal,ev,
+         sigNueva:Math.max(0,Math.round((sig.cuota||0)+dif))};
+}
+// El campo `saldo` del cronograma es informativo (lo que queda debiendo después de esa cuota).
+// Al mover plata entre cuotas hay que reescribirlo o el cliente ve un saldo que ya no existe.
+function recalcularSaldosCronograma(c){
+  const cd=c.cuotasData||[];
+  for(let i=0;i<cd.length;i++){
+    let resto=0;
+    for(let k=i+1;k<cd.length;k++)resto+=Math.max(0,Math.round(cd[k].cuota||0));
+    cd[i].saldo=resto;
+  }
+}
+async function corregirCuotaCobrada(id,idx){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const q=(c.cuotasData||[])[idx];if(!q){notify('Esa cuota no existe','err');return;}
+  const actual=Math.round(q.cuota||0);
+  const entrada=prompt(`Cuota ${q.num} de ${c.nombre} — ${q.fecha}\n\nQuedó registrada por ${fmt(actual)}.\n¿Cuánto se recibió en realidad?`,String(actual));
+  if(entrada===null)return;
+  const real=Math.max(0,Math.round(parseFloat(entrada)||0));
+  if(real<=0){notify('Monto inválido','err');return;}
+  const d=diagnosticoCorreccionCuota(c,idx,real);
+  if(!d.ok){notify(d.error,'err');return;}
+  if(!confirm(`✏️ Corregir la cuota ${q.num} de ${c.nombre}\n\n`+
+    `Se registró:      ${fmt(d.actual)}\n`+
+    `De verdad entró:  ${fmt(d.real)}\n`+
+    `${d.dif>0?'FALTARON':'SOBRARON'}:         ${fmt(Math.abs(d.dif))}\n`+
+    `────────────────────────\n`+
+    `Cuota ${q.num} queda en ${fmt(d.real)}  (capital ${fmt(d.capReal)} + interés ${fmt(d.intReal)})\n`+
+    `Cuota ${d.sig.num} pasa de ${fmt(d.sig.cuota)} a ${fmt(d.sigNueva)}\n`+
+    `────────────────────────\n`+
+    `El total del préstamo sigue en ${fmt(c.total)}: la diferencia no se perdona, se cobra en la cuota siguiente.\n`+
+    `Se ajusta la caja de esa cuota`+
+    (d.intReal!==d.intOrig?` y la comisión del cobrador (interés ${fmt(d.intOrig)} → ${fmt(d.intReal)})`:` (la comisión del cobrador no cambia: el interés entró completo)`)+
+    `.\n\n¿Continuar?`))return;
+  const antesSig=Math.round(d.sig.cuota||0);
+  // 1) Cronograma
+  q.cuota=d.real; q.capital=d.capReal; q.interes=d.intReal;
+  q.montoCorregido={antes:d.actual,despues:d.real,fecha:coDateTimeISO(),autor:'Admin'};
+  d.sig.cuota=d.sigNueva;
+  d.sig.capital=Math.max(0,Math.round((d.sig.capital||0)+d.dif));
+  d.sig.ajustadaPorCuota={num:q.num,monto:d.dif,fecha:coDateTimeISO(),autor:'Admin'};
+  recalcularSaldosCronograma(c);
+  // 2) Caja: los ingresos de esa cuota bajan (o suben) a lo que de verdad entró
+  const movs=movimientosCajaDeCuota(c,q.num);
+  const movCap=movs.find(m=>/:capital$/.test(String(m.refKey||'')));
+  const movInt=movs.find(m=>/:interes$/.test(String(m.refKey||'')));
+  if(movCap){movCap.monto=d.capReal; if(fbOk&&db)await db.ref('caja/'+movCap.id+'/monto').set(d.capReal).catch(()=>{});}
+  if(movInt){movInt.monto=d.intReal; if(fbOk&&db)await db.ref('caja/'+movInt.id+'/monto').set(d.intReal).catch(()=>{});}
+  localStorage.setItem('cr_caja',JSON.stringify(caja));
+  // 3) Comisión: solo si el interés realmente cambió
+  if(d.intReal!==d.intOrig&&d.ev){
+    const pct=d.ev.pct||pctCliente(c);
+    const base=d.intReal+Math.max(0,Math.round(d.ev.mora||0));
+    d.ev.interes=d.intReal;
+    d.ev.comision=Math.round(base*pct/100);
+    d.ev.admin=Math.max(0,base-d.ev.comision);
+    d.ev.correccion=`Interés corregido de ${fmt(d.intOrig)} a ${fmt(d.intReal)}`;
+  }
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'correccion_cuota_cobrada',tipoLabel:'Cuota cobrada corregida',
+    monto:-d.dif,motivo:`Cuota ${q.num}: ${fmt(d.actual)} → ${fmt(d.real)}. La diferencia de ${fmt(Math.abs(d.dif))} pasó a la cuota ${d.sig.num} (${fmt(antesSig)} → ${fmt(d.sigNueva)})`,autor:'Admin'});
+  await saveClienteFields(c,['cuotasData','historialAjustes','comisionEventos']);
+  moverPool(d.dif>0?'salida':'entrada',Math.abs(d.dif),`Corrección cuota ${q.num}`,c.nombre);
+  log({tipo:'correccion_cuota_cobrada',clienteId:c.id,cliente:c.nombre,monto:d.real,cuota:q.num,total:c.numCuotas,
+       ts:Date.now(),autor:'Admin',registradoPor:'Admin',
+       nota:`Cuota ${q.num} corregida de ${fmt(d.actual)} a ${fmt(d.real)}; ${fmt(Math.abs(d.dif))} pasaron a la cuota ${d.sig.num}${movCap||movInt?' (caja ajustada)':' (caja SIN ajustar)'}`});
+  notify(`Cuota ${q.num} corregida a ${fmt(d.real)} · la cuota ${d.sig.num} queda en ${fmt(d.sigNueva)} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+}
+
+async function corregirMontoCuotaExtra(id,cuotaIdx){
+  const c=clientes.find(x=>x.id===id);if(!c)return;
+  const q=c.cuotasData?.[cuotaIdx];
+  if(!q||!q.extra){notify('Solo se puede corregir el monto de una cuota extra','err');return;}
+  if(cuotaIdx>=Math.max(0,c.pagadas||0)){notify('Esa cuota extra todavía no está cobrada: edítala o quítala','err');return;}
+  const actual=Math.round(q.cuota||0);
+  const entrada=prompt(`Cuota extra ${q.num} de ${c.nombre} — programada para el ${q.fecha}\n\nQuedó registrada por ${fmt(actual)}.\n¿Cuánto se recibió en realidad?`,String(actual));
+  if(entrada===null)return;
+  const real=Math.max(0,Math.round(parseFloat(entrada)||0));
+  if(real<=0){notify('Monto inválido','err');return;}
+  if(real===actual){notify('El monto es el mismo, no hay nada que corregir','ok');return;}
+  const dif=real-actual;
+  const mov=movimientoAjusteDeCuota(c,cuotaIdx);
+  if(!confirm(`Corregir la cuota extra ${q.num} de ${c.nombre}\n\n`+
+    `Registrado: ${fmt(actual)}\nReal:       ${fmt(real)}\nDiferencia: ${dif>0?'+':''}${fmt(dif)}\n\n`+
+    `Se ajusta el cronograma, el total del préstamo y ${mov?'el ingreso en caja':'(ojo: NO se encontró el ingreso en caja, ajusta caja aparte)'}.\n\n¿Continuar?`))return;
+  q.cuota=real;
+  q.montoCorregido={antes:actual,despues:real,fecha:coDateTimeISO(),autor:'Admin'};
+  c.total=Math.max(0,Math.round((c.total||0)+dif));
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'correccion_cuota_extra',tipoLabel:'Cuota extra corregida',
+    monto:dif,motivo:`Cuota ${q.num}: ${fmt(actual)} → ${fmt(real)}`,autor:'Admin'});
+  await saveClienteFields(c,['cuotasData','total','historialAjustes']);
+  if(mov){
+    mov.monto=real;
+    if(fbOk&&db)await db.ref('caja/'+mov.id+'/monto').set(real).catch(()=>{});
+    localStorage.setItem('cr_caja',JSON.stringify(caja));
+  }
+  if(dif<0)moverPool('salida',Math.abs(dif),`Corrección cuota extra ${q.num}`,c.nombre);
+  else moverPool('entrada',dif,`Corrección cuota extra ${q.num}`,c.nombre);
+  log({tipo:'correccion_cuota_extra',clienteId:c.id,cliente:c.nombre,monto:real,cuota:q.num,total:c.numCuotas,
+       ts:Date.now(),autor:'Admin',registradoPor:'Admin',
+       nota:`Cuota extra ${q.num} corregida de ${fmt(actual)} a ${fmt(real)}${mov?' (caja ajustada)':' (caja SIN ajustar)'}`});
+  notify(`Cuota extra ${q.num} corregida a ${fmt(real)} ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
+}
+
+// ══════════════════════════════════════════════
+// CRONOGRAMAS QUE ARRANCAN ANTES DE ENTREGAR LA PLATA
+// ══════════════════════════════════════════════
+// Un ciclo no puede tener cuotas con fecha anterior al día en que se desembolsó: nacen vencidas,
+// disparan mora que no existe y empujan a marcar pagos que nadie hizo. Jamer quedó así: ciclo
+// entregado el 02/07 con cuotas el 15/06 y el 30/06. Se detecta contra el desembolso REAL
+// registrado en caja, que es el único dato que no se puede editar a mano.
+// Momento exacto del último desembolso: el dato de arranque del ciclo vigente que no se edita a mano.
+function tsDesembolsoCiclo(c){
+  const movs=(Array.isArray(caja)?caja:[])
+    .filter(m=>m&&m.clienteId===c.id&&m.subtipo==='desembolso_prestamo')
+    .sort((a,b)=>(a.ts||0)-(b.ts||0));
+  return movs.length?(movs[movs.length-1].ts||0):0;
+}
+function fechaDesembolsoCiclo(c){
+  const ts=tsDesembolsoCiclo(c);
+  return ts?coDateKey(ts):(c.fechaInicio||null);
+}
+function cronogramaAnteriorAlCiclo(c){
+  if(!c||!Array.isArray(c.cuotasData)||!c.cuotasData.length)return null;
+  const desembolso=fechaDesembolsoCiclo(c);
+  if(!desembolso)return null;
+  const malas=c.cuotasData.filter(q=>q&&q.fechaISO&&q.fechaISO<=desembolso);
+  if(!malas.length)return null;
+  return{c,desembolso,malas,nuevas:fechasAncladas(c.tipo,desembolso,c.cuotasData.length,anclaPorDefecto(c.tipo,desembolso))||[]};
+}
+function diagnosticoCronogramasImposibles(){
+  return (Array.isArray(clientes)?clientes:[]).map(cronogramaAnteriorAlCiclo).filter(Boolean);
+}
+async function repararCronogramaCiclo(id){
+  const c=clientes.find(x=>x.id===id);
+  const d=cronogramaAnteriorAlCiclo(c);
+  if(!d){notify('El cronograma de este cliente no arranca antes del desembolso ✓','ok');return;}
+  if(d.nuevas.length!==c.cuotasData.length){notify('No se pudo recalcular el cronograma completo; ajusta las fechas una por una.','err');return;}
+  const antes=c.cuotasData.map(q=>q.fecha).join(', ');
+  const despues=d.nuevas.map(f=>labelFromUTCDate(coUTCDateFromKey(f))).join(', ');
+  if(!confirm(`📅 Recalcular el cronograma de ${c.nombre}\n\n`+
+    `La plata se entregó el ${labelFromUTCDate(coUTCDateFromKey(d.desembolso))}, pero hay ${d.malas.length} cuota(s) con fecha anterior o igual a ese día.\n\n`+
+    `Antes:   ${antes}\nQueda:   ${despues}\n\n`+
+    `Solo cambian las FECHAS. Los montos, las cuotas pagadas y la plata en caja no se tocan.\n\n¿Continuar?`))return;
+  c.cuotasData.forEach((q,i)=>{
+    q.fechaISO=d.nuevas[i];
+    q.fecha=labelFromUTCDate(coUTCDateFromKey(d.nuevas[i]));
+    q.fechaRecalculada=coDateTimeISO();
+  });
+  c.fechaInicio=d.desembolso;
+  c.ancla=anclaPorDefecto(c.tipo,d.desembolso);
+  c.moraBaseDate=null;
+  if(!c.historialAjustes)c.historialAjustes=[];
+  c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'recalculo_cronograma',tipoLabel:'Cronograma recalculado',monto:0,
+    motivo:`Arrancaba antes del desembolso (${d.desembolso}). ${antes} → ${despues}`,autor:'Admin'});
+  await saveClienteFields(c,['cuotasData','fechaInicio','ancla','moraBaseDate','historialAjustes']);
+  log({tipo:'recalculo_cronograma',clienteId:c.id,cliente:c.nombre,ts:Date.now(),autor:'Admin',
+       nota:`Cronograma recalculado desde el desembolso ${d.desembolso}: ${antes} → ${despues}`});
+  notify(`Cronograma de ${c.nombre} recalculado ✓`,'ok');
+  cerrar('modal-cli');renderClientes();renderInicio();actualizarEstadoCalendarioEstandar();
+}
+
 function liquidarAnticipado(id){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
   _busyConfirm=true;setTimeout(()=>{_busyConfirm=false;},400);
@@ -3351,6 +4042,12 @@ function confirmarExtensionInteres(){
   if(monto<=0){notify('Ingresa el monto recibido','err');return;}
   const fechaExtension=document.getElementById('ext-fecha').value;
   if(!fechaExtension){notify('Selecciona la próxima fecha de pago','err');return;}
+  // La extensión corre el cronograma UNA casilla: la cuota vencida pasa a la siguiente fecha
+  // estándar y las de atrás se corren detrás. La fecha digitada se ancla sola al 15 / fin de mes,
+  // así no vuelven a nacer fechas sueltas como el 16/08 o el 18/08.
+  const corridas=fechasCorridasExtension(c);
+  const cronoAntes=(c.cuotasData||[]).slice(c.pagadas||0).map(q=>q.fechaISO);
+  const fechaReal=corridas.length?corridas[0]:fechaExtension;
   const m=mora(c);
   // "Solo interés" — el monto completo es interés puro. La mora acumulada se perdona
   // automáticamente al fijar graciaHasta (nueva fecha de gracia). No se cobra mora aquí.
@@ -3365,15 +4062,21 @@ function confirmarExtensionInteres(){
     registrarCajaAuto('interes_cobrado',interesEnEste,`Interés extensión ${c.nombre} · cuota ${c.pagadas+1}`,`ext:${c.id}:${c.pagadas+1}:int:${Date.now()}`,{clienteId:c.id,cliente:c.nombre,...meta});
   }
   if(interesEnEste>0){
-    registrarComisionEventoCliente(c,{interes:interesEnEste,mora:0,autor:'Admin',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaExtension}`});
+    registrarComisionEventoCliente(c,{interes:interesEnEste,mora:0,autor:'Admin',nota:`Interés extensión cuota ${c.pagadas+1}/${c.numCuotas} → próx. ${fechaReal}`});
   }
-  c.graciaHasta=fechaExtension;
-  c.moraBaseDate=fechaExtension;
+  if(corridas.length){
+    aplicarFechasPendientes(c,corridas,'fechaCorridaExtension');
+    if(!c.historialAjustes)c.historialAjustes=[];
+    c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'corrimiento_extension',tipoLabel:'Cronograma corrido por extensión',monto:0,
+      motivo:`Pendientes: ${cronoAntes.join(', ')} → ${corridas.join(', ')}`,autor:'Admin'});
+  }
+  c.graciaHasta=fechaReal;
+  c.moraBaseDate=fechaReal;
   c.ultimoPago=coDateTimeISO();
-  log({tipo:'extension_interes',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',...meta,nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaExtension}. Interés: ${fmt(interesEnEste)}`});
+  log({tipo:'extension_interes',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',...meta,nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaReal}. Interés: ${fmt(interesEnEste)}${corridas.length>1?`. Cronograma corrido: ${corridas.join(', ')}`:''}`});
   alimentarPool(monto,c.nombre); // FIX NEW-2: pool no se alimentaba en extensión admin
-  notify(`Extensión registrada — próxima cuota: ${fechaExtension} ✓`,'ok');
-  saveClienteFields(c,['historialMora','moraPerdonada','comisionEventos','graciaHasta','moraBaseDate','ultimoPago']);
+  notify(`Extensión registrada — próxima cuota: ${fechaReal} ✓${fechaReal!==fechaExtension?` (ajustada al calendario)`:''}`,'ok');
+  saveClienteFields(c,['historialMora','moraPerdonada','comisionEventos','graciaHasta','moraBaseDate','ultimoPago','cuotasData','historialAjustes']);
   cerrar('modal-extension');
   renderClientes();renderInicio();renderCaja();
 }
@@ -3755,15 +4458,140 @@ function renderFinanzas(){
   if(waEl)waEl.value=getWATemplate();
 }
 
+// ══════════════════════════════════════════════
+// COBROS QUE ENTRARON A CAJA PERO NO DEJARON RASTRO EN ACTIVIDAD
+// ══════════════════════════════════════════════
+// Caso real (Leidy López, 31/07/2026): el cobrador registró la cuota, la plata entró a caja y el
+// cliente avanzó… pero en Actividad no apareció nada y el admin nunca se enteró del pago.
+// La caja es el registro que sí quedó completo, así que sirve de patrón para reconstruir el aviso.
+// Compara contra el nodo COMPLETO de actividad (en pantalla solo viven las últimas entradas):
+// reconciliar contra la lista recortada crearía duplicados de todo el historial viejo.
+const PARTES_COBRO={capital:1,interes:1,ajuste:1,mora:1,cap:1,int:1};
+function grupoCobroDeRefKey(refKey){
+  const partes=String(refKey||'').split(':');
+  if(partes.length<4)return null;
+  const prefijo=partes[0];
+  if(!['pago','pago_cob','pago_mora'].includes(prefijo))return null;
+  const parte=partes[partes.length-1];
+  if(!PARTES_COBRO[parte])return null;
+  const cuota=Number(partes[partes.length-2]);
+  if(!Number.isFinite(cuota)||cuota<=0)return null;
+  return{clave:partes.slice(0,-1).join(':'),cuota,autor:prefijo==='pago_cob'?'Cobrador':'Admin'};
+}
+function cobrosSinActividad(actividadCompleta,desdeTs){
+  const grupos=new Map();
+  (Array.isArray(caja)?caja:[]).forEach(m=>{
+    if(!m||m.tipo!=='ingreso'||!m.refKey||!m.clienteId)return;
+    if(desdeTs&&(m.ts||0)<desdeTs)return;
+    const g=grupoCobroDeRefKey(m.refKey);
+    if(!g)return;
+    const prev=grupos.get(g.clave);
+    if(prev){prev.monto+=Math.max(0,Math.round(m.monto||0));prev.ts=Math.min(prev.ts,m.ts||0);}
+    else grupos.set(g.clave,{...g,clienteId:m.clienteId,cliente:m.cliente||'',monto:Math.max(0,Math.round(m.monto||0)),ts:m.ts||0,metodoPago:m.metodoPago,recibidoPor:m.recibidoPor});
+  });
+  const pagos=(Array.isArray(actividadCompleta)?actividadCompleta:[])
+    .filter(a=>a&&(a.tipo==='pago'||a.tipo==='abono'||a.tipo==='reversion_pago'));
+  const faltan=[];
+  grupos.forEach(g=>{
+    // Un aviso cuenta como presente si es del mismo cliente, la misma cuota y cae en la misma franja
+    // de 30 minutos del cobro. Sin la ventana, un cliente con varias cuotas del mismo número entre
+    // ciclos se daría por cubierto con el aviso de otro ciclo.
+    const existe=pagos.some(a=>
+      (a.clienteId===g.clienteId||(g.cliente&&a.cliente===g.cliente))&&
+      Number(a.cuota||0)===g.cuota&&
+      Math.abs((a.ts||0)-g.ts)<=1800000);
+    if(!existe)faltan.push(g);
+  });
+  return faltan.sort((a,b)=>a.ts-b.ts);
+}
+async function repararActividadFaltante(opts={}){
+  if(!fbOk||!db){notify('Necesitas conexión para revisar el historial completo','err');return{creados:0};}
+  if(!opts.sinConfirmar)notify('Revisando cobros contra el historial completo…','ok');
+  let completa=[];
+  try{
+    completa=arrFirebase((await db.ref('actividad').once('value')).val());
+  }catch(e){notify('No se pudo leer el historial de actividad: '+e.message,'err');return{creados:0};}
+  const desde=Date.now()-90*DAY_MS; // 90 días: suficiente para cualquier ciclo vivo
+  const faltan=cobrosSinActividad(completa,desde);
+  if(!faltan.length){if(!opts.sinConfirmar)notify('Todos los cobros de los últimos 90 días tienen su aviso en Actividad ✓','ok');return{creados:0};}
+  const detalle=faltan.map(g=>`• ${g.cliente||g.clienteId} · cuota ${g.cuota} · ${fmt(g.monto)} · ${coDateLabel(g.ts)} ${coTimeLabel(g.ts)} (${g.autor})`).join('\n');
+  if(!opts.sinConfirmar&&!confirm(`Se encontraron ${faltan.length} cobro(s) que entraron a caja pero nunca aparecieron en Actividad:\n\n${detalle}\n\n`+
+    `Se van a reconstruir los avisos con su fecha y su autor originales.\nNO se toca la plata ni las cuotas: solo se recupera el aviso que se perdió.\n\n¿Continuar?`))return{creados:0};
+  let creados=0;
+  for(const g of faltan){
+    const cliente=clientes.find(x=>x.id===g.clienteId);
+    const item={tipo:'pago',clienteId:g.clienteId,cliente:g.cliente||cliente?.nombre||'',monto:g.monto,
+      cuota:g.cuota,total:cliente?.numCuotas||null,ts:g.ts,autor:g.autor,
+      registradoPor:g.autor,recibidoPor:g.recibidoPor||g.autor,metodoPago:g.metodoPago||'efectivo',
+      nota:'Aviso reconstruido desde caja — se perdió al registrarse',reconstruido:true};
+    try{
+      await db.ref('actividad/act_rec_'+g.ts+'_'+g.cuota+'_'+g.clienteId).set(item);
+      creados++;
+    }catch(e){console.error('No se pudo reconstruir actividad',g,e);}
+  }
+  log({tipo:'reparacion_actividad_faltante',cliente:'Sistema',monto:faltan.reduce((s,g)=>s+g.monto,0),ts:Date.now(),autor:'Admin',
+       nota:`${creados} aviso(s) de cobro reconstruidos desde caja: ${faltan.map(g=>g.cliente||g.clienteId).join(' · ')}`});
+  if(!opts.sinConfirmar)notify(`${creados} aviso(s) recuperados en Actividad ✓`,'ok');
+  renderActividad();renderInicio();
+  return{creados};
+}
+
+// ── Feed de actividad ──
+// Antes se cortaba en 40 líneas sin decirlo y sin filtros: un pago del cobrador se perdía de vista
+// en cuanto pasaban unos días de movimiento. Ahora el feed muestra todo lo cargado, se puede
+// filtrar por origen y buscar por cliente, y avisa cuando hay cobros sin aviso.
+let _filtroActividad='todo';
+let _busquedaActividad='';
+function setFiltroActividad(f){
+  _filtroActividad=f;
+  renderActividad();
+}
+// goTab() limpia .active de TODOS los .tab de la página, y estos chips comparten esa clase para
+// heredar el estilo. Si el resaltado se pintara solo al hacer clic, cambiar de pestaña y volver
+// dejaría el filtro aplicado pero ningún chip marcado. Se repinta desde el estado, no desde el clic.
+function sincronizarChipsActividad(){
+  document.querySelectorAll('#act-filtros .tab').forEach(t=>{
+    t.classList.toggle('active',t.dataset.filtro===_filtroActividad);
+  });
+}
+function setBusquedaActividad(v){_busquedaActividad=String(v||'').trim().toLowerCase();renderActividad();}
+function actividadFiltrada(){
+  const h=hoy();
+  return actividad.filter(a=>{
+    if(!a)return false;
+    if(_filtroActividad==='cobrador'&&(a.registradoPor||a.autor)!=='Cobrador')return false;
+    if(_filtroActividad==='dinero'&&!(a.monto>0))return false;
+    if(_filtroActividad==='hoy'&&!sameCoDate(a.ts,h))return false;
+    if(_busquedaActividad&&!String(a.cliente||'').toLowerCase().includes(_busquedaActividad))return false;
+    return true;
+  });
+}
 function renderActividad(){
   const el=document.getElementById('feed-act');
-  if(!actividad.length){el.innerHTML='<div class="empty"><div class="empty-i">📡</div><div class="empty-t">Sin actividad aún</div></div>';return;}
-  const im={pago:'💰',nuevo:'📋',abono:'💵',extension_interes:'💳',mora_cobrada:'🧾',refinanciacion:'🔄',mora_perdonada:'🤝',no_pago:'❌',liquidacion_anticipada:'⚡'};
-  const bg={pago:'var(--greend)',nuevo:'var(--goldd)',abono:'var(--blued)',extension_interes:'var(--blued)',mora_cobrada:'var(--amberd)',refinanciacion:'var(--amberd)',mora_perdonada:'var(--greend)',no_pago:'var(--redd)',liquidacion_anticipada:'var(--greend)'};
-  el.innerHTML=actividad.slice(0,40).map(a=>{
+  if(!el)return;
+  sincronizarChipsActividad();
+  const resumen=document.getElementById('act-resumen');
+  if(resumen){
+    const h=hoy();
+    const hoyDinero=actividad.filter(a=>a&&a.monto>0&&sameCoDate(a.ts,h));
+    const delCobrador=hoyDinero.filter(a=>(a.recibidoPor||a.autor)==='Cobrador').reduce((s,a)=>s+(a.monto||0),0);
+    const delAdmin=hoyDinero.filter(a=>(a.recibidoPor||a.autor)==='Admin').reduce((s,a)=>s+(a.monto||0),0);
+    resumen.innerHTML=`<div class="cs"><div class="csl">Movimientos cargados</div><div class="csv">${actividad.length}</div></div>`+
+      `<div class="cs"><div class="csl">Hoy recibió Cobrador</div><div class="csv" style="color:var(--gold)">${fmt(delCobrador)}</div></div>`+
+      `<div class="cs"><div class="csl">Hoy recibió Admin</div><div class="csv" style="color:var(--green)">${fmt(delAdmin)}</div></div>`;
+  }
+  const lista=actividadFiltrada();
+  if(!lista.length){
+    el.innerHTML=`<div class="empty"><div class="empty-i">📡</div><div class="empty-t">${actividad.length?'Nada con ese filtro':'Sin actividad aún'}</div></div>`;
+    return;
+  }
+  const im={pago:'💰',nuevo:'📋',abono:'💵',extension_interes:'💳',mora_cobrada:'🧾',refinanciacion:'🔄',mora_perdonada:'🤝',no_pago:'❌',liquidacion_anticipada:'⚡',reversion_pago:'↩️',recalculo_cronograma:'📅'};
+  const bg={pago:'var(--greend)',nuevo:'var(--goldd)',abono:'var(--blued)',extension_interes:'var(--blued)',mora_cobrada:'var(--amberd)',refinanciacion:'var(--amberd)',mora_perdonada:'var(--greend)',no_pago:'var(--redd)',liquidacion_anticipada:'var(--greend)',reversion_pago:'var(--redd)',recalculo_cronograma:'var(--amberd)'};
+  el.innerHTML=lista.map(a=>{
     const ts=new Date(a.ts).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
     const cuota=a.tipo==='pago'&&a.cuota?` · cuota ${a.cuota}/${a.total||'?'}`:'';
-    return`<div class="ai"><div class="ai-icon" style="background:${bg[a.tipo]||'var(--bg3)'}">${im[a.tipo]||'📝'}</div><div class="ai-body"><div class="ai-title">${htmlSafe(tituloActividad(a))}${cuota}</div><div class="ai-sub" style="color:var(--text2);margin-top:3px">${htmlSafe(detalleResponsablesActividad(a))}</div><div class="ai-sub">${ts}${a.nota?' · '+htmlSafe(a.nota):''}</div></div>${a.monto>0?`<div class="ai-amt">${fmt(a.monto)}</div>`:''}</div>`;
+    const marca=a.reconstruido?' <span class="badge bgray" style="font-size:9px">recuperado</span>':'';
+    return`<div class="ai"><div class="ai-icon" style="background:${bg[a.tipo]||'var(--bg3)'}">${im[a.tipo]||'📝'}</div><div class="ai-body"><div class="ai-title">${htmlSafe(tituloActividad(a))}${cuota}${marca}</div><div class="ai-sub" style="color:var(--text2);margin-top:3px">${htmlSafe(detalleResponsablesActividad(a))}</div><div class="ai-sub">${ts}${a.nota?' · '+htmlSafe(a.nota):''}</div></div>${a.monto>0?`<div class="ai-amt">${fmt(a.monto)}</div>`:''}</div>`;
   }).join('');
 }
 
@@ -4078,9 +4906,18 @@ function resumenComisionCliente(c){
 function eventosHistoricosCliente(c){
   const map=new Map();
   const keyOf=(e,fb)=>e&&e.id?e.id:`${(e&&e.ts)||0}_${(e&&e.nota)||''}_${fb}`;
+  // Un cobro rescatado de un ciclo archivado recibe un id nuevo (el de Laura usma venía sin id)
+  // pero guarda en claveOriginal la clave que tenía dentro del ciclo. Sin traducir esa clave, el
+  // original archivado y el rescatado se cuentan como dos cobros distintos y la comisión sale
+  // duplicada: rescatar $4.000 le sumaba $8.000 al total del admin.
+  const alias=new Map();
+  (Array.isArray(c.comisionEventos)?c.comisionEventos:[]).forEach((e,i)=>{
+    if(e&&e.claveOriginal)alias.set(e.claveOriginal,keyOf(e,`a${i}`));
+  });
   (c.ciclos||[]).forEach((cy,ci)=>{
     (cy.comisionEventos||[]).filter(e=>e&&!e.duplicadoAnulado).forEach((e,i)=>{
-      map.set(keyOf(e,`c${ci}_${i}`),Object.assign({},e,{_ciclo:cy.cicloNum||(ci+1)}));
+      const k=alias.get(_claveEvento(e))||keyOf(e,`c${ci}_${i}`);
+      map.set(k,Object.assign({},e,{_ciclo:cy.cicloNum||(ci+1)}));
     });
   });
   const cicloActual=((c.ciclos||[]).length)+1;
@@ -5368,15 +6205,27 @@ function eventosArchivadosPerdidos(){
       const k=_claveEvento(e); if(k)vivos.add(k);
       if(e&&e.claveOriginal)vivos.add(e.claveOriginal);
     });
+    // Un mismo cobro puede quedar guardado en VARIOS ciclos, y con estados contradictorios entre
+    // ellos. Contarlo por copias inflaba el resultado: reportaba 37 "cobros enterrados" por
+    // $228.000 cuando detrás solo había 19 cobros y $4.000 realmente pendientes, y rescatarlos
+    // le habría reconocido al cobrador plata que ya se le pagó. Se junta por clave, y basta con
+    // que UNA copia diga liquidado para darlo por pagado.
+    const porClave=new Map();
     ciclos.forEach((ci,idx)=>{
       const evs=(ci&&Array.isArray(ci.comisionEventos))?ci.comisionEventos:[];
       evs.forEach(ev=>{
         if(!ev||ev.duplicadoAnulado)return;
         const k=_claveEvento(ev);
         if(!k||vivos.has(k))return; // es una copia del que sigue vivo: todo bien
-        out.push({cliente:c,evento:ev,ciclo:idx,comision:Math.max(0,Math.round(ev.comision||0)),pendiente:!ev.liquidado});
+        const prev=porClave.get(k);
+        if(!prev){
+          porClave.set(k,{cliente:c,evento:ev,ciclo:idx,comision:Math.max(0,Math.round(ev.comision||0)),pendiente:!ev.liquidado});
+        }else if(prev.pendiente&&ev.liquidado){
+          porClave.set(k,Object.assign(prev,{evento:ev,ciclo:idx,pendiente:false}));
+        }
       });
     });
+    porClave.forEach(v=>out.push(v));
   });
   return out.sort((a,b)=>b.comision-a.comision);
 }
@@ -5562,12 +6411,15 @@ function auditoriaComisiones(){
     .reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
   const totalLiquidaciones=liquidaciones.reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
   // Lo pagado (historial) = cobros enteros ya marcados + saldo a favor pendiente de aplicar.
+  // Cuenta la comisión liquidada REAL (incluye los cobros archivados en ciclos): con la cuenta
+  // corta esta alerta salía en rojo por $181.333 aunque las cuentas estuvieran bien.
+  const totalEventosLiquidadoReal=comisionLiquidadaReal();
   const creditoCob=Math.max(0,Math.round(window._creditoCobrador||0));
-  if(Math.abs((totalEventosLiquidado+creditoCob)-totalLiquidaciones)>1){
+  if(Math.abs((totalEventosLiquidadoReal+creditoCob)-totalLiquidaciones)>1){
     issues.push({tipo:'red',
-      msg:`El saldo a favor del cobrador está desfasado ${fmt(Math.abs(totalLiquidaciones-totalEventosLiquidado-creditoCob))}`,
-      sub:`Debería ser ${fmt(Math.max(0,totalLiquidaciones-totalEventosLiquidado))} y está en ${fmt(creditoCob)}. `+
-          `Comisión liquidada real ${fmt(totalEventosLiquidado)} + saldo a favor debe dar lo abonado (${fmt(totalLiquidaciones)}). `+
+      msg:`El saldo a favor del cobrador está desfasado ${fmt(Math.abs(totalLiquidaciones-totalEventosLiquidadoReal-creditoCob))}`,
+      sub:`Debería ser ${fmt(Math.max(0,totalLiquidaciones-totalEventosLiquidadoReal))} y está en ${fmt(creditoCob)}. `+
+          `Comisión liquidada real ${fmt(totalEventosLiquidadoReal)} + saldo a favor debe dar lo abonado (${fmt(totalLiquidaciones)}). `+
           `Se corrige con "Recalcular saldo a favor" en el botón de reconciliar.`});
   }
   const eventosInvalidos=items.filter(({evento})=>{
@@ -5613,13 +6465,20 @@ function auditoriaComisiones(){
 // liquidados (rescatar uno enterrado que ya estaba pagado, anular un duplicado pagado) lo
 // desajusta, y sumar/restar a mano se equivoca en cuanto pasan dos cosas a la vez.
 // Recalcularlo desde la verdad es autocorrectivo: arregla también la deriva que ya existiera.
+// Comisión que de verdad se le ha liquidado al cobrador, contando también los cobros archivados
+// dentro de c.ciclos. eventosComisionTodos() solo mira el arreglo vigente y se dejaba por fuera
+// $181.333 ya pagados: con esa cuenta corta, el "saldo a favor" salía en $182.666 en vez de
+// $1.333 y aplicarlo le quitaba al cobrador $185.333 de su pendiente.
+function comisionLiquidadaReal(){
+  return (Array.isArray(clientes)?clientes:[]).reduce((s,c)=>
+    s+eventosHistoricosCliente(c)
+      .filter(e=>e&&e.liquidado&&!e.duplicadoAnulado)
+      .reduce((t,e)=>t+Math.max(0,Math.round(e.comision||0)),0),0);
+}
 function creditoCobradorCorrecto(){
   const pagado=(Array.isArray(liquidaciones)?liquidaciones:[])
     .reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
-  const liquidadaReal=eventosComisionTodos('todo')
-    .filter(x=>x.evento.liquidado&&!x.evento.duplicadoAnulado)
-    .reduce((s,x)=>s+Math.max(0,Math.round(x.evento.comision||0)),0);
-  return Math.max(0,pagado-liquidadaReal);
+  return Math.max(0,pagado-comisionLiquidadaReal());
 }
 async function recalcularCreditoCobrador(){
   const antes=Math.max(0,Math.round(window._creditoCobrador||0));
@@ -5874,6 +6733,75 @@ async function repararDuplicadosComision(){
   return {grupos:dups.length,anulados,recuperado};
 }
 
+// ══════════════════════════════════════════════
+// VIGILANCIAS NACIDAS DE DESCUADRES REALES
+// ══════════════════════════════════════════════
+// Cada una corresponde a algo que ya pasó, costó plata o tiempo, y hubo que descubrir a mano.
+// Se revisan en cada reconciliación para no volver a depender de que alguien las note.
+
+// Agosto 2026 — Jamer y Carolina. La extensión movía graciaHasta sin tocar cuotasData: la cuota
+// corrida se mostraba tarde y la SIGUIENTE se quedaba quieta, venciendo antes que ella. El día
+// que pagaran, la app les habría cobrado mora que no debían.
+function diagnosticoCronogramasDesalineados(){
+  return (Array.isArray(clientes)?clientes:[])
+    .map(c=>{const d=cronogramaDesalineado(c);return d?{c,d}:null;}).filter(Boolean);
+}
+// Agosto 2026 — el cobrador reclamaba que no le daban las cuentas y tenía razón. La prueba de
+// fuego no es comparar pantallas, es amarrar la comisión contra la PLATA: lo que queda pendiente
+// más lo ya liquidado tiene que dar exactamente la comisión generada, y lo abonado tiene que
+// cubrir lo liquidado más el saldo a favor. Si algún día una de las dos apps vuelve a leer mal,
+// este cuadre se rompe sin importar de qué lado esté el error.
+function cuadreComisionContraPlata(){
+  let generada=0,pendiente=0;
+  (Array.isArray(clientes)?clientes:[]).forEach(c=>{
+    eventosHistoricosCliente(c).filter(e=>e&&!e.duplicadoAnulado).forEach(e=>{
+      const v=Math.max(0,Math.round(e.comision||0));
+      generada+=v; if(!e.liquidado)pendiente+=v;
+    });
+  });
+  const acreditado=(Array.isArray(liquidaciones)?liquidaciones:[])
+    .reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
+  const credito=Math.max(0,Math.round(window._creditoCobrador||0));
+  const seLeDebe=pendiente-credito;          // lo que la app le muestra por cobrar
+  const seLeDebeReal=generada-acreditado;    // lo que dice la plata que de verdad se movió
+  return {generada,pendiente,acreditado,credito,seLeDebe,seLeDebeReal,dif:seLeDebe-seLeDebeReal};
+}
+// El desglose capital+interés de las cuotas debe sumar el capital y el interés del préstamo.
+// genCuotas() reparte con Math.round por cuota, así que cuando el plazo no divide exacto quedan
+// pesos sueltos que se van a caja como capital recuperado de más o de menos.
+function desgloseCuotasDescuadrado(){
+  const out=[];
+  (Array.isArray(clientes)?clientes:[]).forEach(c=>{
+    const cd=Array.isArray(c.cuotasData)?c.cuotasData:[];
+    if(!cd.length)return;
+    const dCap=cd.reduce((s,q)=>s+Math.max(0,Math.round(q.capital||0)),0)-Math.max(0,Math.round(c.capital||0));
+    const dInt=cd.reduce((s,q)=>s+Math.max(0,Math.round(q.interes||0)),0)-Math.max(0,Math.round(c.interes||0));
+    if(dCap||dInt)out.push({c,dCap,dInt});
+  });
+  return out;
+}
+// Agosto 2026 — Angélica pagó $120.000 de una cuota de $150.000 y se marcó completa. Una cuota
+// cobrada debe tener en caja exactamente lo que dice el cronograma. Ojo: un abono parcial previo
+// se registra aparte y hace que la cuota entre por menos, así que esto se reporta para revisar,
+// no como error seguro.
+function cuotasConCajaDistinta(){
+  const out=[];
+  (Array.isArray(clientes)?clientes:[]).forEach(c=>{
+    const cd=Array.isArray(c.cuotasData)?c.cuotasData:[];
+    for(let i=0;i<Math.min(Math.max(0,c.pagadas||0),cd.length);i++){
+      const q=cd[i];
+      // Solo el dinero de la cuota en sí: la mora se cobra aparte y comparte la misma refKey base,
+      // así que incluirla hacía saltar la alerta en cobros que estaban perfectos.
+      const movs=movimientosCajaDeCuota(c,q.num)
+        .filter(m=>['recuperacion_capital','interes_cobrado','cuota_extra_cobrada'].includes(String(m.subtipo||'')));
+      if(!movs.length)continue;   // cobros viejos sin refKey: se revisan por otro lado
+      const enCaja=movs.reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
+      const dif=enCaja-Math.max(0,Math.round(q.cuota||0));
+      if(Math.abs(dif)>1)out.push({c,q,idx:i,enCaja,dif});
+    }
+  });
+  return out;
+}
 function revisionCompleta(){
   const automaticos=[],decisiones=[],informativos=[];
 
@@ -6031,6 +6959,112 @@ function revisionCompleta(){
     });
   }
 
+  // ── Decisión: comisión de cuotas que ya no figuran pagadas ──
+  const huerfanas=diagnosticoComisionesHuerfanas();
+  if(huerfanas.length){
+    const totalH=huerfanas.reduce((s,x)=>s+x.evs.reduce((t,e)=>t+Math.max(0,Math.round(e.comision||0)),0),0);
+    decisiones.push({
+      id:'comhuerfana',
+      titulo:`Anular ${huerfanas.reduce((s,x)=>s+x.evs.length,0)} comisión(es) de cuotas revertidas`,
+      monto:totalH,
+      direccion:'admin',
+      detalle:huerfanas.map(x=>`${x.c.nombre} va en ${x.c.pagadas}/${x.c.numCuotas} pero tiene ${x.evs.length} comisión(es) de cuotas posteriores`).join(' · ')+
+              `. ${fmt(totalH)} dejan de contar como comisión del cobrador: es plata que nunca entró.`,
+      aplicar:async()=>{
+        const r=await repararComisionesHuerfanas({sinConfirmar:true});
+        return `${r.anulados} anulada(s) · ${fmt(r.total)}`;
+      }
+    });
+  }
+
+  // ── Decisión: cobros que entraron a caja sin dejar aviso ──
+  const sinAviso=cobrosSinAvisoRecientes();
+  if(sinAviso.length){
+    decisiones.push({
+      id:'actfaltante',
+      titulo:`Recuperar ${sinAviso.length} aviso(s) de cobro perdidos`,
+      monto:sinAviso.reduce((s,g)=>s+g.monto,0),
+      direccion:'admin',
+      detalle:sinAviso.map(g=>`${g.cliente} cuota ${g.cuota} ${fmt(g.monto)} (${coDateLabel(g.ts)}, ${g.autor})`).join(' · ')+
+              `. La plata sí entró y la cuota sí avanzó, pero el aviso nunca llegó a Actividad. `+
+              `No mueve un peso: solo reconstruye el registro con su fecha y su autor.`,
+      aplicar:async()=>{
+        const r=await repararActividadFaltante({sinConfirmar:true});
+        return `${r.creados} aviso(s) recuperados`;
+      }
+    });
+  }
+
+  // ── Informativo: cronogramas anteriores al desembolso (se arreglan uno por uno) ──
+  const imposibles=diagnosticoCronogramasImposibles();
+  if(imposibles.length){
+    informativos.push({
+      tipo:'red',
+      msg:`${imposibles.length} cliente(s) con cuotas fechadas antes de entregarles la plata`,
+      sub:imposibles.map(d=>`${d.c.nombre}: entregado ${labelFromUTCDate(coUTCDateFromKey(d.desembolso))}, ${d.malas.length} cuota(s) antes`).join(' · ')+
+          '. Se recalcula desde la ficha de cada cliente, para que puedas ver la propuesta antes de aplicarla.'
+    });
+  }
+
+  // ── Vigilancia: cronogramas corridos por una extensión ──
+  const desalineados=diagnosticoCronogramasDesalineados();
+  if(desalineados.length){
+    const invertidos=desalineados.filter(x=>x.d.invertido);
+    informativos.push({
+      tipo:invertidos.length?'red':'amber',
+      msg:invertidos.length
+        ? `${invertidos.length} cliente(s) con el cronograma INVERTIDO — una cuota vence antes que la anterior`
+        : `${desalineados.length} cliente(s) con cuotas fuera del calendario (15 / fin de mes)`,
+      sub:desalineados.slice(0,4).map(x=>`${x.c.nombre}: ${x.d.efec.join(', ')} → ${x.d.nuevas.join(', ')}`).join(' · ')+
+          (desalineados.length>4?` — y ${desalineados.length-4} más`:'')+
+          '. Se corrige desde la ficha de cada cliente con "Corregir al 15 / fin de mes", para que veas la propuesta antes de aplicarla.'+
+          (invertidos.length?' Urgente: el día que paguen, la app les cobra mora que no deben.':'')
+    });
+  }
+  // ── Vigilancia: la comisión tiene que cuadrar contra la plata que se movió ──
+  const cuadre=cuadreComisionContraPlata();
+  if(Math.abs(cuadre.dif)>1){
+    informativos.push({
+      tipo:'red',
+      msg:`La cuenta del cobrador no cuadra contra la plata — ${fmt(Math.abs(cuadre.dif))} de diferencia`,
+      sub:`La app le muestra ${fmt(cuadre.seLeDebe)} por cobrar, pero la plata dice ${fmt(cuadre.seLeDebeReal)} `+
+          `(comisión generada ${fmt(cuadre.generada)} − abonado ${fmt(cuadre.acreditado)}). `+
+          `Revisa que ninguna de las dos apps se haya quedado sin leer los cobros archivados en los ciclos, `+
+          `y que el saldo a favor (${fmt(cuadre.credito)}) esté al día.`
+    });
+  }else{
+    informativos.push({
+      tipo:'blue',
+      msg:`✓ La cuenta del cobrador cuadra contra la plata: ${fmt(cuadre.seLeDebeReal)} por cobrar`,
+      sub:`Comisión generada ${fmt(cuadre.generada)} − abonado ${fmt(cuadre.acreditado)}. `+
+          `Pendiente en eventos ${fmt(cuadre.pendiente)} − saldo a favor ${fmt(cuadre.credito)}.`
+    });
+  }
+  // ── Vigilancia: desglose capital/interés que no suma ──
+  const desglose=desgloseCuotasDescuadrado();
+  if(desglose.length){
+    const pesos=desglose.reduce((s,x)=>s+Math.abs(x.dCap)+Math.abs(x.dInt),0);
+    informativos.push({
+      tipo:pesos>desglose.length*4?'amber':'blue',
+      msg:`${desglose.length} préstamo(s) con el desglose capital/interés desfasado — ${fmt(pesos)} en total`,
+      sub:`El monto de las cuotas está bien; lo que no cuadra es cómo se reparte entre capital e interés, `+
+          `y eso es lo que se registra en caja. Nace del redondeo por cuota cuando el plazo no divide exacto. `+
+          desglose.slice(0,3).map(x=>`${x.c.nombre}: capital ${x.dCap>0?'+':''}${x.dCap}, interés ${x.dInt>0?'+':''}${x.dInt}`).join(' · ')
+    });
+  }
+  // ── Vigilancia: cuota cobrada por un monto distinto al que entró a caja ──
+  const cajaDistinta=cuotasConCajaDistinta();
+  if(cajaDistinta.length){
+    const tot=cajaDistinta.reduce((s,x)=>s+Math.abs(x.dif),0);
+    informativos.push({
+      tipo:'amber',
+      msg:`${cajaDistinta.length} cuota(s) cobradas cuyo ingreso en caja no coincide con el cronograma — ${fmt(tot)}`,
+      sub:cajaDistinta.slice(0,4).map(x=>`${x.c.nombre} cuota ${x.q.num}: cronograma ${fmt(x.q.cuota)} vs caja ${fmt(x.enCaja)}`).join(' · ')+
+          (cajaDistinta.length>4?` — y ${cajaDistinta.length-4} más`:'')+
+          `. Si el cliente pagó un monto distinto, corrígelo con "Pagó menos/más de la cuota" en su ficha: la diferencia se pasa a la cuota siguiente. `+
+          `Un abono parcial previo también produce esta diferencia y en ese caso es normal.`
+    });
+  }
   // ── Informativo (no se toca solo) ──
   try{
     auditoriaComisiones().forEach(i=>{
@@ -6059,7 +7093,45 @@ function saludApp(){
   try{ const mc=metricasCaja(); if(mc.disponibleReal<0)problemas.push({sev:'alto',msg:'Disponible para prestar en NEGATIVO ('+fmt(mc.disponibleReal)+')',sub:'Prestaste más de lo registrado como capital, o pagaste comisiones/gastos por encima de tu caja.'}); }catch(e){}
   const rotos=(Array.isArray(clientes)?clientes:[]).filter(c=>c&&Array.isArray(c.cuotasData)&&(c.numCuotas||0)<c.cuotasData.length);
   if(rotos.length)problemas.push({sev:'alto',msg:rotos.length+' cliente(s) con cuotas descuadradas',sub:rotos.map(c=>c.nombre).join(', ')+' — su deuda puede volverse invisible (numCuotas quedó corto). Repáralo en Reconciliación.'});
+  // ── Los tres descuadres del 31/07/2026, ahora vigilados solos ──
+  // Salieron de un cronograma corrido (Jamer), de revertir cuotas (comisión que quedó suelta) y de
+  // un aviso que se perdió por mala señal (Leidy). Ninguno se veía: había que sospechar y salir a
+  // buscarlo. Ahora aparecen al abrir la app, sin que nadie tenga que acordarse de revisar.
+  try{
+    const imposibles=diagnosticoCronogramasImposibles();
+    if(imposibles.length)problemas.push({sev:'alto',
+      msg:imposibles.length+' cliente(s) con cuotas anteriores al desembolso',
+      sub:imposibles.map(d=>`${d.c.nombre} (entregado ${labelFromUTCDate(coUTCDateFromKey(d.desembolso))}, ${d.malas.length} cuota(s) antes)`).join(' · ')+
+          ' — nacen vencidas y generan mora que no existe. Repáralo en la ficha del cliente.'});
+  }catch(e){}
+  try{
+    const huerfanas=diagnosticoComisionesHuerfanas();
+    if(huerfanas.length){
+      const tot=huerfanas.reduce((s,x)=>s+x.evs.reduce((t,e)=>t+Math.max(0,Math.round(e.comision||0)),0),0);
+      problemas.push({sev:'alto',
+        msg:`${fmt(tot)} de comisión sobre cuotas que ya no figuran pagadas`,
+        sub:huerfanas.map(x=>`${x.c.nombre} (${x.evs.length})`).join(' · ')+
+            ' — le suman al cobrador plata que no entró. Anúlalas en Reconciliación.'});
+    }
+  }catch(e){}
+  try{
+    const sinAviso=cobrosSinAvisoRecientes();
+    if(sinAviso.length)problemas.push({sev:'alto',
+      msg:sinAviso.length+' cobro(s) entraron a caja sin aparecer en Actividad',
+      sub:sinAviso.map(g=>`${g.cliente} cuota ${g.cuota} ${fmt(g.monto)} (${coDateLabel(g.ts)})`).join(' · ')+
+          ' — el pago existe pero nunca te avisó. Recupéralos desde Actividad.'});
+  }catch(e){}
   return {ok:problemas.length===0, problemas};
+}
+// Cobros sin aviso, pero SOLO dentro del tramo de actividad que está cargado en memoria.
+// Más atrás no hay con qué comparar y cualquier cobro viejo parecería sin aviso. El margen de una
+// hora evita que el movimiento más antiguo del tramo se marque solo porque su aviso quedó justo
+// por debajo del corte.
+function cobrosSinAvisoRecientes(){
+  if(!Array.isArray(actividad)||!actividad.length)return [];
+  const masViejo=actividad.reduce((m,a)=>Math.min(m,(a&&a.ts)||Infinity),Infinity);
+  if(!Number.isFinite(masViejo))return [];
+  return cobrosSinActividad(actividad,masViejo+3600000);
 }
 // Validación liviana de los DATOS REALES al abrir Admin. No ejecuta las pruebas de desarrollo
 // dentro del celular: revisa clientes, cuotas, caja, comisiones y saldo del cobrador sin mutar nada.
