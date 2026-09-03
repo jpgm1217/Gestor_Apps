@@ -2538,6 +2538,7 @@ function renderCandidatosRenovar(act){
   const candidatos=act.filter(c=>(c.numCuotas-c.pagadas)<=3&&c.pagadas>0)
     .sort((a,b)=>(a.numCuotas-a.pagadas)-(b.numCuotas-b.pagadas));
   const el=document.getElementById('panel-renovar');
+  if(!el)return;
   if(!candidatos.length){el.innerHTML='';return;}
   el.innerHTML=`<div class="card" style="border-color:var(--goldb);margin-bottom:12px">
     <div class="ct">🔁 Candidatos a renovar (${candidatos.length})</div>
