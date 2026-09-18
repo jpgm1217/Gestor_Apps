@@ -16,6 +16,8 @@
       "tests/**",
       "test-results/**",
       "apps/backup_prestamos*.json",
+      "AUREA_Catalogo*.pdf",
+      "AUREA_Cotizador*.xlsx",
       "package.json",
       "package-lock.json",
       "**/*.md",
