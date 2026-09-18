@@ -3,8 +3,8 @@
     "aurea": {
       "v1": {
         "data": {
-          ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
-          ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
+          ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'gomajupa@gmail.com' || root.child('aurea/v1/users').child(auth.uid).child('active').val() == true)",
+          ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'gomajupa@gmail.com' || ((root.child('aurea/v1/users').child(auth.uid).child('active').val() == true) && (root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'admin' || root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'root')))",
           ".validate": "newData.child('schemaVersion').val() == 2 && newData.child('revision').isNumber() && ((!data.child('revision').isNumber() && newData.child('revision').val() == 1) || (data.child('revision').isNumber() && newData.child('revision').val() == data.child('revision').val() + 1)) && newData.child('settings').exists() && newData.child('materials').exists()",
           "materials": {
             "$index": {
@@ -63,8 +63,15 @@
         },
         "config": {
           "pinHash": {
-            ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'",
-            ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'gomajupa@gmail.com'"
+            ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'gomajupa@gmail.com' || root.child('aurea/v1/users').child(auth.uid).child('active').val() == true)",
+            ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'gomajupa@gmail.com' || ((root.child('aurea/v1/users').child(auth.uid).child('active').val() == true) && (root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'admin' || root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'root')))"
+          }
+        },
+        "users": {
+          "$uid": {
+            ".read": "auth != null && auth.token.email_verified == true && (auth.uid == $uid || auth.token.email == 'gomajupa@gmail.com' || root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'admin' || root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'root')",
+            ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'gomajupa@gmail.com' || root.child('aurea/v1/users').child(auth.uid).child('role').val() == 'root')",
+            ".validate": "newData.hasChildren(['email', 'role', 'active']) && newData.child('email').isString() && (newData.child('role').val() == 'root' || newData.child('role').val() == 'admin' || newData.child('role').val() == 'seller' || newData.child('role').val() == 'viewer') && newData.child('active').isBoolean()"
           }
         },
         "aiUsage": {

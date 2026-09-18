@@ -12,12 +12,15 @@ const FB_CONFIG = {
 
 const DATA_PATH = 'aurea/v1/data';
 const PIN_PATH = 'aurea/v1/config/pinHash';
+const USERS_PATH = 'aurea/v1/users';
 const LOCAL_KEY = 'aurea_data_v1';
 const PIN_KEY = 'aurea_pin_hash_v1';
 const PENDING_CRITICAL_KEY = 'aurea_pending_critical_v1';
 const APP_CHECK_SITE_KEY = '6Ld8oGstAAAAALAszbzyh31d-rv9sq3jITg0sTNX';
 const SCHEMA_VERSION = 2;
 const D = window.AureaDomain;
+const OWNER_EMAIL = 'gomajupa@gmail.com';
+const QUOTE_CATALOG_SEED = 1;
 
 const AUREA_BRAND_PROMPT = `Dirección artística de catálogo premium para AUREA, una marca colombiana de manillas artesanales. Inspiración visual: fotografía vertical elegante, cálida y romántica; paleta champaña, crema, rosa empolvado, negro profundo y dorado; telas satinadas, lino fino, fibras naturales y flores secas muy sutiles; iluminación editorial suave con destellos dorados controlados; profundidad de campo delicada; producto protagonista, nítido y realista. La escena debe sentirse artesanal, femenina, amorosa, sofisticada y lista para Instagram o WhatsApp. Conservar exactamente la forma, colores, cantidades, orden y materiales de la manilla de referencia. No añadir ni quitar balines, dijes, hilos o accesorios. No generar letras, logotipos, marcas de agua, números, sellos ni iconos. Dejar espacio visual limpio en la parte superior y en la parte inferior para que Aurea coloque después su identidad, beneficios y WhatsApp sin cubrir el producto.`;
 
@@ -66,11 +69,188 @@ const DEFAULT_MATERIALS = [
   cost, stock: 0, minStock: 5, active: true, createdAt: Date.now()
 }));
 
+const PRICE_LINES = Object.freeze([
+  { value: 'certified', label: 'Oro 18K' },
+  { value: 'laminated', label: 'Oro laminado 18K' },
+  { value: 'neoprene', label: 'Neopreno argollado' },
+  { value: 'addon', label: 'Dijes y adicionales' }
+]);
+const PRICE_BEADS = Object.freeze(['certificado', 'liso', 'diamantado', 'italiano', 'balin-x', 'neopreno', 'dije']);
+const DEFAULT_PRICE_QUANTITIES = Object.freeze([2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+// Base fija pública: $15.000 de mano de obra + $10.000 de empaque.
+// La propiedad sigue llamándose `labor` para conservar compatibilidad con respaldos anteriores.
+const DEFAULT_PRICE_LABOR = 25000;
+const DEFAULT_PRICE_MODELS = Object.freeze([
+  {
+    id: 'siete-nudos',
+    name: 'Manilla 7 Nudos',
+    note: 'Modelo fijo: se calcula con 6 balines.',
+    quantities: [6],
+    addons: []
+  },
+  {
+    id: 'san-benito',
+    name: 'Manilla San Benito',
+    note: 'Combinaciones pares desde 2 hasta 16 balines.',
+    quantities: [2, 4, 6, 8, 10, 12, 14, 16],
+    addons: ['dije-san-benito']
+  }
+]);
+
+// Precios al público de fábrica, tomados del respaldo del 2026-08-19 (los que el
+// negocio tiene vigentes). Son editables desde la pestaña Precios; esto es lo que
+// restaura el botón "Restaurar precios de fábrica" y lo que ve una instalación nueva.
+const DEFAULT_PRICE_FAMILIES = Object.freeze([
+  {
+    id: 'certificado',
+    name: 'Balín en oro 18K',
+    material: 'Disponible liso o diamantado al mismo precio',
+    line: 'certified',
+    bead: 'certificado',
+    note: 'Oro auténtico con respaldo del lote del proveedor.',
+    braceletTable: true,
+    prices: [['3 mm', 18000], ['4 mm', 31000], ['5 mm', 42000], ['6 mm', 65000], ['7 mm', 90000], ['8 mm', 130000]]
+  },
+  {
+    id: 'neopreno-oro',
+    name: 'Neopreno para oro 18K',
+    material: 'Separador que se combina con balines de oro',
+    line: 'certified',
+    bead: 'neopreno',
+    note: 'Se cobra por unidad dentro de la manilla.',
+    braceletTable: false,
+    prices: [['Unidad', 6500]]
+  },
+  {
+    id: 'liso',
+    name: 'Balín liso',
+    material: 'Oro laminado 18K',
+    line: 'laminated',
+    bead: 'liso',
+    note: 'Un clásico que combina con todo.',
+    braceletTable: true,
+    prices: [['3 mm', 9000], ['4 mm', 10000], ['5 mm', 13000], ['6 mm', 16000], ['8 mm', 20000]]
+  },
+  {
+    id: 'diamantado',
+    name: 'Balín diamantado',
+    material: 'Oro laminado 18K',
+    line: 'laminated',
+    bead: 'diamantado',
+    note: 'Brillo que transforma cada detalle.',
+    braceletTable: true,
+    prices: [['3 mm', 10000], ['4 mm', 11000], ['5 mm', 14000], ['6 mm', 17000], ['8 mm', 21000]]
+  },
+  {
+    id: 'italiano',
+    name: 'Balín italiano',
+    material: 'Oro laminado 18K',
+    line: 'laminated',
+    bead: 'italiano',
+    note: 'Disponible en tamaños de 3, 4, 5 y 6 mm.',
+    braceletTable: true,
+    prices: [['3 mm', 11000], ['4 mm', 12000], ['5 mm', 15000], ['6 mm', 19000]]
+  },
+  {
+    id: 'balin-x',
+    name: 'Balín X',
+    material: 'Oro laminado 18K',
+    line: 'laminated',
+    bead: 'balin-x',
+    note: 'Una textura diferente para un diseño único.',
+    braceletTable: true,
+    prices: [['6 mm', 20000], ['8 mm', 26000]]
+  },
+  {
+    id: 'neopreno',
+    name: 'Neopreno argollado',
+    material: 'Detalle en oro laminado 18K',
+    line: 'neoprene',
+    bead: 'neopreno',
+    note: 'Consulta los colores disponibles antes de confirmar.',
+    braceletTable: false,
+    prices: [['6 mm', 6500], ['8 mm', 8500]]
+  },
+  {
+    id: 'dije-san-benito',
+    name: 'Dije San Benito',
+    material: 'Se suma al precio de la manilla San Benito',
+    line: 'addon',
+    bead: 'dije',
+    note: 'El precio cambia según el tamaño del balín de la manilla.',
+    braceletTable: false,
+    prices: [['3 mm', 15000], ['4 mm', 15000], ['5 mm', 15000], ['6 mm', 15000], ['7 mm', 15000], ['8 mm', 15000]]
+  }
+]);
+
+// Siembras únicas para datos ya guardados en Firebase. Sube el número cuando haya
+// que agregar o actualizar valores oficiales en catálogos que ya existen.
+// 2 = dije San Benito como adicional de la manilla San Benito.
+// 3 = lista vigente 03/09/2026: base fija $25.000, cantidades pares e italiano 6 mm.
+const PRICE_CATALOG_SEED = 3;
+const OFFICIAL_BEAD_PRICE_FAMILIES = Object.freeze(['certificado', 'liso', 'diamantado', 'italiano', 'balin-x']);
+
+function defaultQuoteCatalog() {
+  const seed = window.AureaQuoteSeed || { seed: QUOTE_CATALOG_SEED, rules: {}, variants: [], products: [] };
+  const copy = value => JSON.parse(JSON.stringify(value));
+  return {
+    seed: seed.seed || QUOTE_CATALOG_SEED,
+    rules: copy(seed.rules || {}),
+    variants: copy(seed.variants || []),
+    products: copy(seed.products || [])
+  };
+}
+
+function seedPriceCatalog(catalog, appliedSeed) {
+  const seed = number(appliedSeed);
+  if (seed < 2) {
+    const template = DEFAULT_PRICE_FAMILIES.find(family => family.id === 'dije-san-benito');
+    if (template && !catalog.families.some(family => family.id === template.id)) {
+      catalog.families = [...catalog.families, { ...template, prices: template.prices.map(row => [...row]) }];
+    }
+    catalog.models = catalog.models.map(model => (
+      model.id === 'san-benito' && !(model.addons || []).length
+        ? { ...model, addons: ['dije-san-benito'] }
+        : model
+    ));
+  }
+
+  if (seed < 3) {
+    const official = new Map(DEFAULT_PRICE_FAMILIES
+      .filter(family => OFFICIAL_BEAD_PRICE_FAMILIES.includes(family.id))
+      .map(family => [family.id, family]));
+    // Actualiza una sola vez las familias oficiales presentes, sin revivir familias que
+    // la usuaria haya eliminado ni tocar dijes, neoprenos o familias personalizadas.
+    catalog.families = catalog.families.map(family => {
+      const template = official.get(family.id);
+      if (!template) return family;
+      return {
+        ...family,
+        note: family.id === 'italiano' ? template.note : family.note,
+        prices: template.prices.map(row => [...row])
+      };
+    });
+    catalog.labor = DEFAULT_PRICE_LABOR;
+    catalog.quantities = [...DEFAULT_PRICE_QUANTITIES];
+  }
+  return catalog;
+}
+
+const defaultPriceCatalog = () => ({
+  seed: PRICE_CATALOG_SEED,
+  labor: DEFAULT_PRICE_LABOR,
+  quantities: [...DEFAULT_PRICE_QUANTITIES],
+  models: DEFAULT_PRICE_MODELS.map(model => ({ ...model, quantities: [...model.quantities], addons: [...(model.addons || [])] })),
+  families: DEFAULT_PRICE_FAMILIES.map(family => ({ ...family, prices: family.prices.map(row => [...row]) }))
+});
+
 let S = {
   schemaVersion: SCHEMA_VERSION,
   revision: 0,
   appliedOperations: [],
   settings: { ...DEFAULT_SETTINGS },
+  priceCatalog: defaultPriceCatalog(),
+  quoteCatalog: defaultQuoteCatalog(),
   materials: DEFAULT_MATERIALS,
   designs: [],
   productions: [],
@@ -90,6 +270,9 @@ let pendingLocalChanges = false;
 let localGeneration = 0;
 let criticalInFlight = false;
 let criticalBaseState = null;
+let currentUser = null;
+let currentUserRole = 'root';
+let accessUsers = {};
 let deferredInstall = null;
 let currentComponents = [];
 let currentImageData = '';
@@ -105,6 +288,10 @@ let editingSaleId = null;
 let editingCustomerId = null;
 let editingExpenseId = null;
 let editingPurchaseId = null;
+let editingPriceFamilyId = null;
+let priceFamilyDraft = null;
+let editingPriceModelId = null;
+let priceModelDraft = null;
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -184,6 +371,206 @@ function setSync(mode, text) {
   $('#sync-text').textContent = text;
 }
 
+const isOwnerEmail = email => String(email || '').toLowerCase() === OWNER_EMAIL;
+const canManageCatalog = () => ['root', 'admin'].includes(currentUserRole);
+
+function requireAdminAction() {
+  if (canManageCatalog()) return true;
+  toast('Tu perfil de vendedor solo puede consultar y cotizar');
+  return false;
+}
+
+async function loadCurrentUserRole(user) {
+  currentUser = user ? { uid: user.uid, email: user.email || '' } : null;
+  if (!user) {
+    currentUserRole = 'root';
+    return true;
+  }
+  if (isOwnerEmail(user.email)) {
+    currentUserRole = 'root';
+    return true;
+  }
+  try {
+    const snapshot = await db.ref(`${USERS_PATH}/${user.uid}`).once('value');
+    const profile = snapshot.val();
+    if (!profile || profile.active !== true) {
+      currentUserRole = 'blocked';
+      return false;
+    }
+    currentUserRole = ['admin', 'seller', 'viewer'].includes(profile.role) ? profile.role : 'viewer';
+    return true;
+  } catch (error) {
+    console.warn('Rol de usuario:', error);
+    currentUserRole = 'blocked';
+    return false;
+  }
+}
+
+function applyRoleUI() {
+  document.body.dataset.role = currentUserRole;
+  const admin = canManageCatalog();
+  $$('.admin-only').forEach(element => element.classList.toggle('hidden', !admin));
+  $$('.seller-hidden').forEach(element => element.classList.toggle('hidden', !admin));
+  if (!admin) {
+    $$('.nav-btn').forEach(button => {
+      const allowed = ['home', 'prices'].includes(button.dataset.view);
+      button.classList.toggle('hidden', !allowed);
+    });
+    $$('.quick').forEach(button => {
+      const allowed = button.dataset.go === 'prices';
+      button.classList.toggle('hidden', !allowed);
+    });
+  } else {
+    $$('.nav-btn, .quick').forEach(element => element.classList.remove('hidden'));
+  }
+  if ($('#connected-account')) {
+    const roleText = currentUserRole === 'root' ? 'Root / super admin' : currentUserRole;
+    $('#connected-account').textContent = currentUser?.email ? `${currentUser.email} · ${roleText}` : 'Modo local · root';
+  }
+}
+
+function normalizePriceCatalog(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const fallback = defaultPriceCatalog();
+  const familiesSource = Array.isArray(source.families) && source.families.length ? source.families : fallback.families;
+  const usedIds = new Set();
+  const families = familiesSource
+    .filter(item => item && typeof item === 'object' && (item.id || item.name))
+    .map((item, index) => {
+      let id = cleanCode(item.id || item.name).toLowerCase() || `familia-${index + 1}`;
+      while (usedIds.has(id)) id = `${id.slice(0, 25)}-${index + 1}`;
+      usedIds.add(id);
+      const seenSizes = new Set();
+      const prices = (Array.isArray(item.prices) ? item.prices : [])
+        .map(row => (Array.isArray(row) ? row : [row?.size, row?.price]))
+        .map(([size, price]) => [String(size ?? '').trim().slice(0, 24), Math.max(0, Math.round(number(price)))])
+        .filter(([size]) => {
+          if (!size || seenSizes.has(size.toLowerCase())) return false;
+          seenSizes.add(size.toLowerCase());
+          return true;
+        })
+        .slice(0, 14);
+      return {
+        id,
+        name: String(item.name || 'Sin nombre').trim().slice(0, 60) || 'Sin nombre',
+        material: String(item.material || '').trim().slice(0, 90),
+        line: PRICE_LINES.some(option => option.value === item.line) ? item.line : 'laminated',
+        bead: PRICE_BEADS.includes(item.bead) ? item.bead : 'liso',
+        note: String(item.note || '').trim().slice(0, 180),
+        braceletTable: item.braceletTable !== false,
+        prices
+      };
+    })
+    .filter(family => family.prices.length)
+    .slice(0, 20);
+  const quantities = [...new Set((Array.isArray(source.quantities) && source.quantities.length ? source.quantities : fallback.quantities)
+    .map(value => Math.floor(number(value)))
+    .filter(value => value >= 1 && value <= 200))]
+    .sort((a, b) => a - b)
+    .slice(0, 10);
+  const modelsSource = Array.isArray(source.models) && source.models.length ? source.models : fallback.models;
+  const usedModelIds = new Set();
+  const models = modelsSource
+    .filter(item => item && typeof item === 'object' && (item.id || item.name))
+    .map((item, index) => {
+      let id = cleanCode(item.id || item.name).toLowerCase() || `modelo-${index + 1}`;
+      while (usedModelIds.has(id)) id = `${id.slice(0, 25)}-${index + 1}`;
+      usedModelIds.add(id);
+      const modelQuantities = [...new Set((Array.isArray(item.quantities) ? item.quantities : [])
+        .map(value => Math.floor(number(value)))
+        .filter(value => value >= 1 && value <= 200))]
+        .sort((a, b) => a - b)
+        .slice(0, 20);
+      const modelAddons = [...new Set((Array.isArray(item.addons) ? item.addons : [])
+        .map(value => cleanCode(value).toLowerCase())
+        .filter(Boolean))].slice(0, 6);
+      return {
+        id,
+        name: String(item.name || 'Sin nombre').trim().slice(0, 60) || 'Sin nombre',
+        note: String(item.note || '').trim().slice(0, 180),
+        quantities: modelQuantities,
+        addons: modelAddons
+      };
+    })
+    .filter(model => model.quantities.length)
+    .slice(0, 20);
+  const catalog = seedPriceCatalog({
+    labor: Math.max(0, Math.round(number(source.labor ?? fallback.labor))),
+    quantities: quantities.length ? quantities : [...fallback.quantities],
+    models: models.length ? models : fallback.models,
+    families: families.length ? families : fallback.families
+  }, source.seed);
+  return { seed: PRICE_CATALOG_SEED, ...catalog };
+}
+
+function normalizeQuoteCatalog(raw) {
+  const fallback = defaultQuoteCatalog();
+  const source = raw && typeof raw === 'object' ? raw : fallback;
+  const rulesSource = source.rules && typeof source.rules === 'object' ? source.rules : fallback.rules;
+  const commissionSource = rulesSource.commission && typeof rulesSource.commission === 'object'
+    ? rulesSource.commission
+    : fallback.rules.commission;
+  const rules = {
+    labor: Math.max(0, Math.round(number(rulesSource.labor ?? fallback.rules.labor))),
+    packaging: Math.max(0, Math.round(number(rulesSource.packaging ?? fallback.rules.packaging))),
+    freeShippingFrom: Math.max(0, Math.round(number(rulesSource.freeShippingFrom ?? fallback.rules.freeShippingFrom))),
+    commission: {
+      tier1Rate: Math.max(0, number(commissionSource.tier1Rate ?? fallback.rules.commission.tier1Rate)),
+      tier2Rate: Math.max(0, number(commissionSource.tier2Rate ?? fallback.rules.commission.tier2Rate)),
+      tier3Rate: Math.max(0, number(commissionSource.tier3Rate ?? fallback.rules.commission.tier3Rate)),
+      tier1Limit: Math.max(0, Math.round(number(commissionSource.tier1Limit ?? fallback.rules.commission.tier1Limit))),
+      tier2Limit: Math.max(0, Math.round(number(commissionSource.tier2Limit ?? fallback.rules.commission.tier2Limit))),
+      minimumTarget: Math.max(0, Math.round(number(commissionSource.minimumTarget ?? fallback.rules.commission.minimumTarget))),
+      minimumCapPct: Math.max(0, number(commissionSource.minimumCapPct ?? fallback.rules.commission.minimumCapPct))
+    }
+  };
+  const variantSource = Array.isArray(source.variants) && source.variants.length ? source.variants : fallback.variants;
+  const variants = variantSource.map((variant, index) => {
+    const beadType = String(variant.beadType || 'Liso').trim().slice(0, 30) || 'Liso';
+    const size = number(variant.size);
+    const label = String(variant.label || `${beadType} | #${size || index + 1}`).trim().slice(0, 50);
+    const id = cleanCode(variant.id || label).toLowerCase() || `variante-${index + 1}`;
+    return {
+      id,
+      label,
+      beadType,
+      size,
+      laminatedPrice: Math.max(0, Math.round(number(variant.laminatedPrice))),
+      goldPrice: Math.max(0, Math.round(number(variant.goldPrice))),
+      laminatedCost: Math.max(0, Math.round(number(variant.laminatedCost))),
+      goldCost: Math.max(0, Math.round(number(variant.goldCost)))
+    };
+  }).filter(variant => variant.label && variant.size >= 0).slice(0, 80);
+  const productSource = Array.isArray(source.products) && source.products.length ? source.products : fallback.products;
+  const seenCodes = new Set();
+  const products = productSource.map((product, index) => {
+    let code = cleanCode(product.code || `AUR-${index + 1}`) || `AUR-${index + 1}`;
+    while (seenCodes.has(code.toLowerCase())) code = `${code.slice(0, 24)}-${index + 1}`;
+    seenCodes.add(code.toLowerCase());
+    return {
+      code,
+      name: String(product.name || 'Sin nombre').trim().slice(0, 90) || 'Sin nombre',
+      category: String(product.category || 'Sin categoría').trim().slice(0, 70),
+      type: ['MODELO', 'SET', 'COLECCION'].includes(product.type) ? product.type : 'MODELO',
+      status: product.status === 'INACTIVO' ? 'INACTIVO' : 'ACTIVO',
+      braceletCount: Math.max(1, Math.floor(number(product.braceletCount || 1))),
+      defaultBeads: Math.max(0, Math.floor(number(product.defaultBeads))),
+      commonAdjustment: Math.max(0, Math.round(number(product.commonAdjustment))),
+      laminatedAdjustment: Math.max(0, Math.round(number(product.laminatedAdjustment))),
+      goldAdjustment: Math.max(0, Math.round(number(product.goldAdjustment))),
+      costed: ['SI', 'NO', 'REVISAR'].includes(product.costed) ? product.costed : 'REVISAR',
+      quotable: ['SI', 'NO', 'REVISAR'].includes(product.quotable) ? product.quotable : 'REVISAR',
+      publish: ['SI', 'NO', 'REVISAR'].includes(product.publish) ? product.publish : 'REVISAR',
+      family: String(product.family || '').trim().slice(0, 70),
+      mixedComponent: String(product.mixedComponent || 'NO APLICA').trim().slice(0, 70) || 'NO APLICA',
+      mixedLaminatedPrice: Math.max(0, Math.round(number(product.mixedLaminatedPrice))),
+      mixedGoldPrice: Math.max(0, Math.round(number(product.mixedGoldPrice))),
+      note: String(product.note || '').trim().slice(0, 220)
+    };
+  }).slice(0, 200);
+  return { seed: QUOTE_CATALOG_SEED, rules, variants, products };
+}
+
 function normalizeState(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
   const settings = { ...DEFAULT_SETTINGS, ...(source.settings || {}) };
@@ -248,6 +635,8 @@ function normalizeState(raw) {
     revision: Math.max(0, Math.floor(number(source.revision))),
     appliedOperations: Array.isArray(source.appliedOperations) ? source.appliedOperations.slice(-200) : [],
     settings,
+    priceCatalog: normalizePriceCatalog(source.priceCatalog),
+    quoteCatalog: normalizeQuoteCatalog(source.quoteCatalog),
     materials,
     designs,
     productions,
@@ -494,7 +883,13 @@ async function commitCriticalInternal(operationId, mutate) {
 
 async function migrateRemoteState(snapshot) {
   const raw = snapshot.exists() ? snapshot.val() : null;
-  if (raw?.schemaVersion === SCHEMA_VERSION) return normalizeState(raw);
+  // El catálogo tiene su propia versión. Si sube, persistimos sus nuevos valores oficiales
+  // aunque la estructura general de inventario y ventas no haya cambiado.
+  if (raw?.schemaVersion === SCHEMA_VERSION
+    && number(raw?.priceCatalog?.seed) >= PRICE_CATALOG_SEED
+    && number(raw?.quoteCatalog?.seed) >= QUOTE_CATALOG_SEED) {
+    return normalizeState(raw);
+  }
   const result = await db.ref(DATA_PATH).transaction(currentRaw => {
     const next = normalizeState(currentRaw || S);
     next.schemaVersion = SCHEMA_VERSION;
@@ -550,8 +945,16 @@ async function initFirebase() {
     }
 
     $('#auth-screen')?.classList.add('hidden');
-    if ($('#connected-account')) $('#connected-account').textContent = signedInUser.email || 'Cuenta de Google';
     db = firebase.database();
+    const authorized = await loadCurrentUserRole(signedInUser);
+    if (!authorized) {
+      $('#auth-screen')?.classList.remove('hidden');
+      $('#auth-help').innerHTML = `Esta cuenta todavía no está autorizada.<br>Envía este UID al administrador: <b>${esc(signedInUser.uid)}</b>`;
+      $('#auth-help').classList.add('error');
+      setSync('error', 'Sin permiso');
+      return false;
+    }
+    applyRoleUI();
     trackConnection();
     const snapshot = await Promise.race([
       db.ref(DATA_PATH).once('value'),
@@ -563,6 +966,7 @@ async function initFirebase() {
     pendingLocalChanges = false;
     saveLocalState();
     setSync('online', 'Sincronizado');
+    applyRoleUI();
     db.ref(DATA_PATH).on('value', snap => {
       if (saving || pendingLocalChanges || !snap.exists()) return;
       const incoming = normalizeState(snap.val());
@@ -571,6 +975,7 @@ async function initFirebase() {
       lastRemoteRevision = number(S.revision);
       saveLocalState();
       renderAll();
+      applyRoleUI();
     });
     return true;
   } catch (error) {
@@ -755,11 +1160,13 @@ function lock() {
 }
 
 function showView(name, tab = '') {
+  if (!canManageCatalog() && !['home', 'prices'].includes(name)) name = 'prices';
   $$('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
   $$('.nav-btn').forEach(button => button.classList.toggle('active', button.dataset.view === name));
   if (name === 'management' && tab) showManagementTab(tab);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'designer') renderDesigner();
+  if (name === 'prices') renderPublicPrices();
   if (name === 'management') renderManagement();
 }
 
@@ -773,9 +1180,11 @@ function renderAll() {
   renderDashboard();
   renderGettingStarted();
   renderInventory();
+  renderPublicPrices();
   renderDesigner();
   renderSales();
   renderManagement();
+  applyRoleUI();
 }
 
 function activeSales() {
@@ -985,6 +1394,699 @@ function renderInventory() {
     </article>`;
   }).join('') : '<div class="card empty"><b>No hay resultados</b>Cambia el filtro o registra un material.</div>';
   renderMaterialSelects();
+}
+
+const priceFamilies = () => (S.priceCatalog?.families || []);
+const getPriceFamily = id => priceFamilies().find(family => family.id === id) || null;
+const priceLineLabel = value => PRICE_LINES.find(option => option.value === value)?.label || 'Otros';
+const quoteProducts = () => (S.quoteCatalog?.products || []);
+const quoteVariants = () => (S.quoteCatalog?.variants || []);
+const getQuoteProduct = code => quoteProducts().find(product => product.code === code) || null;
+const getQuoteVariant = id => quoteVariants().find(variant => variant.id === id) || null;
+
+function visibleQuoteProducts() {
+  const products = quoteProducts();
+  const filtered = canManageCatalog() ? products : products.filter(product => product.publish === 'SI');
+  return filtered.sort((a, b) => `${a.category} ${a.code}`.localeCompare(`${b.category} ${b.code}`));
+}
+
+function quoteTypeCode(beadType) {
+  if (beadType === 'Liso') return 'LIS';
+  if (beadType === 'Diamantado') return 'DIA';
+  if (beadType === 'Balín X') return 'BX';
+  if (beadType === 'Italiano') return 'ITA';
+  return cleanCode(beadType).slice(0, 3) || 'VAR';
+}
+
+function commissionAmount(utility, ownerMode = false) {
+  const value = number(utility);
+  if (ownerMode || value <= 0) return 0;
+  const config = S.quoteCatalog.rules.commission;
+  const first = Math.min(value, number(config.tier1Limit));
+  const second = Math.max(0, Math.min(value, number(config.tier2Limit)) - number(config.tier1Limit));
+  const third = Math.max(0, value - number(config.tier2Limit));
+  const tiered = first * number(config.tier1Rate) + second * number(config.tier2Rate) + third * number(config.tier3Rate);
+  const minimum = Math.min(number(config.minimumTarget), value * number(config.minimumCapPct));
+  return Math.round(Math.max(tiered, minimum));
+}
+
+function calculateCatalogQuote(product, variant, quantityOverride = 0, sellerType = 'seller') {
+  if (!product || !variant) return null;
+  const quantity = Math.max(0, Math.floor(number(quantityOverride))) || number(product.defaultBeads);
+  const baseFixed = number(product.braceletCount) * (number(S.quoteCatalog.rules.labor) + number(S.quoteCatalog.rules.packaging));
+  const common = number(product.commonAdjustment);
+  const ownerMode = sellerType === 'owner';
+  const sku = `${product.code}-${quoteTypeCode(variant.beadType)}-${String(Math.floor(number(variant.size))).padStart(2, '0')}-Q${quantity}`;
+  const notQuotable = product.quotable !== 'SI' || product.costed !== 'SI' || product.status !== 'ACTIVO';
+  const rows = [];
+  const laminatedUtility = quantity * Math.max(0, number(variant.laminatedPrice) - number(variant.laminatedCost));
+  const goldUtility = quantity * Math.max(0, number(variant.goldPrice) - number(variant.goldCost));
+
+  rows.push({
+    id: 'laminated',
+    label: 'Todo Oro Laminado 18K',
+    price: variant.laminatedPrice > 0 && !notQuotable
+      ? quantity * number(variant.laminatedPrice) + baseFixed + common + number(product.laminatedAdjustment)
+      : null,
+    message: variant.laminatedPrice > 0 ? '' : 'Falta precio laminado',
+    commission: commissionAmount(laminatedUtility, ownerMode),
+    utilityPct: laminatedUtility > 0 ? commissionAmount(laminatedUtility, ownerMode) / laminatedUtility : 0
+  });
+  rows.push({
+    id: 'mixed',
+    label: 'Oro 18K + componente laminado',
+    price: variant.goldPrice > 0 && !notQuotable
+      ? quantity * number(variant.goldPrice) + baseFixed + common + number(product.goldAdjustment) - number(product.mixedGoldPrice) + number(product.mixedLaminatedPrice)
+      : null,
+    message: variant.goldPrice > 0 ? '' : 'Sin precio oro para esta opción',
+    commission: commissionAmount(goldUtility, ownerMode),
+    utilityPct: goldUtility > 0 ? commissionAmount(goldUtility, ownerMode) / goldUtility : 0
+  });
+  rows.push({
+    id: 'gold',
+    label: 'Todo Oro 18K',
+    price: variant.goldPrice > 0 && !notQuotable
+      ? quantity * number(variant.goldPrice) + baseFixed + common + number(product.goldAdjustment)
+      : null,
+    message: variant.goldPrice > 0 ? '' : 'Sin precio oro para esta opción',
+    commission: commissionAmount(goldUtility, ownerMode),
+    utilityPct: goldUtility > 0 ? commissionAmount(goldUtility, ownerMode) / goldUtility : 0
+  });
+  return {
+    sku,
+    quantity,
+    baseFixed,
+    notQuotable,
+    warning: notQuotable ? 'NO COTIZAR ESTE MODELO. Revisa costeo, publicación o estado.' : 'LISTO: tienes las 3 opciones de precio disponibles según el material.',
+    rows
+  };
+}
+
+function renderQuoteTool() {
+  const productSelect = $('#quote-product');
+  const variantSelect = $('#quote-variant');
+  const result = $('#quote-result');
+  if (!productSelect || !variantSelect || !result) return;
+  const products = visibleQuoteProducts();
+  const variants = quoteVariants();
+  if (!products.length || !variants.length) {
+    result.innerHTML = '<div class="quote-empty">Faltan datos del cotizador. Revisa la semilla importada del Excel.</div>';
+    return;
+  }
+  const currentProduct = products.some(product => product.code === productSelect.value) ? productSelect.value : products[0].code;
+  const currentVariant = variants.some(variant => variant.id === variantSelect.value) ? variantSelect.value : variants[0].id;
+  productSelect.innerHTML = products.map(product => {
+    const status = product.quotable === 'SI' ? '' : ` · ${product.quotable}`;
+    return `<option value="${esc(product.code)}" ${product.code === currentProduct ? 'selected' : ''}>${esc(product.code)} · ${esc(product.name)}${esc(status)}</option>`;
+  }).join('');
+  variantSelect.innerHTML = variants.map(variant =>
+    `<option value="${esc(variant.id)}" ${variant.id === currentVariant ? 'selected' : ''}>${esc(variant.label)}</option>`).join('');
+  const product = getQuoteProduct(currentProduct);
+  const variant = getQuoteVariant(currentVariant);
+  const quote = calculateCatalogQuote(product, variant, $('#quote-quantity')?.value, $('#quote-seller-type')?.value);
+  if (!quote) return;
+  const adminMeta = canManageCatalog()
+    ? `<div class="quote-meta-grid">
+        <span><b>Estado</b>${esc(product.costed)} / ${esc(product.quotable)} / ${esc(product.publish)}</span>
+        <span><b>Ajuste común</b>${money(product.commonAdjustment)}</span>
+        <span><b>Ajuste Laminado</b>${money(product.laminatedAdjustment)}</span>
+        <span><b>Ajuste Oro</b>${money(product.goldAdjustment)}</span>
+      </div>`
+    : '';
+  result.innerHTML = `
+    <div class="quote-product-summary">
+      <div>
+        <span class="quote-code">${esc(product.code)}</span>
+        <h4>${esc(product.name)}</h4>
+        <p>${esc(product.category)} · ${esc(product.type)} · ${number(product.braceletCount)} manilla${number(product.braceletCount) === 1 ? '' : 's'} · ${quote.quantity} balines</p>
+      </div>
+      <span class="quote-status ${quote.notQuotable ? 'blocked' : 'ready'}">${quote.notQuotable ? 'No cotizable' : 'Cotizable'}</span>
+    </div>
+    <div class="quote-warning">${esc(quote.warning)}</div>
+    <div class="quote-prices">
+      ${quote.rows.map(row => `
+        <article class="quote-price ${row.price ? '' : 'blocked'}">
+          <span>${esc(row.label)}</span>
+          <b>${row.price ? money(row.price) : esc(row.message)}</b>
+          <small>Comisión: ${row.price ? money(row.commission) : '$0'}${row.utilityPct ? ` · ${(row.utilityPct * 100).toFixed(1)}% efectivo` : ''}</small>
+        </article>
+      `).join('')}
+    </div>
+    <div class="quote-meta">
+      <span><b>SKU interno</b>${esc(quote.sku)}</span>
+      <span><b>Base fija</b>${money(quote.baseFixed)}</span>
+      <span><b>Componente mixto</b>${esc(product.mixedComponent || 'NO APLICA')}</span>
+    </div>
+    ${adminMeta}
+    ${product.note ? `<p class="quote-note">${esc(product.note)}</p>` : ''}
+  `;
+}
+
+function openQuoteProductEditor() {
+  if (!requireAdminAction()) return;
+  const code = $('#quote-product')?.value;
+  const product = getQuoteProduct(code);
+  if (!product) { toast('Selecciona una manilla del catálogo'); return; }
+  openModal(`<div class="modal-head"><h3>Editar ${esc(product.code)}</h3><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="form-grid two">
+      <div class="field"><label>Nombre</label><input class="input" id="qp-name" maxlength="90" value="${esc(product.name)}"></div>
+      <div class="field"><label>Categoría</label><input class="input" id="qp-category" maxlength="70" value="${esc(product.category)}"></div>
+      <div class="field"><label>Tipo</label><select class="input" id="qp-type">${['MODELO', 'SET', 'COLECCION'].map(value => `<option ${product.type === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+      <div class="field"><label>Familia</label><input class="input" id="qp-family" maxlength="70" value="${esc(product.family || '')}"></div>
+      <div class="field"><label>Cant. manillas</label><input class="input" id="qp-bracelets" type="number" min="1" step="1" value="${number(product.braceletCount)}"></div>
+      <div class="field"><label>Balines estándar total</label><input class="input" id="qp-beads" type="number" min="0" step="1" value="${number(product.defaultBeads)}"></div>
+      <div class="field"><label>Ajuste común</label><input class="input" id="qp-common" type="number" min="0" step="500" value="${number(product.commonAdjustment)}"></div>
+      <div class="field"><label>Ajuste Laminado 18K</label><input class="input" id="qp-laminated" type="number" min="0" step="500" value="${number(product.laminatedAdjustment)}"></div>
+      <div class="field"><label>Ajuste Oro 18K</label><input class="input" id="qp-gold" type="number" min="0" step="500" value="${number(product.goldAdjustment)}"></div>
+      <div class="field"><label>Componente mixto</label><input class="input" id="qp-mixed-component" maxlength="70" value="${esc(product.mixedComponent || 'NO APLICA')}"></div>
+      <div class="field"><label>Precio componente Laminado</label><input class="input" id="qp-mixed-laminated" type="number" min="0" step="500" value="${number(product.mixedLaminatedPrice)}"></div>
+      <div class="field"><label>Precio componente Oro 18K</label><input class="input" id="qp-mixed-gold" type="number" min="0" step="500" value="${number(product.mixedGoldPrice)}"></div>
+      <div class="field"><label>Costeo</label><select class="input" id="qp-costed">${['SI', 'NO', 'REVISAR'].map(value => `<option ${product.costed === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+      <div class="field"><label>Cotizable hoy</label><select class="input" id="qp-quotable">${['SI', 'NO', 'REVISAR'].map(value => `<option ${product.quotable === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+      <div class="field"><label>Publicar vendedor</label><select class="input" id="qp-publish">${['SI', 'NO', 'REVISAR'].map(value => `<option ${product.publish === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+      <div class="field"><label>Estado</label><select class="input" id="qp-status">${['ACTIVO', 'INACTIVO'].map(value => `<option ${product.status === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+      <div class="field full"><label>Observaciones</label><textarea class="input" id="qp-note" maxlength="220">${esc(product.note || '')}</textarea></div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveQuoteProduct('${esc(product.code)}')">Guardar</button></div>`);
+}
+
+function saveQuoteProduct(code) {
+  if (!requireAdminAction()) return;
+  const products = quoteProducts().map(product => ({ ...product }));
+  const index = products.findIndex(product => product.code === code);
+  if (index < 0) { toast('No encontré el modelo'); return; }
+  const name = $('#qp-name').value.trim();
+  if (!name) { toast('Escribe el nombre'); return; }
+  products[index] = {
+    ...products[index],
+    name,
+    category: $('#qp-category').value.trim() || 'Sin categoría',
+    type: $('#qp-type').value,
+    family: $('#qp-family').value.trim(),
+    braceletCount: Math.max(1, Math.floor(number($('#qp-bracelets').value))),
+    defaultBeads: Math.max(0, Math.floor(number($('#qp-beads').value))),
+    commonAdjustment: Math.max(0, Math.round(number($('#qp-common').value))),
+    laminatedAdjustment: Math.max(0, Math.round(number($('#qp-laminated').value))),
+    goldAdjustment: Math.max(0, Math.round(number($('#qp-gold').value))),
+    mixedComponent: $('#qp-mixed-component').value.trim() || 'NO APLICA',
+    mixedLaminatedPrice: Math.max(0, Math.round(number($('#qp-mixed-laminated').value))),
+    mixedGoldPrice: Math.max(0, Math.round(number($('#qp-mixed-gold').value))),
+    costed: $('#qp-costed').value,
+    quotable: $('#qp-quotable').value,
+    publish: $('#qp-publish').value,
+    status: $('#qp-status').value,
+    note: $('#qp-note').value.trim()
+  };
+  S.quoteCatalog = normalizeQuoteCatalog({ ...S.quoteCatalog, products });
+  closeModal();
+  persist();
+  renderQuoteTool();
+  toast('Modelo del catálogo guardado');
+}
+
+function renderPublicPrices() {
+  const list = $('#public-price-list');
+  const summary = $('#public-price-summary');
+  if (!list || !summary) return;
+  const query = ($('#public-price-search')?.value || '').trim().toLowerCase();
+  const line = $('#public-price-line')?.value || '';
+  const catalog = priceFamilies().filter(family => {
+    if (line && family.line !== line) return false;
+    if (!query) return true;
+    const searchable = [
+      family.name,
+      family.material,
+      family.note,
+      ...family.prices.flatMap(([size, price]) => [size, price])
+    ].join(' ').toLowerCase();
+    return searchable.includes(query);
+  });
+  const priceCount = catalog.reduce((total, family) => total + family.prices.length, 0);
+  summary.textContent = catalog.length
+    ? `${catalog.length} ${catalog.length === 1 ? 'familia' : 'familias'} · ${priceCount} precios por unidad`
+    : 'No encontramos precios con ese filtro';
+  list.innerHTML = catalog.length ? catalog.map(family => `
+    <article class="public-price-card ${esc(family.line)}">
+      <div class="public-price-card-head">
+        <span class="public-price-bead ${esc(family.bead)}" aria-hidden="true"></span>
+        <div>
+          <h3>${esc(family.name)}</h3>
+          <p>${esc(family.material)}</p>
+        </div>
+        <button type="button" class="public-price-edit" onclick="openPriceFamily('${esc(family.id)}')">Editar</button>
+      </div>
+      <div class="public-price-rows">
+        ${family.prices.map(([size, price]) => `
+          <div class="public-price-row">
+            <span>${esc(size)}</span>
+            <b>${money(price)}</b>
+          </div>
+        `).join('')}
+      </div>
+      <p class="public-price-note">${esc(family.note)}</p>
+    </article>
+  `).join('') : '<div class="empty public-price-empty"><b>Sin resultados</b>Prueba con otro nombre o tamaño.</div>';
+  renderQuoteTool();
+  renderBraceletPrices();
+  renderPriceModels();
+  renderPricePoster();
+  applyRoleUI();
+}
+
+function renderBraceletPrices() {
+  const select = $('#bracelet-price-family');
+  const table = $('#bracelet-price-table');
+  const foot = $('#bracelet-price-formula');
+  if (!select || !table || !foot) return;
+  const catalog = S.priceCatalog;
+  const families = priceFamilies().filter(family => family.braceletTable && family.prices.length);
+  if (!families.length) {
+    select.innerHTML = '<option value="">Sin familias</option>';
+    table.innerHTML = '';
+    foot.textContent = 'Marca "Mostrar en la tabla de manilla completa" al editar una familia para verla aquí.';
+    return;
+  }
+  const current = families.some(family => family.id === select.value) ? select.value : families[0].id;
+  select.innerHTML = families.map(family =>
+    `<option value="${esc(family.id)}" ${family.id === current ? 'selected' : ''}>${esc(family.name)}</option>`).join('');
+  const family = families.find(item => item.id === current);
+  const quantities = catalog.quantities;
+  const labor = number(catalog.labor);
+  table.innerHTML = `
+    <thead><tr><th scope="col">Balín</th>${quantities.map(qty => `<th scope="col">${qty}</th>`).join('')}</tr></thead>
+    <tbody>${family.prices.map(([size, price]) => `
+      <tr>
+        <th scope="row">${esc(size)}</th>
+        ${quantities.map(qty => `<td>${money(number(price) * qty + labor)}</td>`).join('')}
+      </tr>
+    `).join('')}</tbody>`;
+  const neoprene = number(getPriceFamily('neopreno-oro')?.prices?.[0]?.[1]);
+  foot.innerHTML = `Fórmula: <b>(nº de balines × precio unitario) + ${money(labor)} de base fija</b> (mano de obra y empaque).`
+    + (neoprene > 0 ? ` Si la manilla lleva neoprenos, suma ${money(neoprene)} por cada uno.` : '');
+}
+
+const priceModels = () => (S.priceCatalog?.models || []);
+const getPriceModel = id => priceModels().find(model => model.id === id) || null;
+const beadSizeLabel = size => {
+  const match = String(size || '').match(/\d+(?:[.,]\d+)?/);
+  return match ? `#${match[0].replace(',', '.')}` : String(size || 'Balín');
+};
+// Precio del adicional que corresponde a un tamano de balin.
+// Busca el tamano exacto; si la familia tiene una sola fila es un valor fijo;
+// si no, usa el tamano mayor que no pase del balin.
+function addonPriceForSize(family, size) {
+  const rows = family?.prices || [];
+  if (!rows.length) return 0;
+  const label = String(size || '').trim().toLowerCase();
+  const exact = rows.find(([rowSize]) => String(rowSize).trim().toLowerCase() === label);
+  if (exact) return number(exact[1]);
+  if (rows.length === 1) return number(rows[0][1]);
+  const target = Number.parseFloat(String(size).replace(',', '.'));
+  const numeric = rows
+    .map(([rowSize, price]) => [Number.parseFloat(String(rowSize).replace(',', '.')), number(price)])
+    .filter(([value]) => Number.isFinite(value))
+    .sort((a, b) => a[0] - b[0]);
+  if (!Number.isFinite(target) || !numeric.length) return number(rows[0][1]);
+  let chosen = numeric[0][1];
+  numeric.forEach(([value, price]) => { if (value <= target) chosen = price; });
+  return chosen;
+}
+
+const addonFamilies = () => priceFamilies().filter(family => family.line === 'addon' && family.prices.length);
+const modelAddonFamilies = model => (model?.addons || [])
+  .map(id => getPriceFamily(id))
+  .filter(family => family && family.prices.length);
+const modelAddonTotal = (model, size) => modelAddonFamilies(model)
+  .reduce((total, family) => total + addonPriceForSize(family, size), 0);
+
+const priceRowsDescending = family => [...(family?.prices || [])].sort((a, b) => {
+  const aSize = Number.parseFloat(String(a[0]).replace(',', '.')) || 0;
+  const bSize = Number.parseFloat(String(b[0]).replace(',', '.')) || 0;
+  return bSize - aSize;
+});
+
+function modelAddonChips(model) {
+  const included = modelAddonFamilies(model);
+  if (!included.length) return '';
+  return `<div class="model-addon-chips">${included.map(family => {
+    const values = family.prices.map(([, price]) => number(price));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return `<button type="button" class="model-addon-chip" onclick="openPriceFamily('${esc(family.id)}')">
+      <span class="public-price-bead ${esc(family.bead)}" aria-hidden="true"></span>
+      <span><b>${esc(family.name)}</b><small>${min === max ? money(min) : `${money(min)} a ${money(max)}`} · toca para cambiar el precio</small></span>
+    </button>`;
+  }).join('')}</div>`;
+}
+
+function modelAddonSummary(model, labor) {
+  const included = modelAddonFamilies(model);
+  if (!included.length) {
+    return `Incluye ${money(labor)} de base fija (mano de obra y empaque). Dijes, neoprenos y otros adicionales se suman aparte.`;
+  }
+  const detail = included.map(family => {
+    const values = family.prices.map(([, price]) => number(price));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return `${esc(family.name)} (${min === max ? money(min) : `${money(min)} a ${money(max)} segun el balin`})`;
+  }).join(' y ');
+  return `Incluye ${money(labor)} de base fija (mano de obra y empaque) y ${detail}. Neoprenos y otros adicionales se suman aparte.`;
+}
+
+function renderPriceModels() {
+  const list = $('#model-price-list');
+  const addons = $('#model-price-addons');
+  if (!list || !addons) return;
+  const models = priceModels();
+  const families = priceFamilies().filter(family => family.braceletTable && family.prices.length);
+  const labor = number(S.priceCatalog?.labor);
+
+  if (!models.length || !families.length) {
+    list.innerHTML = '<div class="empty model-price-empty"><b>Falta información</b>Agrega al menos una manilla y una familia de balines.</div>';
+  } else {
+    list.innerHTML = models.map(model => {
+      const quantities = model.quantities;
+      const quantityText = quantities.length === 1
+        ? `${quantities[0]} balines`
+        : `${quantities[0]} a ${quantities.at(-1)} balines · ${quantities.join(', ')}`;
+      return `<article class="model-price-card" data-price-model="${esc(model.id)}">
+        <header class="model-price-head">
+          <div>
+            <span class="model-price-kicker">${esc(quantityText)}</span>
+            <h4>${esc(model.name)}</h4>
+            <p>${esc(model.note || 'Precios calculados con el catálogo vigente.')}</p>
+          </div>
+          <button class="public-price-edit" type="button" onclick="openPriceModel('${esc(model.id)}')">Editar</button>
+        </header>
+        <div class="model-family-list">
+          ${families.map((family, familyIndex) => `<details class="model-family ${esc(family.line)}" data-model-family="${esc(family.id)}" ${familyIndex < 2 ? 'open' : ''}>
+            <summary>
+              <span class="public-price-bead ${esc(family.bead)}" aria-hidden="true"></span>
+              <span><b>${esc(family.name)}</b><small>${esc(priceLineLabel(family.line))} · ${esc(family.material)}</small></span>
+            </summary>
+            <div class="model-price-scroll">
+              <table class="model-price-table">
+                <thead><tr><th scope="col">Balín</th>${quantities.map(qty => `<th scope="col">${qty}</th>`).join('')}</tr></thead>
+                <tbody>${priceRowsDescending(family).map(([size, unitPrice]) => {
+                  const addonTotal = modelAddonTotal(model, size);
+                  return `<tr>
+                  <th scope="row">${esc(beadSizeLabel(size))}</th>
+                  ${quantities.map(qty => `<td data-size="${esc(size)}" data-qty="${qty}">${money(number(unitPrice) * qty + labor + addonTotal)}</td>`).join('')}
+                </tr>`;
+                }).join('')}</tbody>
+              </table>
+            </div>
+          </details>`).join('')}
+        </div>
+        <p class="model-price-formula">${modelAddonSummary(model, labor)}</p>
+        ${modelAddonChips(model)}
+      </article>`;
+    }).join('');
+  }
+
+  const neoprenes = priceFamilies().filter(family => family.bead === 'neopreno' && family.prices.length);
+  addons.innerHTML = `<div class="model-addon-head"><div><span class="guide-label">Adicionales</span><h4>Neoprenos</h4></div><p>Suma el valor por cada neopreno que lleve la manilla.</p></div>
+    <div class="model-addon-grid">${neoprenes.length ? neoprenes.flatMap(family => family.prices.map(([size, price]) => `
+      <div class="model-addon-row" data-addon-family="${esc(family.id)}" data-addon-size="${esc(size)}">
+        <div><b>${esc(family.name)}</b><span>${esc(family.material)} · ${esc(size)}</span></div>
+        <strong>+ ${money(price)} c/u</strong>
+      </div>`)).join('') : '<div class="empty"><b>Sin neoprenos</b>Agrega sus precios en una familia del catálogo.</div>'}</div>`;
+}
+
+function openPriceModel(id = '') {
+  if (!requireAdminAction()) return;
+  const existing = id ? getPriceModel(id) : null;
+  editingPriceModelId = existing ? existing.id : null;
+  priceModelDraft = existing
+    ? { ...existing, quantities: [...existing.quantities], addons: [...(existing.addons || [])] }
+    : { id: '', name: '', note: '', quantities: [6], addons: [] };
+  openModal(`<div class="modal-head"><h3>${existing ? 'Editar' : 'Nueva'} manilla de la lista</h3><button class="modal-close" onclick="closePriceModel()">×</button></div>
+    <div class="form-grid two">
+      <div class="field"><label>Nombre del modelo</label><input class="input" id="pm-name" maxlength="60" value="${esc(priceModelDraft.name)}" placeholder="Ej. Manilla Virgen del Carmen"></div>
+      <div class="field"><label>Cantidades de balines</label><input class="input" id="pm-quantities" inputmode="numeric" value="${esc(priceModelDraft.quantities.join(', '))}" placeholder="Ej. 2, 4, 6, 8"></div>
+      <div class="field full"><label>Descripción</label><input class="input" id="pm-note" maxlength="180" value="${esc(priceModelDraft.note)}" placeholder="Ej. Modelo fijo con 6 balines."></div>
+    </div>
+    <p class="help">Escribe todas las cantidades que ofrece el modelo separadas por coma. La lista calculará cada tamaño en oro y oro laminado.</p>
+
+    <div class="pm-addons">
+      <label class="pm-addons-title">Adicionales incluidos en el precio</label>
+      ${addonFamilies().length ? addonFamilies().map(family => {
+        const values = family.prices.map(([, price]) => number(price));
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        return `<label class="pm-addon-row">
+          <input type="checkbox" class="pm-addon" value="${esc(family.id)}" ${(priceModelDraft.addons || []).includes(family.id) ? 'checked' : ''}>
+          <span><b>${esc(family.name)}</b><small>${min === max ? money(min) : `${money(min)} a ${money(max)} según el tamaño del balín`}</small></span>
+        </label>`;
+      }).join('') : '<p class="help">Todavía no hay dijes ni adicionales. Créalos abajo con <b>＋ Nueva familia</b> eligiendo la línea <b>Dijes y adicionales</b>.</p>'}
+      <p class="help">Lo que marques aquí se suma a cada precio de la tabla, según el tamaño del balín.</p>
+    </div>
+
+    <div class="modal-actions">
+      ${existing ? '<button class="btn btn-danger" onclick="deletePriceModel()">Eliminar</button>' : ''}
+      <button class="btn btn-outline" onclick="closePriceModel()">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePriceModel()">Guardar</button>
+    </div>`);
+}
+
+function closePriceModel() {
+  editingPriceModelId = null;
+  priceModelDraft = null;
+  closeModal();
+}
+
+function savePriceModel() {
+  if (!requireAdminAction()) return;
+  const name = String($('#pm-name')?.value || '').trim();
+  const note = String($('#pm-note')?.value || '').trim();
+  const quantities = [...new Set((String($('#pm-quantities')?.value || '').match(/\d+/g) || [])
+    .map(value => Math.floor(number(value)))
+    .filter(value => value >= 1 && value <= 200))]
+    .sort((a, b) => a - b)
+    .slice(0, 20);
+  if (!name) { toast('Ponle un nombre a la manilla'); return; }
+  if (!quantities.length) { toast('Escribe al menos una cantidad de balines'); return; }
+  const models = priceModels().map(model => ({ ...model, quantities: [...model.quantities] }));
+  const index = models.findIndex(model => model.id === editingPriceModelId);
+  let id = editingPriceModelId;
+  if (!id) {
+    id = cleanCode(name).toLowerCase() || `modelo-${shortId(uid('modelo')).toLowerCase()}`;
+    let suffix = 2;
+    const base = id;
+    while (models.some(model => model.id === id)) { id = `${base.slice(0, 25)}-${suffix}`; suffix += 1; }
+  }
+  const addons = $$('.pm-addon').filter(item => item.checked).map(item => item.value);
+  const next = { id, name: name.slice(0, 60), note: note.slice(0, 180), quantities, addons };
+  if (index >= 0) models[index] = next;
+  else models.push(next);
+  S.priceCatalog = normalizePriceCatalog({ ...S.priceCatalog, models });
+  closePriceModel();
+  persist();
+  toast('Lista de la manilla guardada');
+}
+
+function deletePriceModel() {
+  if (!requireAdminAction()) return;
+  if (!editingPriceModelId) return;
+  const models = priceModels();
+  if (models.length <= 1) { toast('Debe quedar al menos una manilla en la lista'); return; }
+  if (!confirm('¿Quitar esta manilla de la lista rápida? Los precios por balín no se modificarán.')) return;
+  S.priceCatalog = normalizePriceCatalog({
+    ...S.priceCatalog,
+    models: models.filter(model => model.id !== editingPriceModelId)
+  });
+  closePriceModel();
+  persist();
+  toast('Manilla retirada de la lista');
+}
+
+// Tamanos con los que arranca un dije nuevo: los mismos del balin, para que el
+// precio por tamano calce sin que el usuario tenga que escribirlos.
+function defaultAddonSizes() {
+  const reference = getPriceFamily('certificado') || priceFamilies().find(family => family.braceletTable);
+  const sizes = (reference?.prices || []).map(([size]) => size);
+  return (sizes.length ? sizes : ['3 mm', '4 mm', '5 mm', '6 mm', '7 mm', '8 mm']).map(size => [size, 0]);
+}
+
+function openPriceFamily(id = '', presetLine = '') {
+  if (!requireAdminAction()) return;
+  const existing = id ? getPriceFamily(id) : null;
+  editingPriceFamilyId = existing ? existing.id : null;
+  if (existing) {
+    priceFamilyDraft = { ...existing, prices: existing.prices.map(row => [...row]) };
+  } else if (presetLine === 'addon') {
+    priceFamilyDraft = {
+      id: '', name: '', material: 'Se suma al precio de la manilla', line: 'addon', bead: 'dije',
+      note: 'El precio cambia según el tamaño del balín de la manilla.',
+      braceletTable: false, prices: defaultAddonSizes()
+    };
+  } else {
+    priceFamilyDraft = { id: '', name: '', material: '', line: 'certified', bead: 'liso', note: '', braceletTable: true, prices: [['', 0]] };
+  }
+  renderPriceFamilyModal();
+}
+
+function readPriceFamilyDraft() {
+  if (!priceFamilyDraft || !$('#pf-name')) return;
+  priceFamilyDraft.name = $('#pf-name').value;
+  priceFamilyDraft.material = $('#pf-material').value;
+  priceFamilyDraft.note = $('#pf-note').value;
+  priceFamilyDraft.line = $('#pf-line').value;
+  priceFamilyDraft.bead = $('#pf-bead').value;
+  priceFamilyDraft.braceletTable = $('#pf-table').checked;
+  priceFamilyDraft.prices = $$('#pf-rows .pf-row').map(row => [
+    row.querySelector('.pf-size').value,
+    number(row.querySelector('.pf-price').value)
+  ]);
+}
+
+function renderPriceFamilyModal() {
+  const draft = priceFamilyDraft;
+  if (!draft) return;
+  openModal(`<div class="modal-head"><h3>${editingPriceFamilyId ? 'Editar' : 'Nueva'} familia de precios</h3><button class="modal-close" onclick="closePriceFamily()">×</button></div>
+    <div class="form-grid two">
+      <div class="field"><label>Nombre</label><input class="input" id="pf-name" maxlength="60" value="${esc(draft.name)}" placeholder="Ej. Balín en oro 18K"></div>
+      <div class="field"><label>Descripción corta</label><input class="input" id="pf-material" maxlength="90" value="${esc(draft.material)}" placeholder="Ej. Oro laminado 18K"></div>
+      <div class="field"><label>Línea</label><select class="input" id="pf-line">${PRICE_LINES.map(option => `<option value="${option.value}" ${draft.line === option.value ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}</select></div>
+      <div class="field"><label>Apariencia del balín</label><select class="input" id="pf-bead">${PRICE_BEADS.map(bead => `<option value="${bead}" ${draft.bead === bead ? 'selected' : ''}>${bead === 'balin-x' ? 'Balín X' : bead[0].toUpperCase() + bead.slice(1)}</option>`).join('')}</select></div>
+      <div class="field full"><label>Nota para el cliente</label><input class="input" id="pf-note" maxlength="180" value="${esc(draft.note)}" placeholder="Ej. Consulta colores y tamaños disponibles."></div>
+    </div>
+
+    <div class="pf-rows-head">
+      <label>Precio por unidad</label>
+      <button type="button" class="btn btn-soft btn-xs" onclick="addPriceRow()">＋ Agregar tamaño</button>
+    </div>
+    <div class="pf-rows" id="pf-rows">
+      ${draft.prices.map(([size, price], index) => `
+        <div class="pf-row">
+          <input class="input pf-size" maxlength="24" value="${esc(size)}" placeholder="Ej. 6 mm" aria-label="Tamaño ${index + 1}">
+          <input class="input pf-price" type="number" min="0" step="500" value="${number(price)}" aria-label="Precio ${index + 1}">
+          <button type="button" class="remove" onclick="removePriceRow(${index})" aria-label="Quitar tamaño ${index + 1}">×</button>
+        </div>
+      `).join('')}
+    </div>
+
+    <label class="pf-check"><input type="checkbox" id="pf-table" ${draft.braceletTable ? 'checked' : ''}> Mostrar en la tabla de manilla completa</label>
+
+    <div class="modal-actions">
+      ${editingPriceFamilyId ? `<button class="btn btn-danger" onclick="deletePriceFamily()">Eliminar</button>` : ''}
+      <button class="btn btn-outline" onclick="closePriceFamily()">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePriceFamily()">Guardar</button>
+    </div>`);
+}
+
+function closePriceFamily() {
+  editingPriceFamilyId = null;
+  priceFamilyDraft = null;
+  closeModal();
+}
+
+function addPriceRow() {
+  readPriceFamilyDraft();
+  if (priceFamilyDraft.prices.length >= 14) { toast('Máximo 14 tamaños por familia'); return; }
+  priceFamilyDraft.prices.push(['', 0]);
+  renderPriceFamilyModal();
+}
+
+function removePriceRow(index) {
+  readPriceFamilyDraft();
+  if (priceFamilyDraft.prices.length <= 1) { toast('Deja al menos un tamaño con precio'); return; }
+  priceFamilyDraft.prices.splice(index, 1);
+  renderPriceFamilyModal();
+}
+
+function savePriceFamily() {
+  if (!requireAdminAction()) return;
+  readPriceFamilyDraft();
+  const draft = priceFamilyDraft;
+  if (!draft) return;
+  const name = String(draft.name || '').trim();
+  if (!name) { toast('Ponle un nombre a la familia'); return; }
+  if (draft.line === 'addon') draft.braceletTable = false;
+  const rows = draft.prices
+    .map(([size, price]) => [String(size || '').trim(), Math.max(0, Math.round(number(price)))])
+    .filter(([size]) => size);
+  if (!rows.length) { toast('Escribe al menos un tamaño con su precio'); return; }
+  if (new Set(rows.map(([size]) => size.toLowerCase())).size !== rows.length) { toast('Hay tamaños repetidos'); return; }
+
+  const families = priceFamilies().map(family => ({ ...family, prices: family.prices.map(row => [...row]) }));
+  const index = families.findIndex(family => family.id === editingPriceFamilyId);
+  const next = {
+    id: editingPriceFamilyId || cleanCode(`${name}-${shortId(uid('fam'))}`).toLowerCase(),
+    name,
+    material: String(draft.material || '').trim(),
+    line: draft.line,
+    bead: draft.bead,
+    note: String(draft.note || '').trim(),
+    braceletTable: draft.braceletTable !== false,
+    prices: rows
+  };
+  if (index >= 0) families[index] = next; else families.push(next);
+  S.priceCatalog = normalizePriceCatalog({ ...S.priceCatalog, families });
+  persist();
+  closePriceFamily();
+  renderPublicPrices();
+  toast('Precios guardados');
+}
+
+function deletePriceFamily() {
+  if (!requireAdminAction()) return;
+  if (!editingPriceFamilyId) return;
+  const families = priceFamilies().filter(family => family.id !== editingPriceFamilyId);
+  if (!families.length) { toast('Debe quedar al menos una familia de precios'); return; }
+  if (!confirm('¿Quitar esta familia de la lista de precios? No afecta inventario, costos ni ventas.')) return;
+  S.priceCatalog = normalizePriceCatalog({ ...S.priceCatalog, families });
+  persist();
+  closePriceFamily();
+  renderPublicPrices();
+  toast('Familia eliminada');
+}
+
+function openPriceSettings() {
+  if (!requireAdminAction()) return;
+  const catalog = S.priceCatalog;
+  openModal(`<div class="modal-head"><h3>Base fija y cantidades</h3><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="form-grid">
+      <div class="field">
+        <label>Base fija por manilla</label>
+        <input class="input" id="pc-labor" type="number" min="0" step="500" value="${number(catalog.labor)}">
+        <span class="help">Se suma una sola vez al precio final. El valor vigente incluye $15.000 de mano de obra y $10.000 de empaque. No cambia el costeo de Diseñar.</span>
+      </div>
+      <div class="field">
+        <label>Cantidades de la tabla</label>
+        <input class="input" id="pc-quantities" value="${esc(catalog.quantities.join(', '))}" placeholder="3, 5, 7, 10, 12, 15, 18, 20">
+        <span class="help">Cuántos balines mostrar como columnas. Máximo 10 cantidades.</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePriceSettings()">Guardar</button>
+    </div>`);
+}
+
+function savePriceSettings() {
+  if (!requireAdminAction()) return;
+  const labor = number($('#pc-labor').value);
+  const quantities = String($('#pc-quantities').value || '')
+    .split(/[^\d]+/)
+    .map(value => Math.floor(number(value)))
+    .filter(value => value >= 1 && value <= 200);
+  if (labor < 0) { toast('La base fija no puede ser negativa'); return; }
+  if (!quantities.length) { toast('Escribe al menos una cantidad, por ejemplo 3, 5, 10'); return; }
+  S.priceCatalog = normalizePriceCatalog({ ...S.priceCatalog, labor, quantities });
+  persist();
+  closeModal();
+  renderPublicPrices();
+  toast('Tabla actualizada');
+}
+
+function resetPriceCatalog() {
+  if (!requireAdminAction()) return;
+  if (!confirm('¿Restaurar precios y modelos a los valores de fábrica? Se perderán los cambios que hayas escrito en esta sección.')) return;
+  S.priceCatalog = defaultPriceCatalog();
+  persist();
+  renderPublicPrices();
+  toast('Precios de fábrica restaurados');
 }
 
 function renderMaterialSelects() {
@@ -2014,6 +3116,606 @@ async function downloadAureaPresentation() {
   }
 }
 
+/* ---------- Afiches de precios (se arman solos con S.priceCatalog) ---------- */
+
+const POSTER_GOLD = '#e9c67d';
+const POSTER_GOLD_DEEP = '#a9761f';
+const POSTER_CREAM = '#fff4e2';
+const POSTER_MUTED = '#c0a888';
+const posterFont = (size, weight = '') => `${weight ? `${weight} ` : ''}${Math.round(size)}px Georgia, "Times New Roman", serif`;
+const posterSans = (size, weight = '') => `${weight ? `${weight} ` : ''}${Math.round(size)}px Arial, Helvetica, sans-serif`;
+const posterMoney = value => `$${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Math.round(number(value)))}`;
+
+function posterBackground(context, width, height) {
+  const base = context.createLinearGradient(0, 0, width * 0.55, height);
+  base.addColorStop(0, '#0c0806');
+  base.addColorStop(0.5, '#1b1109');
+  base.addColorStop(1, '#0a0705');
+  context.fillStyle = base;
+  context.fillRect(0, 0, width, height);
+  const glow = context.createRadialGradient(width / 2, 0, 0, width / 2, 0, height * 0.42);
+  glow.addColorStop(0, 'rgba(201,154,69,.2)');
+  glow.addColorStop(1, 'rgba(201,154,69,0)');
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height * 0.5);
+  context.strokeStyle = 'rgba(233,198,125,.32)';
+  context.lineWidth = 2;
+  context.strokeRect(22, 22, width - 44, height - 44);
+}
+
+function drawPosterBead(context, cx, cy, radius, bead) {
+  if (bead === 'dije') { drawPosterMedal(context, cx, cy, radius); return; }
+  const gradient = context.createRadialGradient(cx - radius * 0.34, cy - radius * 0.4, radius * 0.08, cx, cy, radius);
+  if (bead === 'neopreno') {
+    gradient.addColorStop(0, '#5a5a5a');
+    gradient.addColorStop(0.58, '#141414');
+    gradient.addColorStop(1, '#020202');
+  } else {
+    gradient.addColorStop(0, '#fff0a8');
+    gradient.addColorStop(0.31, '#dda63c');
+    gradient.addColorStop(0.73, '#8a530b');
+    gradient.addColorStop(1, '#3b1f05');
+  }
+  context.save();
+  context.beginPath();
+  context.arc(cx, cy, radius, 0, Math.PI * 2);
+  context.fillStyle = gradient;
+  context.fill();
+  context.save();
+  context.clip();
+  context.lineWidth = Math.max(1, radius * 0.1);
+  context.strokeStyle = 'rgba(255,241,196,.5)';
+  if (bead === 'diamantado') {
+    for (let step = -3; step <= 3; step += 1) {
+      context.beginPath();
+      context.moveTo(cx - radius, cy + step * radius * 0.36 + radius * 0.3);
+      context.lineTo(cx + radius, cy + step * radius * 0.36 - radius * 0.3);
+      context.stroke();
+    }
+  } else if (bead === 'italiano') {
+    for (let step = -3; step <= 3; step += 1) {
+      context.beginPath();
+      context.moveTo(cx + step * radius * 0.42 - radius * 0.6, cy - radius);
+      context.lineTo(cx + step * radius * 0.42 + radius * 0.6, cy + radius);
+      context.stroke();
+    }
+  } else if (bead === 'balin-x') {
+    context.lineWidth = Math.max(1.5, radius * 0.14);
+    [[-1, -1, 1, 1], [-1, 1, 1, -1]].forEach(([x1, y1, x2, y2]) => {
+      context.beginPath();
+      context.moveTo(cx + x1 * radius * 0.72, cy + y1 * radius * 0.72);
+      context.lineTo(cx + x2 * radius * 0.72, cy + y2 * radius * 0.72);
+      context.stroke();
+    });
+  }
+  context.restore();
+  // agujero superior
+  context.beginPath();
+  context.ellipse(cx, cy - radius * 0.78, radius * 0.28, radius * 0.14, 0, 0, Math.PI * 2);
+  context.fillStyle = bead === 'neopreno' ? '#0a0a0a' : '#3a2009';
+  context.fill();
+  context.strokeStyle = bead === 'neopreno' ? 'rgba(184,134,46,.8)' : 'rgba(240,205,119,.55)';
+  context.lineWidth = Math.max(1, radius * 0.07);
+  context.beginPath();
+  context.arc(cx, cy, radius, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawPosterMedal(context, cx, cy, radius) {
+  const face = context.createRadialGradient(cx - radius * 0.3, cy - radius * 0.35, radius * 0.1, cx, cy, radius);
+  face.addColorStop(0, '#fff0a8');
+  face.addColorStop(0.45, '#d9a239');
+  face.addColorStop(1, '#7d4a08');
+  context.save();
+  context.beginPath();
+  context.ellipse(cx, cy + radius * 0.16, radius * 0.82, radius, 0, 0, Math.PI * 2);
+  context.fillStyle = face;
+  context.fill();
+  context.strokeStyle = 'rgba(245,214,140,.75)';
+  context.lineWidth = Math.max(1, radius * 0.11);
+  context.stroke();
+  // cruz grabada
+  context.strokeStyle = 'rgba(72,40,4,.62)';
+  context.lineWidth = Math.max(1.5, radius * 0.15);
+  context.beginPath();
+  context.moveTo(cx, cy - radius * 0.34);
+  context.lineTo(cx, cy + radius * 0.66);
+  context.moveTo(cx - radius * 0.34, cy + radius * 0.08);
+  context.lineTo(cx + radius * 0.34, cy + radius * 0.08);
+  context.stroke();
+  // argolla
+  context.strokeStyle = 'rgba(240,205,119,.85)';
+  context.lineWidth = Math.max(1, radius * 0.12);
+  context.beginPath();
+  context.arc(cx, cy - radius * 0.92, radius * 0.2, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawPosterHexBadge(context, cx, cy, size, label) {
+  context.save();
+  context.beginPath();
+  for (let corner = 0; corner < 6; corner += 1) {
+    const angle = (Math.PI / 3) * corner - Math.PI / 2;
+    const x = cx + Math.cos(angle) * size;
+    const y = cy + Math.sin(angle) * size;
+    if (corner === 0) context.moveTo(x, y); else context.lineTo(x, y);
+  }
+  context.closePath();
+  context.strokeStyle = 'rgba(233,198,125,.6)';
+  context.lineWidth = 2;
+  context.stroke();
+  context.fillStyle = POSTER_GOLD;
+  context.font = posterSans(size * 1.05, '700');
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(String(label), cx, cy + 1);
+  context.textBaseline = 'alphabetic';
+  context.textAlign = 'left';
+  context.restore();
+}
+
+function drawPosterHeader(context, width, logo, title, subtitle) {
+  const logoSize = Math.round(width * 0.2);
+  const logoX = (width - logoSize) / 2;
+  const logoY = 44;
+  context.save();
+  context.beginPath();
+  context.arc(width / 2, logoY + logoSize / 2, logoSize / 2, 0, Math.PI * 2);
+  context.clip();
+  context.drawImage(logo, logoX, logoY, logoSize, logoSize);
+  context.restore();
+  context.strokeStyle = 'rgba(233,198,125,.55)';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(width / 2, logoY + logoSize / 2, logoSize / 2, 0, Math.PI * 2);
+  context.stroke();
+
+  context.textAlign = 'center';
+  let y = logoY + logoSize + Math.round(width * 0.075);
+  context.fillStyle = POSTER_GOLD;
+  context.font = posterFont(width * 0.062);
+  context.fillText(title, width / 2, y);
+
+  y += Math.round(width * 0.042);
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(width * 0.021, '700');
+  const label = subtitle.toUpperCase();
+  const labelWidth = context.measureText(label).width;
+  context.fillText(label, width / 2, y);
+  context.strokeStyle = 'rgba(233,198,125,.4)';
+  context.lineWidth = 1.5;
+  [[60, width / 2 - labelWidth / 2 - 26], [width / 2 + labelWidth / 2 + 26, width - 60]].forEach(([from, to]) => {
+    context.beginPath();
+    context.moveTo(from, y - 7);
+    context.lineTo(to, y - 7);
+    context.stroke();
+  });
+  context.textAlign = 'left';
+  return y + Math.round(width * 0.038);
+}
+
+function drawPosterFooter(context, width, y, height, note) {
+  const phone = S.settings.aiWhatsapp || DEFAULT_SETTINGS.aiWhatsapp;
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_GOLD;
+  context.font = posterFont(width * 0.038);
+  context.fillText('Personaliza tu manilla', width / 2, y + 46);
+
+  context.font = posterSans(width * 0.032, '700');
+  const phoneText = `WhatsApp ${phone}`;
+  const pillWidth = Math.min(width - 140, context.measureText(phoneText).width + width * 0.12);
+  const pillHeight = Math.round(width * 0.062);
+  const pillX = (width - pillWidth) / 2;
+  const pillY = y + 74;
+  const pill = context.createLinearGradient(pillX, pillY, pillX + pillWidth, pillY + pillHeight);
+  pill.addColorStop(0, POSTER_GOLD_DEEP);
+  pill.addColorStop(1, POSTER_GOLD);
+  context.fillStyle = pill;
+  context.beginPath();
+  context.roundRect(pillX, pillY, pillWidth, pillHeight, pillHeight / 2);
+  context.fill();
+  context.fillStyle = '#1a1008';
+  context.fillText(phoneText, width / 2, pillY + pillHeight * 0.66);
+
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(width * 0.019);
+  context.fillText(note, width / 2, pillY + pillHeight + 46);
+  context.textAlign = 'left';
+}
+
+async function drawPricePoster(canvas) {
+  const families = priceFamilies();
+  const width = 1080;
+  const pad = 60;
+  const gap = 26;
+  const colWidth = (width - pad * 2 - gap) / 2;
+  const cardPad = 24;
+  const rowHeight = 40;
+  const headHeight = 168;
+  const cardHeight = family => cardPad * 2 + headHeight + family.prices.length * rowHeight + 14;
+
+  const pairs = [];
+  for (let index = 0; index < families.length; index += 2) pairs.push(families.slice(index, index + 2));
+  const pairHeights = pairs.map(pair => Math.max(...pair.map(cardHeight)));
+
+  const headerHeight = Math.round(width * 0.2) + 44 + Math.round(width * 0.155);
+  const footerHeight = 240;
+  const height = Math.round(headerHeight + pairHeights.reduce((total, item) => total + item + gap, 0) + footerHeight);
+
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  posterBackground(context, width, height);
+  const logo = await loadCanvasImage('assets/logo-aurea.jpg');
+  let y = drawPosterHeader(context, width, logo, 'Catálogo de balines', 'Precios al público · por unidad');
+
+  let position = 0;
+  pairs.forEach((pair, pairIndex) => {
+    pair.forEach((family, column) => {
+      const boxHeight = cardHeight(family);
+      const x = pad + column * (colWidth + gap);
+      const certified = family.line === 'certified';
+      const cardFill = context.createLinearGradient(x, y, x + colWidth, y + boxHeight);
+      cardFill.addColorStop(0, certified ? '#150e05' : '#100b07');
+      cardFill.addColorStop(1, certified ? '#2c1c08' : '#241710');
+      context.fillStyle = cardFill;
+      context.beginPath();
+      context.roundRect(x, y, colWidth, boxHeight, 20);
+      context.fill();
+      context.strokeStyle = certified ? 'rgba(212,158,58,.85)' : 'rgba(140,101,49,.6)';
+      context.lineWidth = certified ? 2.5 : 1.5;
+      context.stroke();
+
+      drawPosterHexBadge(context, x + colWidth / 2, y + cardPad + 14, 19, position + 1);
+
+      context.textAlign = 'center';
+      context.fillStyle = POSTER_GOLD;
+      context.font = posterFont(31);
+      wrapCanvasText(context, family.name, x + colWidth / 2, y + cardPad + 74, colWidth - cardPad * 2, 34, 1);
+      context.fillStyle = POSTER_MUTED;
+      context.font = posterSans(17);
+      wrapCanvasText(context, family.material, x + colWidth / 2, y + cardPad + 102, colWidth - cardPad * 2, 21, 1);
+
+      const beadCenterY = y + cardPad + 150;
+      const beadRadius = size => {
+        const millimeters = parseFloat(String(size).replace(',', '.'));
+        return Number.isFinite(millimeters) ? 9 + Math.min(8, Math.max(3, millimeters)) * 2.4 : 18;
+      };
+      const beads = family.prices.slice(0, 6);
+      const beadTotal = beads.reduce((total, [size]) => total + beadRadius(size) * 2 + 12, -12);
+      let beadX = x + colWidth / 2 - beadTotal / 2;
+      beads.forEach(([size]) => {
+        const radius = beadRadius(size);
+        drawPosterBead(context, beadX + radius, beadCenterY, radius, family.bead);
+        beadX += radius * 2 + 12;
+      });
+
+      context.textAlign = 'left';
+      let rowY = y + cardPad + headHeight + 26;
+      family.prices.forEach(([size, price]) => {
+        context.fillStyle = POSTER_GOLD;
+        context.font = posterSans(15);
+        context.fillText('◆', x + cardPad, rowY);
+        context.fillStyle = POSTER_CREAM;
+        context.font = posterFont(24);
+        context.fillText(size, x + cardPad + 24, rowY);
+        const sizeWidth = context.measureText(size).width;
+        context.font = posterFont(25, '700');
+        const priceText = posterMoney(price);
+        const priceWidth = context.measureText(priceText).width;
+        context.textAlign = 'right';
+        context.fillStyle = POSTER_CREAM;
+        context.fillText(priceText, x + colWidth - cardPad, rowY);
+        context.textAlign = 'left';
+        context.save();
+        context.setLineDash([2, 7]);
+        context.strokeStyle = 'rgba(233,198,125,.45)';
+        context.lineWidth = 2;
+        context.beginPath();
+        context.moveTo(x + cardPad + 34 + sizeWidth, rowY - 7);
+        context.lineTo(x + colWidth - cardPad - priceWidth - 12, rowY - 7);
+        context.stroke();
+        context.restore();
+        rowY += rowHeight;
+      });
+
+      if (family.note) {
+        context.textAlign = 'center';
+        context.fillStyle = 'rgba(220,201,173,.75)';
+        context.font = posterSans(15);
+        wrapCanvasText(context, family.note, x + colWidth / 2, y + boxHeight - cardPad + 2, colWidth - cardPad * 2, 18, 1);
+        context.textAlign = 'left';
+      }
+      position += 1;
+    });
+    y += pairHeights[pairIndex] + gap;
+  });
+
+  drawPosterFooter(context, width, y, height, 'Precios sujetos a disponibilidad. No incluye envío.');
+  return canvas;
+}
+
+async function drawBraceletPoster(canvas) {
+  const catalog = S.priceCatalog;
+  const family = priceFamilies().find(item => item.id === $('#bracelet-price-family')?.value)
+    || priceFamilies().find(item => item.braceletTable && item.prices.length);
+  if (!family) throw new Error('No hay una familia para la tabla de manillas');
+  const quantities = catalog.quantities;
+  const labor = number(catalog.labor);
+
+  const width = 1240;
+  const pad = 60;
+  const labelWidth = 130;
+  const cellWidth = (width - pad * 2 - labelWidth) / quantities.length;
+  const rowHeight = 62;
+  const headerHeight = Math.round(width * 0.2) + 44 + Math.round(width * 0.155);
+  const tableHeight = rowHeight * (family.prices.length + 1);
+  const height = Math.round(headerHeight + 90 + tableHeight + 300);
+
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  posterBackground(context, width, height);
+  const logo = await loadCanvasImage('assets/logo-aurea.jpg');
+  let y = drawPosterHeader(context, width, logo, 'Precio de la manilla', `${family.name} · base fija incluida`);
+
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(21);
+  context.fillText('Cuántos balines lleva la manilla', width / 2, y + 14);
+  context.textAlign = 'left';
+  y += 54;
+
+  const tableX = pad;
+  context.fillStyle = 'rgba(255,255,255,.03)';
+  context.beginPath();
+  context.roundRect(tableX, y, width - pad * 2, tableHeight, 18);
+  context.fill();
+  context.strokeStyle = 'rgba(140,101,49,.55)';
+  context.lineWidth = 1.5;
+  context.stroke();
+
+  // encabezado
+  context.save();
+  context.beginPath();
+  context.roundRect(tableX, y, width - pad * 2, rowHeight, [18, 18, 0, 0]);
+  context.clip();
+  const headFill = context.createLinearGradient(tableX, y, tableX + width, y + rowHeight);
+  headFill.addColorStop(0, '#17110d');
+  headFill.addColorStop(1, '#33240f');
+  context.fillStyle = headFill;
+  context.fillRect(tableX, y, width - pad * 2, rowHeight);
+  context.restore();
+
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_GOLD;
+  context.font = posterSans(20, '700');
+  context.fillText('BALÍN', tableX + labelWidth / 2, y + rowHeight * 0.62);
+  quantities.forEach((quantity, index) => {
+    context.fillText(String(quantity), tableX + labelWidth + cellWidth * index + cellWidth / 2, y + rowHeight * 0.62);
+  });
+
+  family.prices.forEach(([size, price], index) => {
+    const rowY = y + rowHeight * (index + 1);
+    if (index % 2 === 0) {
+      context.fillStyle = 'rgba(255,255,255,.035)';
+      context.fillRect(tableX, rowY, width - pad * 2, rowHeight);
+    }
+    context.fillStyle = POSTER_GOLD;
+    context.font = posterFont(25, '700');
+    context.fillText(size, tableX + labelWidth / 2, rowY + rowHeight * 0.63);
+    context.fillStyle = POSTER_CREAM;
+    context.font = posterSans(22);
+    quantities.forEach((quantity, column) => {
+      context.fillText(
+        posterMoney(number(price) * quantity + labor),
+        tableX + labelWidth + cellWidth * column + cellWidth / 2,
+        rowY + rowHeight * 0.63
+      );
+    });
+    context.strokeStyle = 'rgba(140,101,49,.3)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(tableX, rowY);
+    context.lineTo(tableX + width - pad * 2, rowY);
+    context.stroke();
+  });
+
+  y += tableHeight + 46;
+  const neoprene = number(getPriceFamily('neopreno-oro')?.prices?.[0]?.[1]);
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(19);
+  context.fillText(
+    `Incluye ${posterMoney(labor)} de base fija (mano de obra y empaque).${neoprene > 0 ? ` Cada neopreno suma ${posterMoney(neoprene)}.` : ''}`,
+    width / 2, y
+  );
+  context.textAlign = 'left';
+
+  drawPosterFooter(context, width, y + 10, height, 'Precios sujetos a disponibilidad. No incluye envío.');
+  return canvas;
+}
+
+function posterModelSelection() {
+  const models = priceModels();
+  const families = priceFamilies().filter(family => family.braceletTable && family.prices.length);
+  if (!models.length || !families.length) return null;
+  const modelSelect = $('#poster-model');
+  const familySelect = $('#poster-model-family');
+  const modelId = models.some(model => model.id === modelSelect?.value) ? modelSelect.value : models[0].id;
+  const familyId = families.some(family => family.id === familySelect?.value) ? familySelect.value : families[0].id;
+  if (modelSelect) {
+    modelSelect.innerHTML = models.map(model =>
+      `<option value="${esc(model.id)}" ${model.id === modelId ? 'selected' : ''}>${esc(model.name)}</option>`).join('');
+  }
+  if (familySelect) {
+    familySelect.innerHTML = families.map(family =>
+      `<option value="${esc(family.id)}" ${family.id === familyId ? 'selected' : ''}>${esc(family.name)}</option>`).join('');
+  }
+  return { model: models.find(m => m.id === modelId), family: families.find(f => f.id === familyId) };
+}
+
+async function drawModelPoster(canvas) {
+  const selection = posterModelSelection();
+  if (!selection) throw new Error('Agrega una manilla y una familia de balines');
+  const { model, family } = selection;
+  const catalog = S.priceCatalog;
+  const labor = number(catalog.labor);
+  const quantities = model.quantities;
+  const rows = priceRowsDescending(family);
+  const addons = modelAddonFamilies(model);
+
+  const width = Math.min(1400, Math.max(1000, 250 + quantities.length * 132));
+  const pad = 60;
+  const labelWidth = 130;
+  const cellWidth = (width - pad * 2 - labelWidth) / quantities.length;
+  const rowHeight = 62;
+  const headerHeight = Math.round(width * 0.2) + 44 + Math.round(width * 0.155);
+  const tableHeight = rowHeight * (rows.length + 1);
+  const height = Math.round(headerHeight + 90 + tableHeight + (addons.length ? 56 : 0) + 300);
+
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  posterBackground(context, width, height);
+  const logo = await loadCanvasImage('assets/logo-aurea.jpg');
+  let y = drawPosterHeader(context, width, logo, model.name, `${family.name} · base fija incluida`);
+
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(21);
+  context.fillText('Cuántos balines lleva la manilla', width / 2, y + 14);
+  context.textAlign = 'left';
+  y += 54;
+
+  const tableX = pad;
+  context.fillStyle = 'rgba(255,255,255,.03)';
+  context.beginPath();
+  context.roundRect(tableX, y, width - pad * 2, tableHeight, 18);
+  context.fill();
+  context.strokeStyle = 'rgba(140,101,49,.55)';
+  context.lineWidth = 1.5;
+  context.stroke();
+
+  context.save();
+  context.beginPath();
+  context.roundRect(tableX, y, width - pad * 2, rowHeight, [18, 18, 0, 0]);
+  context.clip();
+  const headFill = context.createLinearGradient(tableX, y, tableX + width, y + rowHeight);
+  headFill.addColorStop(0, '#17110d');
+  headFill.addColorStop(1, '#33240f');
+  context.fillStyle = headFill;
+  context.fillRect(tableX, y, width - pad * 2, rowHeight);
+  context.restore();
+
+  context.textAlign = 'center';
+  context.fillStyle = POSTER_GOLD;
+  context.font = posterSans(20, '700');
+  context.fillText('BALÍN', tableX + labelWidth / 2, y + rowHeight * 0.62);
+  quantities.forEach((quantity, index) => {
+    context.fillText(String(quantity), tableX + labelWidth + cellWidth * index + cellWidth / 2, y + rowHeight * 0.62);
+  });
+
+  rows.forEach(([size, unitPrice], index) => {
+    const rowY = y + rowHeight * (index + 1);
+    const addonTotal = modelAddonTotal(model, size);
+    if (index % 2 === 0) {
+      context.fillStyle = 'rgba(255,255,255,.035)';
+      context.fillRect(tableX, rowY, width - pad * 2, rowHeight);
+    }
+    context.fillStyle = POSTER_GOLD;
+    context.font = posterFont(25, '700');
+    context.fillText(beadSizeLabel(size), tableX + labelWidth / 2, rowY + rowHeight * 0.63);
+    context.fillStyle = POSTER_CREAM;
+    context.font = posterSans(22);
+    quantities.forEach((quantity, column) => {
+      context.fillText(
+        posterMoney(number(unitPrice) * quantity + labor + addonTotal),
+        tableX + labelWidth + cellWidth * column + cellWidth / 2,
+        rowY + rowHeight * 0.63
+      );
+    });
+    context.strokeStyle = 'rgba(140,101,49,.3)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(tableX, rowY);
+    context.lineTo(tableX + width - pad * 2, rowY);
+    context.stroke();
+  });
+
+  y += tableHeight + 46;
+  context.fillStyle = POSTER_MUTED;
+  context.font = posterSans(19);
+  context.fillText(`Incluye ${posterMoney(labor)} de base fija.`, width / 2, y);
+  if (addons.length) {
+    y += 32;
+    context.fillStyle = POSTER_GOLD;
+    context.font = posterSans(19, '700');
+    context.fillText(`Incluye ${addons.map(item => item.name).join(' y ')}.`, width / 2, y);
+  }
+  context.textAlign = 'left';
+
+  drawPosterFooter(context, width, y + 10, height, 'Precios sujetos a disponibilidad. No incluye envío.');
+  return canvas;
+}
+
+function currentPosterMode() {
+  return $('.poster-tab.active')?.dataset.poster || 'prices';
+}
+
+async function renderPricePoster() {
+  const canvas = $('#price-poster-canvas');
+  const details = $('#price-poster-card');
+  if (!canvas || !details?.open) return;
+  const status = $('#price-poster-status');
+  try {
+    if (status) status.textContent = 'Armando el afiche…';
+    const mode = currentPosterMode();
+    $('#poster-pickers')?.classList.toggle('hidden', mode !== 'model');
+    if (mode === 'model') await drawModelPoster(canvas);
+    else if (mode === 'bracelet') await drawBraceletPoster(canvas);
+    else await drawPricePoster(canvas);
+    if (status) status.textContent = 'Se arma solo con los precios de arriba.';
+  } catch (error) {
+    if (status) status.textContent = error.message || 'No fue posible armar el afiche';
+  }
+}
+
+function showPosterTab(mode) {
+  $$('.poster-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.poster === mode));
+  renderPricePoster();
+}
+
+async function downloadPricePoster(mode, buttonId = '#download-price-poster-btn') {
+  const target = mode || currentPosterMode();
+  const button = $(buttonId);
+  const original = button?.textContent;
+  if (button) { button.classList.add('loading'); button.textContent = 'Preparando…'; }
+  try {
+    const canvas = document.createElement('canvas');
+    if (target === 'model') await drawModelPoster(canvas);
+    else if (target === 'bracelet') await drawBraceletPoster(canvas);
+    else await drawPricePoster(canvas);
+    const blob = await new Promise((resolve, reject) =>
+      canvas.toBlob(item => item ? resolve(item) : reject(new Error('No fue posible preparar la descarga')), 'image/jpeg', 0.94));
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const slug = target === 'model'
+      ? cleanCode(posterModelSelection()?.model?.name || 'modelo').toLowerCase()
+      : (target === 'bracelet' ? 'precio-manillas' : 'catalogo-precios');
+    link.download = `aurea-${slug}-${new Date().toISOString().slice(0, 10)}.jpg`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast('Afiche descargado');
+  } catch (error) {
+    toast(error.message || 'No fue posible descargar el afiche');
+  } finally {
+    if (button) { button.classList.remove('loading'); button.textContent = original; }
+  }
+}
+
 function productionLotNumber(id, date) {
   return `LOT-${String(date || new Date().toISOString()).slice(0, 10).replaceAll('-', '')}-${shortId(id)}`;
 }
@@ -2720,6 +4422,25 @@ function bindEvents() {
   $('#material-search').oninput = renderInventory;
   $('#material-category').onchange = renderInventory;
   $('#material-status').onchange = renderInventory;
+  $('#public-price-search').oninput = renderPublicPrices;
+  $('#public-price-line').onchange = renderPublicPrices;
+  $('#quote-product').onchange = renderQuoteTool;
+  $('#quote-variant').onchange = renderQuoteTool;
+  $('#quote-quantity').oninput = renderQuoteTool;
+  $('#quote-seller-type').onchange = renderQuoteTool;
+  $('#edit-quote-product-btn').onclick = openQuoteProductEditor;
+  $('#bracelet-price-family').onchange = renderBraceletPrices;
+  $('#add-price-family-btn').onclick = () => openPriceFamily();
+  $('#add-price-model-btn').onclick = () => openPriceModel();
+  $('#add-price-addon-btn').onclick = () => openPriceFamily('', 'addon');
+  $('#poster-model').onchange = renderPricePoster;
+  $('#poster-model-family').onchange = renderPricePoster;
+  $('#price-settings-btn').onclick = openPriceSettings;
+  $('#reset-prices-btn').onclick = resetPriceCatalog;
+  $('#price-poster-card').ontoggle = renderPricePoster;
+  $$('.poster-tab').forEach(tab => { tab.onclick = () => showPosterTab(tab.dataset.poster); });
+  $('#download-price-poster-btn').onclick = () => downloadPricePoster();
+  $('#download-catalog-poster-btn').onclick = () => downloadPricePoster('prices', '#download-catalog-poster-btn');
   $('#add-material-btn').onclick = () => openMaterial();
   $('#new-purchase-btn').onclick = () => openPurchase();
 
@@ -2784,6 +4505,10 @@ Object.assign(window, {
   AureaDiagnostics: Object.freeze({ schemaVersion: SCHEMA_VERSION, normalizeState: value => normalizeState(clone(value)) }),
   openUserGuide, guideGo, runSetupAction,
   closeModal, openMaterial, saveMaterial, toggleMaterial, deleteMaterial,
+  openQuoteProductEditor, saveQuoteProduct,
+  openPriceFamily, closePriceFamily, savePriceFamily, deletePriceFamily,
+  openPriceModel, closePriceModel, savePriceModel, deletePriceModel,
+  addPriceRow, removePriceRow, openPriceSettings, savePriceSettings, resetPriceCatalog,
   openPurchase, savePurchase, annulPurchase,
   changeComponentQty, removeComponent,
   loadDesign, showView,
@@ -2809,6 +4534,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderAll();
   const requestedView = new URLSearchParams(location.search).get('view');
   const requestedTab = new URLSearchParams(location.search).get('tab') || '';
-  if (['home', 'inventory', 'designer', 'sales', 'management'].includes(requestedView)) showView(requestedView, requestedTab);
+  if (['home', 'inventory', 'prices', 'designer', 'sales', 'management'].includes(requestedView)) showView(requestedView, requestedTab);
   if (location.protocol !== 'file:' && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
 });

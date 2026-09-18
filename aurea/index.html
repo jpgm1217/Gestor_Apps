@@ -53,6 +53,7 @@
           <div class="brand-sub">Joyas hechas con amor, brillo y esencia</div>
         </div>
         <div class="topbar-actions">
+          <button class="top-price-button" data-go="prices" type="button" aria-label="Abrir lista de precios"><span>◇</span><b>Lista de precios</b></button>
           <button class="help-button" id="open-user-guide-btn" type="button" aria-label="Abrir guía de uso">? <span>Ayuda</span></button>
           <div class="sync" id="sync"><span class="sync-dot"></span><span id="sync-text">Local</span></div>
         </div>
@@ -70,6 +71,7 @@
           <h1>Inventario, diseños, ventas y utilidad.</h1>
           <p>Controla cada material y calcula precios rentables con costos reales.</p>
           <div class="quick-actions">
+            <button class="quick quick-prices" data-go="prices"><strong>◇ VER LISTA DE PRECIOS</strong><span>7 Nudos, San Benito, oro y oro laminado</span></button>
             <button class="quick" data-go="designer"><strong>＋ Diseñar manilla</strong><span>Materiales y precio sugerido</span></button>
             <button class="quick" data-go="inventory"><strong>＋ Registrar compra</strong><span>Actualizar stock y costos</span></button>
             <button class="quick" data-go="management" data-tab="production"><strong>＋ Fabricar manillas</strong><span>Convertir materiales en producto listo</span></button>
@@ -129,6 +131,121 @@
           <select class="input" id="material-status"><option value="active">Activos</option><option value="inactive">Inactivos</option><option value="all">Todos</option></select>
         </div>
         <div id="material-list" class="material-list"></div>
+      </section>
+
+      <section class="view" id="view-prices">
+        <div class="public-price-hero">
+          <div>
+            <span class="guide-label">Consulta rápida</span>
+            <h2>Precios al público</h2>
+            <p>Busca el tipo de balín y dile al cliente el valor por unidad. Esta lista no modifica inventario, costos ni ventas.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" id="download-catalog-poster-btn" type="button">Descargar afiche</button>
+        </div>
+
+        <div class="guided-tip"><span>◈</span><div><b>¿Cómo usar esta lista?</b><p>Primero encontrarás la <strong>Lista rápida por modelo</strong> con 7 Nudos, San Benito y las nuevas manillas que agregues. Más abajo están los precios por balín suelto. Todos los valores se recalculan con los precios vigentes.</p></div></div>
+
+        <section class="quote-tool" id="quote-tool">
+          <div class="quote-tool-head">
+            <div>
+              <span class="guide-label">Cotizador del catálogo</span>
+              <h3>Cotizar como en el Excel</h3>
+              <p>Elige el código de la manilla, tipo y tamaño de balín. La app calcula Todo Laminado, Mixto y Todo Oro sin tocar inventario ni ventas.</p>
+            </div>
+            <button class="btn btn-outline btn-sm admin-only" id="edit-quote-product-btn" type="button">Editar modelo</button>
+          </div>
+          <div class="quote-controls">
+            <div class="field">
+              <label>Manilla del catálogo</label>
+              <select class="input" id="quote-product"></select>
+            </div>
+            <div class="field">
+              <label>Tipo / tamaño de balín</label>
+              <select class="input" id="quote-variant"></select>
+            </div>
+            <div class="field">
+              <label>Cantidad si cambia</label>
+              <input class="input" id="quote-quantity" type="number" min="1" step="1" placeholder="Usar estándar">
+            </div>
+            <div class="field">
+              <label>Quién cotiza</label>
+              <select class="input" id="quote-seller-type">
+                <option value="seller">Vendedor</option>
+                <option value="owner">Dueño</option>
+              </select>
+            </div>
+          </div>
+          <div class="quote-result" id="quote-result"></div>
+        </section>
+
+        <section class="model-price-section" id="model-price-section">
+          <div class="model-price-section-head">
+            <div>
+              <span class="guide-label">Por modelo</span>
+              <h3>Lista rápida de manillas</h3>
+              <p>Consulta cada modelo por número y tamaño de balines. Compara oro 18K con todos los estilos disponibles en oro laminado.</p>
+            </div>
+            <div class="model-price-actions admin-only">
+              <button class="btn btn-soft btn-sm" id="add-price-model-btn" type="button">＋ Nueva manilla</button>
+              <button class="btn btn-outline btn-sm" id="add-price-addon-btn" type="button">＋ Nuevo dije</button>
+            </div>
+          </div>
+          <div class="model-price-list" id="model-price-list"></div>
+          <aside class="model-addon-card" id="model-price-addons"></aside>
+        </section>
+
+        <div class="public-price-toolbar">
+          <input class="input" id="public-price-search" placeholder="Buscar liso, diamantado, 6 mm...">
+          <select class="input" id="public-price-line">
+            <option value="">Todos los materiales</option>
+            <option value="certified">Oro 18K</option>
+            <option value="laminated">Oro laminado 18K</option>
+            <option value="neoprene">Neopreno argollado</option>
+            <option value="addon">Dijes y adicionales</option>
+          </select>
+        </div>
+
+        <div class="public-price-summary" id="public-price-summary"></div>
+        <div class="public-price-grid" id="public-price-list"></div>
+
+        <div class="price-admin-bar admin-only">
+          <button class="btn btn-soft btn-sm" id="add-price-family-btn" type="button">＋ Nueva familia</button>
+          <button class="btn btn-outline btn-sm" id="price-settings-btn" type="button">⚙ Base fija y cantidades</button>
+          <button class="btn btn-outline btn-sm" id="reset-prices-btn" type="button">↺ Restaurar precios de fábrica</button>
+        </div>
+
+        <section class="bracelet-price-card">
+          <div class="bracelet-price-head">
+            <div>
+              <span class="guide-label">Manilla completa</span>
+              <h3>¿Cuánto vale la manilla armada?</h3>
+              <p>Elige el balín y lee el precio final según cuántos lleve. Ya incluye la base fija de mano de obra y empaque.</p>
+            </div>
+            <select class="input" id="bracelet-price-family" aria-label="Familia de balines para la tabla"></select>
+          </div>
+          <div class="bracelet-price-scroll">
+            <table class="bracelet-price-table" id="bracelet-price-table"></table>
+          </div>
+          <p class="bracelet-price-formula" id="bracelet-price-formula"></p>
+        </section>
+
+        <details class="public-poster-card" id="price-poster-card">
+          <summary><span>Ver el afiche para el cliente</span><small>Ábrelo para revisarlo o mandarlo por WhatsApp</small></summary>
+          <div class="poster-tabs">
+            <button class="tab poster-tab active" type="button" data-poster="prices">Precio por balín</button>
+            <button class="tab poster-tab" type="button" data-poster="bracelet">Precio de la manilla</button>
+            <button class="tab poster-tab" type="button" data-poster="model">Por modelo</button>
+          </div>
+          <div class="poster-pickers hidden" id="poster-pickers">
+            <select class="input" id="poster-model" aria-label="Modelo para el afiche"></select>
+            <select class="input" id="poster-model-family" aria-label="Material para el afiche"></select>
+          </div>
+          <div class="price-poster-stage">
+            <canvas id="price-poster-canvas" aria-label="Afiche de precios al público de Aurea"></canvas>
+          </div>
+          <p class="help" id="price-poster-status">Se arma solo con los precios de arriba.</p>
+          <button class="btn btn-primary btn-block" id="download-price-poster-btn" type="button">Descargar afiche</button>
+        </details>
       </section>
 
       <section class="view" id="view-designer">
@@ -365,6 +482,7 @@
   <nav class="bottom-nav">
     <button class="nav-btn active" data-view="home"><span class="nav-icon">⌂</span><span>Inicio</span></button>
     <button class="nav-btn" data-view="inventory"><span class="nav-icon">◫</span><span>Inventario</span></button>
+    <button class="nav-btn" data-view="prices"><span class="nav-icon">◇</span><span>Precios</span></button>
     <button class="nav-btn" data-view="designer"><span class="nav-icon">✦</span><span>Diseñar</span></button>
     <button class="nav-btn" data-view="sales"><span class="nav-icon">$</span><span>Ventas</span></button>
     <button class="nav-btn" data-view="management"><span class="nav-icon">☰</span><span>Gestión</span></button>
@@ -378,6 +496,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="js/domain.js"></script>
+  <script src="js/quote-catalog.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
