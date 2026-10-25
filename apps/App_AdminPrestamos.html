@@ -225,15 +225,15 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div class="metric"><div class="ml">Capital en calle</div><div class="mv" style="color:var(--amber)" id="m-capital">$0</div></div>
     <div class="metric"><div class="ml">Mora total</div><div class="mv" id="m-mora-total">$0</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="m-mora-sub">—% del capital</div></div>
   </div>
-  <!-- Disponible para prestar (manual — lo ve el cobrador) -->
+  <!-- Disponible para prestar: Caja real menos la reserva operativa -->
   <div class="card" style="border-color:var(--goldb);display:flex;justify-content:space-between;align-items:center">
     <div>
-      <div class="ct" style="margin-bottom:2px">💵 Para prestar (lo defines tú)</div>
-      <div style="font-size:11px;color:var(--text3)">El cobrador ve este número en su inicio</div>
+      <div class="ct" style="margin-bottom:2px">💵 Para prestar hoy</div>
+      <div style="font-size:11px;color:var(--text3)" id="disp-operativo-sub">Calculando desde Caja…</div>
     </div>
     <div style="text-align:right">
-      <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--gold)" id="disp-manual-val">—</div>
-      <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="editarDisponibleManual()">✏️ Editar</button>
+      <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--gold)" id="disp-operativo-val">—</div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="abrirPoliticaPrestamo()">⚙️ Configurar</button>
     </div>
   </div>
   <!-- Alertas inteligentes (decisiones que requieren tu atención) -->
@@ -462,7 +462,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <!-- Aporte de seguridad (mensual) -->
   <div class="card">
     <div class="ct">🛡️ Aporte de seguridad (mensual)</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Lo que te cobran este mes (varía). Se reparte <strong>50/50</strong>: la mitad del cobrador se descuenta de su comisión y tu mitad baja de tu ganancia neta.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Lo que te cobran este mes (varía). Se intenta repartir <strong>50/50</strong>: se descuenta hasta la mitad de la comisión pendiente del cobrador. Si no alcanza, <strong>Administración asume la diferencia</strong>; no se crea una deuda ni se le descuenta después. El pago total baja inmediatamente el <strong>Disponible para prestar</strong>.</div>
     <div class="fr">
       <div class="fg"><label class="fl">Mes</label><input type="month" id="seg-mes"></div>
       <div class="fg"><label class="fl">Monto total ($)</label><input type="number" id="seg-monto" step="5000" placeholder="50000" oninput="previewSeguridad()"></div>
@@ -518,26 +518,16 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 
 <!-- ── PANEL POOL ── -->
 <div id="panel-pool" class="panel">
-  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Capital disponible para reinvertir. El "Disponible" es el mismo de Caja (sincronizado). Para cuadrarlo usa el <strong>Corte de caja</strong> en la pestaña Caja.</div>
+  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Historial de reinversión. El dinero disponible se calcula <strong>solo desde Caja</strong>; este panel no cambia el efectivo ni el cupo para prestar. Para registrar una entrada, gasto o retiro usa <strong>Caja</strong>.</div>
 
   <!-- Métricas -->
   <div class="g2" id="pool-metricas"></div>
 
-  <!-- Registrar movimiento manual -->
+  <!-- Pool es trazabilidad, no una segunda caja -->
   <div class="card" style="margin-top:12px">
-    <div class="ct">Registrar movimiento</div>
-    <div class="fg"><label class="fl">Tipo</label>
-      <select id="pool-tipo">
-        <option value="entrada">↓ Entrada (capital recuperado)</option>
-        <option value="salida">↑ Salida (nuevo préstamo)</option>
-        <option value="ajuste">↔ Ajuste manual</option>
-      </select>
-    </div>
-    <div class="fr">
-      <div class="fg"><label class="fl">Monto ($)</label><input type="number" id="pool-monto" min="0" step="10000" placeholder="0"></div>
-      <div class="fg"><label class="fl">Concepto</label><input type="text" id="pool-concepto" placeholder="Ej: Pago María López"></div>
-    </div>
-    <button class="btn btn-primary" onclick="agregarMovimientoPool()">Registrar</button>
+    <div class="ct">Una sola Caja</div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.6">Los préstamos, recuperaciones, pagos al cobrador y aportes mensuales entran al historial automáticamente. Se quitaron los movimientos manuales de Pool porque podían mostrar una cifra distinta a la plata real.</div>
+    <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="goTab('caja',document.getElementById('tab-caja'))">Ir a Caja</button>
   </div>
 
   <!-- Historial -->
@@ -548,6 +538,11 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 </div>
 
 <div id="panel-config" class="panel">
+  <div class="card">
+    <div class="ct">💵 Disponible para prestar</div>
+    <div id="politica-prestamo-resumen" style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Calculando desde Caja…</div>
+    <button class="btn btn-primary btn-full" onclick="abrirPoliticaPrestamo()">Configurar cupo o pausa</button>
+  </div>
   <div class="card">
     <div class="ct">⚙️ Parámetros por defecto</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">El formulario de nuevo préstamo arranca con estos valores</div>
@@ -586,7 +581,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <div class="card" style="margin-top:12px">
     <div class="ct">Reconciliacion diaria</div>
     <div id="recon-config-resumen" style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Pendiente de ejecutar.</div>
-    <button class="btn btn-primary btn-full" onclick="ejecutarReconciliacionUI()">Reconciliar ahora</button>
+    <button class="btn btn-primary btn-full" onclick="ejecutarReconciliacionUI()">Revisar y conciliar</button>
   </div>
   <div class="card" style="margin-top:12px">
     <div class="ct">📅 Calendario estándar</div>
@@ -650,6 +645,40 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
     <div id="corte-prev" class="ibox" style="margin-bottom:12px;display:none"></div>
     <button class="btn btn-primary btn-full" onclick="aplicarCorteCaja()">Aplicar corte</button>
     <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-corte')">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL POLÍTICA PARA PRESTAR -->
+<div class="modal-overlay" id="modal-politica-prestamo" onclick="if(event.target===this)cerrar('modal-politica-prestamo')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">💵 Disponible para prestar</div>
+    <div id="politica-prestamo-contexto" class="ibox blue" style="font-size:12px;line-height:1.6;margin-bottom:12px"></div>
+    <div class="fg">
+      <label class="fl">Cómo quieres operar</label>
+      <select id="politica-prestamo-modo" onchange="actualizarFormularioPoliticaPrestamo()">
+        <option value="libre">Usar todo lo libre de Caja</option>
+        <option value="cupo">Fijar un cupo máximo para prestar</option>
+        <option value="pausa">Pausar nuevos préstamos</option>
+      </select>
+    </div>
+    <div class="fg" id="politica-prestamo-cupo-wrap">
+      <label class="fl">Cupo máximo disponible hoy ($)</label>
+      <input type="number" id="politica-prestamo-cupo" min="0" step="10000" placeholder="0" oninput="previsualizarPoliticaPrestamo()">
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">La diferencia queda apartada. Si prestas o registras gastos, el cupo baja solo; si entra dinero, vuelve a subir hasta este límite.</div>
+    </div>
+    <div class="fg" id="politica-prestamo-fecha-wrap">
+      <label class="fl">Hasta cuándo <span style="color:var(--text3);font-weight:400;text-transform:none">(opcional)</span></label>
+      <input type="date" id="politica-prestamo-hasta" oninput="previsualizarPoliticaPrestamo()">
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Útil para pausar hasta la próxima quincena. Al vencer, se habilita de nuevo automáticamente.</div>
+    </div>
+    <div class="fg">
+      <label class="fl">Nota <span style="color:var(--text3);font-weight:400;text-transform:none">(opcional)</span></label>
+      <input type="text" id="politica-prestamo-nota" placeholder="Ej: No prestar hasta cerrar quincena">
+    </div>
+    <div id="politica-prestamo-prev" class="ibox amber" style="font-size:12px;line-height:1.6;margin-bottom:12px"></div>
+    <button class="btn btn-primary btn-full" onclick="guardarPoliticaPrestamo()">Guardar disponibilidad</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="cerrar('modal-politica-prestamo')">Cancelar</button>
   </div>
 </div>
 
@@ -1371,6 +1400,14 @@ function cicloDe(c){return ((c&&c.ciclos&&c.ciclos.length)||0)+1;}
 
 const FB={apiKey:"AIzaSyCxSzLh5EDpwZX4ppS4tFz8hnI9FlmgbIw",authDomain:"prestamosjv.firebaseapp.com",projectId:"prestamosjv",databaseURL:"https://prestamosjv-default-rtdb.firebaseio.com",storageBucket:"prestamosjv.appspot.com",messagingSenderId:"000000000000",appId:"1:000:web:000"};
 let db=null,fbOk=false,clientes=[],actividad=[],caja=[],liquidaciones=[],pendingRefin=null,pendingAbono=null,pendingExtension=null;
+// Política operativa separada de la contabilidad: permite reservar o pausar dinero sin
+// inventar movimientos de caja. La Caja sigue siendo la única fuente de verdad financiera.
+const POLITICA_PRESTAMO_KEY='cr_politica_prestamo';
+let _politicaPrestamo=(()=>{
+  try{return JSON.parse(localStorage.getItem(POLITICA_PRESTAMO_KEY)||'null');}catch(e){return null;}
+})();
+let _politicaPrestamoSincronizada=false;
+let _ultimaPublicacionDisponible='';
 // FIX W11: debounce global para evitar doble-click en botones Confirmar (anti-duplicados)
 let _busyConfirm=false;
 function arrFirebase(v){
@@ -1835,12 +1872,15 @@ function escuchar(){
       if(sl)sl.value=v;
     }
   });
-  // Disponible para prestar manual — el admin lo define, el cobrador lo ve
-  db.ref('config/disponibleManual').on('value',s=>{
-    const v=s.val();
-    window._dispManual=(v!==null&&v!==undefined)?Math.round(parseFloat(v)||0):null;
-    const el=document.getElementById('disp-manual-val');
-    if(el)el.textContent=window._dispManual!=null?fmt(window._dispManual):'— (sin definir)';
+  // Política operativa: reserva o pausa sin alterar la Caja. El valor que ve el cobrador se
+  // publica desde actualizarDisponibleParaPrestar(), siempre calculado a partir de Caja.
+  db.ref('config/politicaPrestamo').on('value',s=>{
+    _politicaPrestamo=normalizarPoliticaPrestamo(s.val());
+    _politicaPrestamoSincronizada=true;
+    localStorage.setItem(POLITICA_PRESTAMO_KEY,JSON.stringify(_politicaPrestamo));
+    _ultimaPublicacionDisponible='';
+    const m=metricasCaja();
+    actualizarDisponibleParaPrestar(m);
   });
   // Saldo a favor del cobrador: abonos que pagaste por encima de cobros enteros (se descuenta del próximo)
   db.ref('config/creditoCobrador').on('value',s=>{
@@ -2159,6 +2199,7 @@ function crearPrestamo(){
   const capital=parseFloat(document.getElementById('n-capital').value)||0;
   if(!nombre){notify('Ingresa el nombre','err');return;}
   if(capital<=0){notify('Capital inválido','err');return;}
+  if(!validarDisponibleParaNuevoPrestamo(capital))return;
   const tasa=parseFloat(document.getElementById('n-tasa').value)||20;
   const tipo=document.getElementById('n-tipo').value;
   const plazo=sanitizarCuotas(document.getElementById('n-plazo').value,1);
@@ -2245,6 +2286,26 @@ function fechaCobroProgramada(c,q,i){
   let fecha=q.fechaISO;
   if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>fecha)fecha=c.graciaHasta;
   return fecha;
+}
+// Deuda operativa a la fecha: incluye cada cuota ya vencida o exigible HOY. En préstamos
+// diarios no basta con mirar la primera cuota impaga, porque oculta los días posteriores que
+// también vencieron. La primera respeta el posible abono parcial; las siguientes van completas.
+function cuotasExigiblesHoy(c,refKey){
+  const fecha=refKey||hoy();
+  const items=[];
+  if(!c||c.pagadas>=c.numCuotas)return {items,totalCuotas:0,capital:0,interes:0,ajuste:0};
+  for(let i=Math.max(0,c.pagadas||0);i<(c.numCuotas||0);i++){
+    const q=(c.cuotasData||[])[i];
+    const vencimiento=fechaCobroProgramada(c,q,i);
+    if(!vencimiento||vencimiento>fecha)break;
+    const p=i===(c.pagadas||0)?partesPendientesCuota(c):partesCuotaIndex(c,i);
+    if((p.cuota||0)>0)items.push({indice:i,cuotaNo:i+1,fecha:vencimiento,...p});
+  }
+  return items.reduce((r,p)=>{
+    r.items.push(p);r.totalCuotas+=Math.max(0,Math.round(p.cuota||0));
+    r.capital+=Math.max(0,Math.round(p.capital||0));r.interes+=Math.max(0,Math.round(p.interes||0));
+    r.ajuste+=Math.max(0,Math.round(p.ajuste||0));return r;
+  },{items:[],totalCuotas:0,capital:0,interes:0,ajuste:0});
 }
 function tieneCuotaEnFecha(c,fecha){
   return !!(c.cuotasData&&c.cuotasData.some((q,i)=>q.num>c.pagadas&&fechaCobroProgramada(c,q,i)===fecha));
@@ -2339,15 +2400,14 @@ function _copiarFallback(txt,done){
   }catch(e){notify('No se pudo copiar: '+txt,'err');}
 }
 
-// Lo que se le cobra HOY a un cliente: la cuota que sigue + la mora, menos lo ya abonado.
-// NO es saldo(c) — eso es toda la deuda restante del préstamo. Mostrar el saldo aquí hacía
-// que el admin le pidiera al cliente pagar el préstamo entero en vez de la cuota.
-// Misma fórmula que usa App_Cobrar (cuotaBase + m - yaAbonado): si cambias una, cambia la otra.
+// Lo que se le cobra HOY a un cliente: cuotas vencidas hasta hoy + mora acumulada.
+// NO es saldo(c) — eso incluye todo el préstamo futuro. Se mantiene idéntico a App_Cobrar.
 function _aCobrarHoy(c,moraVal){
   if(!c)return 0;
-  const cuotaBase=(c.cuotasData&&c.cuotasData[c.pagadas]&&c.cuotasData[c.pagadas].cuota)||c.cuota||0;
+  const exigible=cuotasExigiblesHoy(c);
+  const cuotaBase=exigible.totalCuotas||partesPendientesCuota(c).cuota||0;
   const m=Math.max(0,Math.round(moraVal===undefined?mora(c):moraVal));
-  return Math.max(0,Math.round(cuotaBase+m-(c.abonoPendiente||0)));
+  return Math.max(0,Math.round(cuotaBase+m));
 }
 function montoPagoAnticipado(c){
   const cap=Math.max(0,Math.round(c.capital||0));
@@ -2393,6 +2453,7 @@ function renderInicio(){
   renderSaludInicio();
 
   const m=metricasCaja();
+  actualizarDisponibleParaPrestar(m);
 
   // — 4 números clave (mismos valores que Caja) —
   const elDisp=document.getElementById('m-disp');
@@ -2595,7 +2656,7 @@ function renderClientes(){
         <div class="cs"><div class="csl">Mora</div><div class="csv" style="color:${m>0?'var(--red)':'var(--text3)'}">${m>0?fmt(m):'$0'}</div></div>
         <div class="cs"><div class="csl">Cuotas</div><div class="csv">${c.pagadas}/${c.numCuotas}</div></div>
       </div>
-      ${m>0?`<div style="background:var(--redd);border-radius:7px;padding:6px 10px;margin-top:8px;font-size:12px;color:var(--red)">Total hoy: ${fmt(sd+m)}</div>`:''}
+      ${m>0?`<div style="background:var(--redd);border-radius:7px;padding:6px 10px;margin-top:8px;font-size:12px;color:var(--red)">Deuda exigible hoy: ${fmt(_aCobrarHoy(c,m))}</div>`:''}
       ${c.abonoPendiente>0&&c.pagadas<c.numCuotas?`<div style="background:var(--amberd);border-radius:7px;padding:6px 10px;margin-top:6px;font-size:12px;color:var(--amber)">💵 Abono parcial: ${fmt(c.abonoPendiente)} · Falta: ${fmt(c.cuota-c.abonoPendiente)}</div>`:''}
       ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];return ult&&sameCoDate(ult.fecha,h)?`<div style="background:rgba(255,107,107,.15);border:1px solid var(--red);border-radius:7px;padding:7px 10px;margin-top:6px;font-size:12px;color:var(--red);font-weight:600">❌ No pagó hoy — cobrador ya visitó</div>`:''})()}
       <div class="prog"><div class="prog-f" style="width:${pct}%"></div></div>
@@ -2607,6 +2668,10 @@ function renderClientes(){
 function verCliente(id,soliId=null){
   const c=clientes.find(x=>x.id===id);if(!c)return;
   const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),h=hoy(),m=mora(c),d=diasMora(c);
+  const exigible=cuotasExigiblesHoy(c);
+  const primeraExigible=exigible.items[0]?.cuotaNo||Math.min(c.pagadas+1,c.numCuotas);
+  const ultimaExigible=exigible.items.at(-1)?.cuotaNo||primeraExigible;
+  const etiquetaExigible=primeraExigible===ultimaExigible?`cuota ${primeraExigible}/${c.numCuotas}`:`cuotas ${primeraExigible}–${ultimaExigible}/${c.numCuotas}`;
   const sem=semaforo(c),riesgo=nivelRiesgo(c);
   const soliCtx=soliId?(window._solicitudes||[]).find(x=>x.id===soliId):null;
   window._soliContextoActiva=soliCtx?soliId:null;
@@ -2635,7 +2700,7 @@ function verCliente(id,soliId=null){
       <div class="cs"><div class="csl">Mora/día</div><div class="csv" style="color:var(--red)">${fmt(c.moraDia)}</div></div>
       <div class="cs"><div class="csl">Mora total</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>
     </div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span>A cobrar hoy: cuota ${Math.min(c.pagadas+1,c.numCuotas)}/${c.numCuotas} + mora</span><strong style="color:var(--red)">${fmt(_aCobrarHoy(c,m))}</strong></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span>Exigible hoy: ${etiquetaExigible} + mora</span><strong style="color:var(--red)">${fmt(_aCobrarHoy(c,m))}</strong></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:9px;font-size:11px;color:var(--text3)"><span>Saldo total del préstamo</span><span>${fmt(sd)}</span></div>
     <button class="btn btn-ghost btn-sm btn-full" onclick="perdonarMora('${c.id}')">🤝 Perdonar mora</button></div>`:graciaOn?`<div class="ibox blue" style="font-size:12px">🛡️ Sin mora hasta <strong>${graciaTxt}</strong> — gabela activa</div>`:c.graciaHasta?`<div class="ibox amber" style="font-size:12px">🛡️ La gabela terminó el <strong>${graciaTxt}</strong></div>`:'<div class="ibox green" style="font-size:12px">✓ Al día — sin mora</div>';
   const cuotasHTML=c.cuotasData.map((q,i)=>{
@@ -4508,6 +4573,7 @@ function prevRefin(){
   const c=clientes.find(x=>x.id===pendingRefin);if(!c)return;
   const base=saldo(c)+mora(c);
   const extra=parseFloat(document.getElementById('rf-extra').value)||0;
+  if(extra>0&&!validarDisponibleParaNuevoPrestamo(extra))return;
   const nc=base+extra;
   const tasa=parseFloat(document.getElementById('rf-tasa').value)||20;
   const plazo=sanitizarCuotas(document.getElementById('rf-plazo').value,15);
@@ -5401,15 +5467,148 @@ function totalLiquidacionesComision(){
   // se cubre con su comisión, así que no debe contar como comisión pagada en la ganancia neta.
   return (liquidaciones||[]).filter(l=>!l.esSeguridad).reduce((s,l)=>s+Math.max(0,Math.round(l.monto||0)),0);
 }
-function editarDisponibleManual(){
-  const actual=(window._dispManual!=null)?window._dispManual:'';
-  const v=prompt('¿Cuánto tienes disponible para prestar ahora?\n(Este número lo verá el cobrador en su inicio)',String(actual));
-  if(v===null)return;
-  const n=Math.max(0,Math.round(parseFloat(String(v).replace(/[^\d.]/g,''))||0));
-  window._dispManual=n;
-  const el=document.getElementById('disp-manual-val');if(el)el.textContent=fmt(n);
-  if(fbOk&&db)db.ref('config/disponibleManual').set(n).catch(e=>notify('Error guardando: '+e.message,'err'));
-  notify('Disponible actualizado — el cobrador ya lo ve ✓','ok');
+function normalizarPoliticaPrestamo(raw){
+  const p=(raw&&typeof raw==='object')?raw:{};
+  const modo=['libre','cupo','pausa'].includes(p.modo)?p.modo:'libre';
+  const reserva=Math.max(0,Math.round(parseFloat(p.reserva)||0));
+  const hasta=/^\d{4}-\d{2}-\d{2}$/.test(String(p.hasta||''))?String(p.hasta):'';
+  return {modo,reserva,hasta,nota:String(p.nota||'').trim(),actualizadoEn:Math.round(parseFloat(p.actualizadoEn)||0)};
+}
+
+function politicaPrestamoVigente(){
+  const guardada=normalizarPoliticaPrestamo(_politicaPrestamo);
+  // La fecha se interpreta en hora Colombia (misma regla usada por la cartera). El día indicado
+  // todavía aplica; la política se libera desde el día siguiente.
+  const vencida=!!guardada.hasta&&guardada.hasta<hoy();
+  return {...guardada,modo:vencida?'libre':guardada.modo,vencida};
+}
+
+// Caja libre = efectivo que la contabilidad dice que puede salir. "Para prestar" descuenta una
+// reserva operativa (o se vuelve cero durante una pausa), sin modificar capital base ni historial.
+function disponibilidadParaPrestar(m){
+  const metricas=m||metricasCaja();
+  const cajaLibre=Math.max(0,Math.round(metricas.disponibleReal||0));
+  const politica=politicaPrestamoVigente();
+  const reserva=politica.modo==='cupo'?Math.min(cajaLibre,politica.reserva):0;
+  const monto=politica.modo==='pausa'?0:Math.max(0,cajaLibre-reserva);
+  return {monto,cajaLibre,reserva,politica};
+}
+
+function textoPoliticaPrestamo(d){
+  const p=d.politica;
+  if(p.modo==='pausa')return p.hasta?`Pausado hasta ${labelFromUTCDate(coUTCDateFromKey(p.hasta))}`:'Pausado hasta que lo habilites';
+  if(p.modo==='cupo')return `Caja libre ${fmt(d.cajaLibre)} · reserva ${fmt(d.reserva)}`;
+  if(p.vencida)return 'La pausa venció: se habilitó todo lo libre de Caja';
+  return `Todo lo libre de Caja: ${fmt(d.cajaLibre)}`;
+}
+
+function actualizarDisponibleParaPrestar(m){
+  const d=disponibilidadParaPrestar(m);
+  const color=d.monto>0?'var(--gold)':(d.politica.modo==='pausa'?'var(--text3)':'var(--red)');
+  const el=document.getElementById('disp-operativo-val');
+  if(el){el.textContent=fmt(d.monto);el.style.color=color;}
+  const sub=document.getElementById('disp-operativo-sub');
+  if(sub)sub.textContent=textoPoliticaPrestamo(d)+(d.politica.nota?` · ${d.politica.nota}`:'');
+  const resumen=document.getElementById('politica-prestamo-resumen');
+  if(resumen){
+    resumen.innerHTML=`<strong style="color:${color}">Para prestar ahora: ${fmt(d.monto)}</strong><br>${htmlSafe(textoPoliticaPrestamo(d))}${d.politica.nota?`<br>Nota: ${htmlSafe(d.politica.nota)}`:''}`;
+  }
+  publicarDisponibleParaPrestar(d);
+  return d;
+}
+
+// El cobrador recibe una fotografía calculada por Caja. Nunca escribe esta cifra: solo Admin
+// publica el resultado para que no haya dos contabilidades distintas.
+function publicarDisponibleParaPrestar(d){
+  if(!fbOk||!db||!d||!_politicaPrestamoSincronizada)return;
+  const p=d.politica;
+  const clave=[d.monto,d.cajaLibre,d.reserva,p.modo,p.hasta||'',p.nota||''].join('|');
+  if(clave===_ultimaPublicacionDisponible)return;
+  _ultimaPublicacionDisponible=clave;
+  const snap={monto:d.monto,cajaLibre:d.cajaLibre,reserva:d.reserva,modo:p.modo,hasta:p.hasta||null,nota:p.nota||'',actualizadoEn:Date.now()};
+  db.ref('config/disponibleParaPrestar').set(snap).catch(e=>{
+    _ultimaPublicacionDisponible='';
+    console.warn('No se pudo publicar disponible para prestar:',e.message);
+  });
+}
+
+function abrirPoliticaPrestamo(){
+  const d=disponibilidadParaPrestar();
+  const p=politicaPrestamoVigente();
+  document.getElementById('politica-prestamo-contexto').innerHTML=
+    `Caja libre hoy: <strong>${fmt(d.cajaLibre)}</strong><br>Esta configuración no mueve plata ni cambia tu capital; solo controla cuánto se puede volver a prestar.`;
+  document.getElementById('politica-prestamo-modo').value=p.modo;
+  document.getElementById('politica-prestamo-cupo').value=p.modo==='cupo'?d.monto:'';
+  document.getElementById('politica-prestamo-hasta').value=p.hasta||'';
+  document.getElementById('politica-prestamo-nota').value=p.nota||'';
+  actualizarFormularioPoliticaPrestamo();
+  document.getElementById('modal-politica-prestamo').classList.add('open');
+}
+
+function actualizarFormularioPoliticaPrestamo(){
+  const modo=document.getElementById('politica-prestamo-modo').value;
+  const cupo=document.getElementById('politica-prestamo-cupo-wrap');
+  const fecha=document.getElementById('politica-prestamo-fecha-wrap');
+  if(cupo)cupo.style.display=modo==='cupo'?'block':'none';
+  if(fecha)fecha.style.display=modo==='pausa'?'block':'none';
+  previsualizarPoliticaPrestamo();
+}
+
+function previsualizarPoliticaPrestamo(){
+  const prev=document.getElementById('politica-prestamo-prev');
+  if(!prev)return;
+  const modo=document.getElementById('politica-prestamo-modo').value;
+  const cajaLibre=Math.max(0,Math.round(metricasCaja().disponibleReal||0));
+  const cupo=Math.max(0,Math.round(parseFloat(document.getElementById('politica-prestamo-cupo').value)||0));
+  const hasta=document.getElementById('politica-prestamo-hasta').value||'';
+  if(modo==='pausa'){
+    prev.className='ibox amber';
+    prev.innerHTML=`No se podrán crear préstamos nuevos${hasta?` hasta el ${labelFromUTCDate(coUTCDateFromKey(hasta))}`:''}. La Caja seguirá mostrando ${fmt(cajaLibre)} como dinero libre.`;
+  }else if(modo==='cupo'){
+    const real=Math.min(cajaLibre,cupo);
+    prev.className='ibox blue';
+    prev.innerHTML=`Para prestar aparecerán <strong>${fmt(real)}</strong>. Quedarán apartados <strong>${fmt(Math.max(0,cajaLibre-real))}</strong> de los ${fmt(cajaLibre)} libres en Caja.`;
+  }else{
+    prev.className='ibox green';
+    prev.innerHTML=`Para prestar aparecerán todos los <strong>${fmt(cajaLibre)}</strong> libres de Caja.`;
+  }
+}
+
+function guardarPoliticaPrestamo(){
+  const modo=document.getElementById('politica-prestamo-modo').value;
+  const cajaLibre=Math.max(0,Math.round(metricasCaja().disponibleReal||0));
+  const cupo=Math.max(0,Math.round(parseFloat(document.getElementById('politica-prestamo-cupo').value)||0));
+  const hasta=modo==='pausa'?(document.getElementById('politica-prestamo-hasta').value||''):'';
+  if(hasta&&hasta<hoy()){notify('La fecha de pausa debe ser hoy o posterior','err');return;}
+  const politica={
+    modo,
+    // Se guarda lo apartado, no el disponible. Así después de prestar $50.000 el cupo también
+    // baja $50.000, y los cobros lo liberan de nuevo sin que haya que editarlo cada vez.
+    reserva:modo==='cupo'?Math.max(0,cajaLibre-Math.min(cajaLibre,cupo)):0,
+    hasta:modo==='pausa'?hasta:'',
+    nota:document.getElementById('politica-prestamo-nota').value.trim(),
+    actualizadoEn:Date.now()
+  };
+  _politicaPrestamo=normalizarPoliticaPrestamo(politica);
+  localStorage.setItem(POLITICA_PRESTAMO_KEY,JSON.stringify(_politicaPrestamo));
+  if(fbOk&&db)db.ref('config/politicaPrestamo').set(_politicaPrestamo).catch(e=>notify('Error guardando la disponibilidad: '+e.message,'err'));
+  const d=actualizarDisponibleParaPrestar();
+  cerrar('modal-politica-prestamo');
+  notify(modo==='pausa'?'Préstamos nuevos pausados ✓':`Disponible para prestar: ${fmt(d.monto)} ✓`,'ok');
+}
+
+function validarDisponibleParaNuevoPrestamo(monto){
+  const d=disponibilidadParaPrestar();
+  const valor=Math.max(0,Math.round(parseFloat(monto)||0));
+  if(d.politica.modo==='pausa'){
+    notify(`Los préstamos nuevos están pausados${d.politica.hasta?` hasta ${labelFromUTCDate(coUTCDateFromKey(d.politica.hasta))}`:''}.`,'err');
+    return false;
+  }
+  if(valor>d.monto){
+    notify(`No hay cupo suficiente: puedes prestar ${fmt(d.monto)} y estás intentando ${fmt(valor)}.`,'err');
+    return false;
+  }
+  return true;
 }
 function metricasCaja(){
   const ingresosCapital=caja.filter(m=>!m.auto&&m.tipo==='ingreso').reduce((s,m)=>s+(m.monto||0),0);
@@ -5431,6 +5630,7 @@ function metricasCaja(){
 }
 function renderCaja(){
   const m=metricasCaja();
+  actualizarDisponibleParaPrestar(m);
   const cjBase=document.getElementById('cj-base'); if(cjBase)cjBase.textContent=fmt(m.capitalBase);
   const cjCalle=document.getElementById('cj-calle'); if(cjCalle)cjCalle.textContent=fmt(m.principalCalle);
   const cjDisp=document.getElementById('cj-disp'); if(cjDisp){cjDisp.textContent=fmt(m.disponibleReal); cjDisp.style.color=m.disponibleReal<0?'var(--red)':'var(--green)';}
@@ -5672,7 +5872,10 @@ function calcularReconciliacion(){
     if(Math.abs(sumMora-evMora)>2)fails.push(`${tag} mora descuadra: caja=${sumMora.toLocaleString('es-CO')} vs comisión=${evMora.toLocaleString('es-CO')}`);
     if(Math.abs(sumMora-moraMostrada)>2)warns.push(`${tag} mora total mostrado ${moraMostrada.toLocaleString('es-CO')} vs caja ${sumMora.toLocaleString('es-CO')} (campo a corregir)`);
     if(Array.isArray(c.comisionEventos)){
-      const sumIntEv=eventosVigentes.reduce((s,e)=>s+(e.interes||0),0);
+      // Caja conserva TODOS los ciclos del cliente. Se toma la lista viva y únicamente los
+      // respaldos que ya no tienen equivalente vivo; así no se duplica una liquidación rescatada
+      // y tampoco se acusa como faltante la comisión correcta de un ciclo ya cerrado.
+      const sumIntEv=eventosComisionParaCruceCaja(c).reduce((s,e)=>s+Math.max(0,Math.round(e.interes||0)),0);
       if(Math.abs(sumIntEv-sumInt)>2)warns.push(`${tag} comision interes vs caja: ${sumIntEv.toLocaleString('es-CO')} != ${sumInt.toLocaleString('es-CO')}`);
       if(!c.esInterno){
         eventosVigentes.forEach((e,i)=>{
@@ -5723,7 +5926,32 @@ function renderReconciliacionResumen(r){
   const el=document.getElementById('recon-config-resumen');
   if(!el)return;
   const color=r.fails.length?'var(--red)':r.warns.length?'var(--amber)':'var(--green)';
-  el.innerHTML=`<strong style="color:${color}">${r.fails.length} fail(s), ${r.warns.length} warn(s)</strong><br><span style="color:var(--text3)">Ultima ejecucion: ${new Date(r.ts).toLocaleString('es-CO')}</span>`;
+  const estado=!r.fails.length&&!r.warns.length?'Todo cuadra':`${r.fails.length} problema(s) y ${r.warns.length} aviso(s)`;
+  el.innerHTML=`<strong style="color:${color}">${estado}</strong><br><span style="color:var(--text3)">Abre la revisión para aplicar las correcciones seguras o ir al corte de Caja cuando haga falta contar el efectivo. Última ejecución: ${new Date(r.ts).toLocaleString('es-CO')}</span>`;
+}
+
+function abrirReconciliacionDesdeInicio(){
+  goTab('config',document.getElementById('tab-config'));
+  ejecutarReconciliacionUI();
+}
+
+function abrirCorteDesdeReconciliacion(){
+  cerrar('modal-reconciliacion');
+  goTab('caja',document.getElementById('tab-caja'));
+  setTimeout(()=>abrirCorteCaja(),0);
+}
+
+// Un descuadre de efectivo no se puede "arreglar" inventando movimientos: solo quien está
+// contando la plata sabe la cifra real. Esta guía hace visible esa ruta en la misma revisión.
+function guiaConciliacionCaja(){
+  const m=metricasCaja();
+  const activos=clientes.filter(c=>(c.pagadas||0)<(c.numCuotas||0)).length;
+  const necesitaCorte=m.disponibleReal<0||(m.capitalBase<=0&&activos>0);
+  if(!necesitaCorte)return '';
+  const motivo=m.disponibleReal<0
+    ?`Caja muestra ${fmt(m.disponibleReal)} disponible. No se corrige sola porque hace falta comparar contra el efectivo real.`
+    :'Hay préstamos activos pero no existe capital base registrado; Caja no puede saber con qué efectivo arrancaste.';
+  return `<div class="ibox amber" style="margin-bottom:10px"><div style="font-weight:700;margin-bottom:3px">Conteo de efectivo pendiente</div><div style="font-size:11px;color:var(--text3);line-height:1.55">${motivo} Cuenta la plata libre que tienes hoy y usa el corte: deja un ajuste trazable, no borra cobros ni préstamos.</div><button class="btn btn-ghost btn-sm" style="margin-top:9px" onclick="abrirCorteDesdeReconciliacion()">Ir a contar y cuadrar Caja</button></div>`;
 }
 
 let _revisionActual=null;
@@ -5759,6 +5987,8 @@ function ejecutarReconciliacionUI(){
       ${(()=>{const s=saludApp();return s.ok
         ?`<div class="ibox green" style="margin-bottom:10px"><div style="font-weight:700">✓ Salud general: todo cuadra</div><div style="font-size:11px;color:var(--text3)">Comisiones, caja y cuotas sin descuadres.</div></div>`
         :`<div class="ibox red" style="margin-bottom:10px"><div style="font-weight:700;margin-bottom:4px">⚠ Salud general: ${s.problemas.length} cosa${s.problemas.length!==1?'s':''} por revisar</div>${s.problemas.map(p=>`<div style="font-size:11px;padding:3px 0"><strong style="color:${p.sev==='alto'?'var(--red)':'var(--amber)'}">${htmlSafe(p.msg)}</strong>${p.sub?`<div style="color:var(--text3)">${htmlSafe(p.sub)}</div>`:''}</div>`).join('')}</div>`;})()}
+
+      ${guiaConciliacionCaja()}
 
       ${rev.automaticos.length?`<div class="ibox green" style="margin-bottom:10px">
         <div style="font-weight:700;margin-bottom:2px">Se arreglan solos</div>
@@ -5887,12 +6117,15 @@ function construirBackupCompleto(fuente){
     params:window._paramsGlobalesFB||JSON.parse(localStorage.getItem(PARAMS_KEY)||'{}'),
     waTemplate:getWATemplate(),comisionPct:pctGlobal(),
     creditoCobrador:Math.max(0,Math.round(window._creditoCobrador||0)),
-    disponibleManual:window._dispManual===undefined?null:window._dispManual
+    // Se conserva el valor manual antiguo solo por compatibilidad; la operación nueva usa
+    // politicaPrestamo + Caja y la fotografía disponibleParaPrestar se regenera al abrir.
+    disponibleManual:window._dispManual===undefined?null:window._dispManual,
+    politicaPrestamo:normalizarPoliticaPrestamo(_politicaPrestamo)
   };
   const armar=(nodos)=>{
     const cfg=nodos&&nodos[5]||configLocal;
     return{
-      version:5,fecha:coDateTimeISO(),fuente:fuente||'manual',
+      version:6,fecha:coDateTimeISO(),fuente:fuente||'manual',
       clientes:arrFirebase(nodos?nodos[0]:clientes),
       actividad:arrFirebase(nodos?nodos[1]:actividad),
       caja:arrFirebase(nodos?nodos[2]:caja),
@@ -6015,6 +6248,11 @@ function restaurarBackupJSON(input){
       if(b.waTemplate)localStorage.setItem(WA_TEMPLATE_KEY,b.waTemplate);
       if(b.comisionPct!==undefined&&b.comisionPct!==null)localStorage.setItem(COM_KEY,String(b.comisionPct));
       if(b.creditoCobrador!==undefined&&b.creditoCobrador!==null)window._creditoCobrador=Math.max(0,Math.round(parseFloat(b.creditoCobrador)||0));
+      const politicaBackup=(b.configCompleta&&b.configCompleta.politicaPrestamo)||b.politicaPrestamo;
+      if(politicaBackup){
+        _politicaPrestamo=normalizarPoliticaPrestamo(politicaBackup);
+        localStorage.setItem(POLITICA_PRESTAMO_KEY,JSON.stringify(_politicaPrestamo));
+      }
       if(b.pool&&typeof b.pool==='object'){pool=b.pool;localStorage.setItem('cr_pool',JSON.stringify(pool));}
       notify(`Backup restaurado — ${clientes.length} clientes ✓`,'ok');
       renderInicio();renderClientes();renderActividad();renderCaja();renderSolicitudesAdmin();
@@ -6590,14 +6828,16 @@ function cobrosSinRespaldoEnCaja(){
   return out.sort((a,b)=>b.interes-a.interes);
 }
 
-// Balance por cliente entre los dos módulos. Se compara por TOTAL, no cobro por cobro:
+// Balance por cliente entre los dos módulos. Se compara por TOTAL e incluye los ciclos
+// archivados, porque Caja es acumulada y un cliente renovado no debe parecer "sin comisión"
+// solo porque esos eventos ya no viven en el ciclo activo.
 // los eventos de reconciliación son ajustes sintéticos que cubren varios cobros de otras
 // fechas, así que cruzar por día da falsos positivos. El total sí cuadra o no cuadra.
 //   dif > 0 → hay comisión sobre interés que caja no registró (tus libros reportan de menos)
 //   dif < 0 → entró plata sin generarle comisión al cobrador (le debes)
 function balanceComisionCaja(){
   return (Array.isArray(clientes)?clientes:[]).map(c=>{
-    const evInt=comisionEventosCliente(c).reduce((s,e)=>s+Math.max(0,Math.round(e.interes||0)),0);
+    const evInt=eventosComisionParaCruceCaja(c).reduce((s,e)=>s+Math.max(0,Math.round(e.interes||0)),0);
     const cajaInt=movimientosCajaDe(c.id,'interes_cobrado').reduce((s,m)=>s+Math.max(0,Math.round(m.monto||0)),0);
     return {cliente:c,evInt,cajaInt,dif:evInt-cajaInt};
   }).filter(x=>Math.abs(x.dif)>2).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
@@ -6656,6 +6896,19 @@ function eventosArchivadosPerdidos(){
   return out.sort((a,b)=>b.comision-a.comision);
 }
 
+// Para cruzar interés contra Caja se conserva el ciclo vivo y se añaden solo los eventos
+// archivados que no tienen copia viva. Este cruce es diagnóstico: no altera el saldo del
+// cobrador ni las liquidaciones. Evita dos falsos avisos frecuentes: ciclos ya cerrados (Karen
+// y Marcela) y liquidaciones rescatadas varias veces desde un mismo respaldo histórico.
+function eventosComisionParaCruceCaja(c){
+  const vivos=comisionEventosCliente(c).filter(e=>e&&!e.duplicadoAnulado);
+  const archivados=eventosArchivadosPerdidos()
+    .filter(x=>x.cliente&&x.cliente.id===c.id)
+    .map(x=>x.evento)
+    .filter(e=>e&&!e.duplicadoAnulado);
+  return vivos.concat(archivados);
+}
+
 // ══════════════════════════════════════════════
 // APORTE DE SEGURIDAD (mensual, 50/50 con el cobrador)
 // El aporte total se paga en efectivo (gasto en caja). Tu mitad sale de tu ganancia; la del
@@ -6708,15 +6961,16 @@ function auditoriaSeguridad(){
       sub:ult?`El último fue ${ult.mes} por ${fmt(ult.segTotal||0)} (tú ${fmt(ult.segAdmin||0)} / cobrador ${fmt(ult.segCobrador||0)}).`:''
     });
   }
-  // Lo que absorbiste tú por granularidad
+  // Diferencia asumida por Administración: es una decisión de operación, no una deuda del
+  // cobrador ni un descuadre. Se informa en azul para que quede visible sin generar alarma.
   const parciales=segs.filter(l=>Math.round(l.segCobradorDescontado||0)<Math.round(l.segCobrador||0));
   if(parciales.length){
     const tot=parciales.reduce((s,l)=>s+(Math.round(l.segCobrador||0)-Math.round(l.segCobradorDescontado||0)),0);
     issues.push({
-      tipo:'amber',
-      msg:`Absorbiste ${fmt(tot)} de la mitad del cobrador en ${parciales.length} aporte(s)`,
-      sub:'No alcanzó a descontarse de su comisión (se marcan cobros enteros). '+
-          parciales.slice(0,3).map(l=>`${l.mes}: le tocaban ${fmt(l.segCobrador)}, se le descontaron ${fmt(l.segCobradorDescontado)}`).join(' — ')
+      tipo:'blue',
+      msg:`Administración asumió ${fmt(tot)} en ${parciales.length} aporte(s) de seguridad`,
+      sub:'Se decidió no cobrar esta diferencia al cobrador después. '+
+          parciales.slice(0,3).map(l=>`${l.mes}: se descontaron ${fmt(l.segCobradorDescontado)} de ${fmt(l.segCobrador)}`).join(' — ')
     });
   }
   // Mes duplicado
@@ -7626,7 +7880,7 @@ function renderSaludInicio(){
   el.innerHTML=`<div class="card" style="border-color:var(--red);background:rgba(255,107,107,.07)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
       <div style="font-size:13px;font-weight:800;color:var(--red)">⚠ Validación automática: ${s.problemas.length} cosa${s.problemas.length!==1?'s':''} por revisar</div>
-      <button class="btn btn-ghost btn-sm" onclick="goTab('config',document.getElementById('tab-config'))">Reconciliar →</button>
+      <button class="btn btn-ghost btn-sm" onclick="abrirReconciliacionDesdeInicio()">Reconciliar →</button>
     </div>
     ${lineaSaldo}
     ${s.problemas.map(p=>`<div style="padding:7px 0;border-top:1px solid var(--line)">
@@ -7962,7 +8216,7 @@ function previewSeguridad(){
   if(!el)return;
   if(!monto){el.innerHTML='Escribe el monto que te cobraron este mes.';return;}
   const cob=Math.round(monto/2),adm=monto-cob;
-  el.innerHTML=`Se reparte 50/50:<br>• Cobrador: <strong>${fmt(cob)}</strong> — se descuenta de su comisión pendiente.<br>• Tú: <strong>${fmt(adm)}</strong> — baja tu ganancia neta.`;
+  el.innerHTML=`Se intenta repartir 50/50:<br>• Cobrador: hasta <strong>${fmt(cob)}</strong> — se descuenta únicamente de su comisión pendiente.<br>• Tú: mínimo <strong>${fmt(adm)}</strong> — baja tu ganancia neta. Si al cobrador no le alcanza la comisión, tú asumes la diferencia y no queda como deuda de él.`;
 }
 async function registrarSeguridad(){
   if(_busyConfirm){notify('Procesando, espera...','err');return;}
@@ -7978,10 +8232,9 @@ async function registrarSeguridad(){
     const mitadAdmin=monto-mitadCob;
     const ts=Date.now();
     const liqId='seg'+ts;
-    const pendienteAntes=totalComisionPendiente(); // para distinguir "no alcanza" de simple granularidad por cobro
     // FIFO: descontar la mitad del cobrador de su comisión pendiente (cobros más antiguos primero).
-    // Se descuentan cobros ENTEROS sin pasarse de la mitad → puede quedar un sobrante pequeño (< un cobro)
-    // que tú absorbes (favorece al cobrador). No es error; solo es la granularidad de la comisión por cobro.
+    // Se descuentan cobros ENTEROS sin pasarse de la mitad. Si queda una diferencia, por política
+    // Administración la asume: no se convierte en deuda futura del cobrador.
     let disponible=mitadCob;
     const items=eventosPendientesLiquidacion('todo')
       .sort((a,b)=>(parseInt(a.evento.ts||0,10)||0)-(parseInt(b.evento.ts||0,10)||0));
@@ -7994,7 +8247,8 @@ async function registrarSeguridad(){
         disponible-=com;marcados.push(it);
       } else break;
     }
-    const descontadoCob=mitadCob-disponible; // lo realmente descontado al cobrador (puede ser < mitad si no tenía suficiente)
+    const descontadoCob=mitadCob-disponible; // lo realmente descontado al cobrador
+    const adminAsume=mitadAdmin+(mitadCob-descontadoCob);
     try{
       await Promise.all([...new Map(marcados.map(({cliente})=>[cliente.id,cliente])).values()].map(c=>saveClienteFields(c,['comisionEventos'])));
     }catch(e){
@@ -8004,16 +8258,17 @@ async function registrarSeguridad(){
     const nota=document.getElementById('seg-nota').value.trim();
     const liq={id:liqId,monto:descontadoCob,montoComision:descontadoCob,periodo:'Seguridad',
       nota:nota||`Aporte seguridad ${mes}`,ts,eventos:marcados.length,esSeguridad:true,
-      mes,segTotal:monto,segCobrador:mitadCob,segAdmin:mitadAdmin,segCobradorDescontado:descontadoCob};
+      mes,segTotal:monto,segCobrador:mitadCob,segAdmin:mitadAdmin,
+      segCobradorDescontado:descontadoCob,segAdminAsumido:adminAsume};
     liquidaciones.push(liq);
     localStorage.setItem('cr_liquidaciones',JSON.stringify(liquidaciones));
     if(fbOk&&db)db.ref('liquidaciones/'+liq.id).set(liq).catch(e=>notify('Aporte solo local — error sync: '+e.message,'err'));
-    // Gasto = monto TOTAL pagado a seguridad. Tu mitad baja tu ganancia; la del cobrador se recupera
-    // porque le pagarás esa comisión en especie (no en efectivo) → no cuenta como comisión pagada.
+    // Gasto = monto TOTAL pagado a seguridad. Lo retenido al cobrador se cubre con su comisión;
+    // el resto queda explícitamente como costo asumido por Administración, sin deuda para él.
     registrarCajaAuto('seguridad',monto,`Seguridad ${mes}${nota?' · '+nota:''}`,`seguridad:${liqId}`,{cliente:'Seguridad',mes});
-    log({tipo:'seguridad',cliente:'Seguridad',monto,ts,autor:'Admin',nota:`Aporte ${mes} · cobrador ${fmt(mitadCob)} / tú ${fmt(mitadAdmin)}`});
+    log({tipo:'seguridad',cliente:'Seguridad',monto,ts,autor:'Admin',nota:`Aporte ${mes} · cobrador descontado ${fmt(descontadoCob)} / administración asumió ${fmt(adminAsume)}`});
     const incompleto=descontadoCob<mitadCob;
-    notify(`Aporte de seguridad de ${fmt(monto)} registrado ✓${incompleto?` · solo se descontó ${fmt(descontadoCob)} al cobrador (no tenía suficiente comisión pendiente)`:''}`,incompleto?'err':'ok');
+    notify(`Aporte de seguridad de ${fmt(monto)} registrado ✓${incompleto?` · administración asumió ${fmt(mitadCob-descontadoCob)} para no descontárselo después al cobrador`:''}`,'ok');
     document.getElementById('seg-monto').value='';document.getElementById('seg-nota').value='';
     if(document.getElementById('seg-preview'))document.getElementById('seg-preview').innerHTML='';
     renderComisiones();renderCaja();renderInicio();
@@ -8029,13 +8284,14 @@ function renderSeguridad(){
   const total=segs.reduce((s,l)=>s+Math.round(l.segTotal||0),0);
   el.innerHTML=`<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Historial de aportes · total ${fmt(total)}</div>`+segs.map(l=>{
     const incompleto=Math.round(l.segCobradorDescontado||0)<Math.round(l.segCobrador||0);
+    const asumido=Math.max(0,Math.round(l.segAdminAsumido!==undefined?l.segAdminAsumido:((l.segAdmin||0)+Math.max(0,(l.segCobrador||0)-(l.segCobradorDescontado||0)))));
     return `<div style="padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;font-weight:500">${l.mes||''}${l.nota&&l.nota!=='Aporte seguridad '+l.mes?` · ${htmlSafe(l.nota)}`:''}</div><div style="font-weight:700;color:var(--amber)">${fmt(l.segTotal||0)}</div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">
-        <div class="cs"><div class="csl">Cobrador (de su comisión)</div><div class="csv" style="font-size:12px;color:var(--gold)">${fmt(l.segCobrador||0)}</div></div>
-        <div class="cs"><div class="csl">Tú (de tu ganancia)</div><div class="csv" style="font-size:12px;color:var(--green)">${fmt(l.segAdmin||0)}</div></div>
+        <div class="cs"><div class="csl">Descontado al cobrador</div><div class="csv" style="font-size:12px;color:var(--gold)">${fmt(l.segCobradorDescontado||0)}</div></div>
+        <div class="cs"><div class="csl">Asumido por ti</div><div class="csv" style="font-size:12px;color:var(--green)">${fmt(asumido)}</div></div>
       </div>
-      ${incompleto?`<div style="font-size:10px;color:var(--amber);margin-top:5px">⚠ Solo se alcanzó a descontar ${fmt(l.segCobradorDescontado||0)} de la parte del cobrador.</div>`:''}
+      ${incompleto?`<div style="font-size:10px;color:var(--text3);margin-top:5px">Administración asumió ${fmt((l.segCobrador||0)-(l.segCobradorDescontado||0))}; no se le cobrará después al cobrador.</div>`:''}
     </div>`;
   }).join('');
 }
@@ -8359,6 +8615,7 @@ function confirmarNuevoCiclo(){
   const fecha2=(document.getElementById('nc-fecha-2').value||'').trim();
   const usaCuotasManuales=cuota1>0||cuota2>0;
   if(!capital||capital<=0){notify('Capital inválido','err');return;}
+  if(!validarDisponibleParaNuevoPrestamo(capital))return;
   if(usaCuotasManuales){
     if(!fecha1||!fecha2){notify('Selecciona las dos fechas de las cuotas manuales','err');return;}
     if(cuota1<=0||cuota2<=0){notify('Ingresa los dos montos de las cuotas manuales','err');return;}

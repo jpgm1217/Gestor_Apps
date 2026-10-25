@@ -41,6 +41,8 @@ body{background:var(--bg);color:var(--text);font-family:'Instrument Sans',sans-s
 .scroll{flex:1;overflow-y:auto;padding:14px;scrollbar-width:thin;scrollbar-color:var(--bg4) transparent;}
 .panel{display:none;}
 .panel.active{display:block;animation:fi .2s ease;}
+/* Modo ruta: la liquidación es conversación privada con Administración, no una pestaña de calle. */
+#panel-ganancias{display:none!important;}
 @keyframes fi{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:translateY(0);}}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
 .metric{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;}
@@ -163,43 +165,22 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="goTab('ruta',this)" id="tab-ruta"><span class="ti" data-icon="map"></span>Mi ruta <span id="badge-ruta" style="display:none;background:var(--amber);color:#000;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
-  <button class="tab" onclick="goTab('todos',this)"><span class="ti" data-icon="users"></span>Todos</button>
-  <button class="tab" onclick="goTab('dia',this)"><span class="ti" data-icon="calendar"></span>Agenda</button>
-  <button class="tab" onclick="goTab('ganancias',this)"><span class="ti" data-icon="trendingUp"></span>Ganancias</button>
-  <button class="tab" onclick="goTab('nuevo',this)" id="tab-solicitudes"><span class="ti" data-icon="alertTriangle"></span>Solicitudes <span id="badge-soli" style="display:none;background:var(--red);color:#fff;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
-  <button class="tab" onclick="goTab('simulador',this)"><span class="ti" data-icon="calculator"></span>Simular</button>
-  <button class="tab" onclick="goTab('config',this)"><span class="ti" data-icon="settings"></span>Config</button>
+  <button class="tab active" onclick="goTab('ruta',this)" id="tab-ruta"><span class="ti" data-icon="map"></span>Cobros de hoy <span id="badge-ruta" style="display:none;background:var(--amber);color:#000;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:3px">0</span></button>
 </div>
 
 <div class="scroll">
 
 <div id="panel-ruta" class="panel active">
   <div id="banner-offline" style="display:none;background:rgba(255,107,107,.15);border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--red);font-weight:600">📵 Sin conexión — un cobro que registres ahora puede no guardarse. Verifica tu internet antes de cobrar.</div>
-  <!-- Disponible para prestar (lo define el admin) -->
-  <div class="card" style="border-color:var(--goldb);display:flex;justify-content:space-between;align-items:center;padding:12px 14px;margin-bottom:10px">
-    <div>
-      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">💵 Disponible para prestar</div>
-    </div>
-    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--gold)" id="cob-disponible-val">—</div>
-  </div>
-  <!-- Resumen de inicio -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-    <div class="metric green"><div class="ml">Por cobrar hoy</div><div class="mv" id="r-pendiente">$0</div></div>
-    <div class="metric"><div class="ml">Cobrado hoy</div><div class="mv" style="color:var(--green)" id="r-cobrado">$0</div></div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-    <div class="metric"><div class="ml">Pendientes</div><div class="mv" style="font-size:16px" id="r-count-pend">—</div></div>
-    <div class="metric"><div class="ml">Cobrados</div><div class="mv" style="font-size:16px;color:var(--green)" id="r-count-cob">—</div></div>
-    <div class="metric"><div class="ml">Con mora</div><div class="mv" style="font-size:16px;color:var(--red)" id="r-count-mora">—</div></div>
-  </div>
-  <div style="margin-bottom:12px">
-    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px" id="r-pct-label">Progreso 0%</div>
-    <div class="prog"><div class="prog-f" id="r-prog-bar" style="width:0%"></div></div>
-  </div>
   <div class="card" style="padding:12px;margin-bottom:12px">
-    <div class="ct" style="margin-bottom:10px">Próximos 3 días</div>
-    <div id="ruta-proximos"></div>
+    <div class="ct" style="margin-bottom:4px">Clientes para visitar hoy</div>
+    <div style="font-size:11px;color:var(--text3)">Abre cada cliente solo cuando vayas a registrar la visita o el pago.</div>
+  </div>
+  <!-- Se mantienen estos nodos ocultos para que la lógica de cobro siga funcionando sin exponer totales de dinero. -->
+  <div style="display:none" aria-hidden="true">
+    <div id="cob-disponible-sub"></div><div id="cob-disponible-val"></div>
+    <div id="r-pendiente"></div><div id="r-cobrado"></div><div id="r-count-pend"></div><div id="r-count-cob"></div><div id="r-count-mora"></div>
+    <div id="r-pct-label"></div><div id="r-prog-bar"></div><div id="ruta-proximos"></div>
   </div>
   <div id="lista-ruta"></div>
 </div>
@@ -236,7 +217,8 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   </div>
 </div>
 
-<div id="panel-ganancias" class="panel">
+<!-- Sin acceso visual en modo ruta: la liquidación del cobrador se revisa con Administración. -->
+<div id="panel-ganancias" class="panel" hidden>
   <div class="metric green" style="margin-bottom:14px">
     <div class="ml">Comisión pendiente por recibir</div>
     <div class="mv" style="color:var(--green)" id="g-pendiente">$0</div>
@@ -925,8 +907,24 @@ function escuchar(){
     window._creditoCobrador=(v!==null&&v!==undefined)?Math.max(0,Math.round(parseFloat(v)||0)):0;
     renderGanancias();
   });
-  // Disponible para prestar — lo define el admin, el cobrador solo lo ve
+  // Disponible para prestar — lo calcula Caja en la app Admin; el cobrador solo consulta la
+  // fotografía publicada para no tener una segunda contabilidad en este celular.
+  db.ref('config/disponibleParaPrestar').on('value',s=>{
+    const v=s.val();
+    if(!v||typeof v!=='object')return;
+    window._disponibleOperativoCargado=true;
+    const monto=Math.max(0,Math.round(parseFloat(v.monto)||0));
+    const el=document.getElementById('cob-disponible-val');
+    if(el)el.textContent=fmtMil(monto);
+    const sub=document.getElementById('cob-disponible-sub');
+    if(sub){
+      const pausa=v.modo==='pausa';
+      sub.textContent=pausa?(v.hasta?`Pausado hasta ${v.hasta}`:'Préstamos pausados'):(v.modo==='cupo'?'Cupo definido por Administración':'Calculado por Caja');
+    }
+  });
+  // Compatibilidad mientras la app Admin publica la primera fotografía con la nueva versión.
   db.ref('config/disponibleManual').on('value',s=>{
+    if(window._disponibleOperativoCargado)return;
     const v=s.val();
     window._dispManual=(v!==null&&v!==undefined)?Math.round(parseFloat(v)||0):null;
     const el=document.getElementById('cob-disponible-val');
@@ -1697,6 +1695,33 @@ function fechaCobroProgramada(c,q,i){
   if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>fecha)fecha=c.graciaHasta;
   return fecha;
 }
+// Cuotas que ya vencieron o vencen HOY. Antes la tarjeta mostraba únicamente la primera
+// cuota impaga; en diarios eso escondía las demás cuotas que ya estaban vencidas. La primera
+// puede traer un abono parcial, por eso usa su desglose pendiente; las siguientes van completas.
+function cuotasExigiblesHoy(c,refKey){
+  const fecha=refKey||hoy();
+  const items=[];
+  if(!c||c.pagadas>=c.numCuotas)return {items,totalCuotas:0,capital:0,interes:0,ajuste:0};
+  for(let i=Math.max(0,c.pagadas||0);i<(c.numCuotas||0);i++){
+    const q=(c.cuotasData||[])[i];
+    const vencimiento=fechaCobroProgramada(c,q,i);
+    if(!vencimiento||vencimiento>fecha)break;
+    const p=i===(c.pagadas||0)?partesPendientesCuota(c):partesCuotaIndex(c,i);
+    if((p.cuota||0)>0)items.push({indice:i,cuotaNo:i+1,fecha:vencimiento,...p});
+  }
+  return items.reduce((r,p)=>{
+    r.items.push(p);r.totalCuotas+=Math.max(0,Math.round(p.cuota||0));
+    r.capital+=Math.max(0,Math.round(p.capital||0));r.interes+=Math.max(0,Math.round(p.interes||0));
+    r.ajuste+=Math.max(0,Math.round(p.ajuste||0));return r;
+  },{items:[],totalCuotas:0,capital:0,interes:0,ajuste:0});
+}
+function cuotasParaRegistrar(c,refKey){
+  const exigible=cuotasExigiblesHoy(c,refKey);
+  if(exigible.items.length||!c||c.pagadas>=c.numCuotas)return exigible;
+  const p=partesPendientesCuota(c);
+  return {items:p.cuota?[{indice:c.pagadas,cuotaNo:c.pagadas+1,fecha:(c.cuotasData||[])[c.pagadas]?.fechaISO||'',...p}]:[],
+    totalCuotas:p.cuota||0,capital:p.capital||0,interes:p.interes||0,ajuste:p.ajuste||0};
+}
 // Excepción única: las cuotas que vencen el sábado 15/08/2026 entran a la ruta del
 // cobrador el viernes 14/08/2026. No se modifica cuotasData ni la base de mora, y una cuota
 // diferida por gracia conserva su nueva fecha. Ninguna otra cuota o fecha queda afectada.
@@ -1713,12 +1738,13 @@ function tieneCuotaEnFecha(c,fecha){
 function gestionadoEnFecha(c,fecha){
   return sameCoDate(c.ultimoPago,fecha)||!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,fecha)));
 }
-// Misma fórmula del Admin: cuota REAL pendiente + mora - abono previo.
+// Misma fórmula del Admin: todas las cuotas exigibles a hoy + mora acumulada.
 function _aCobrarHoy(c,moraVal){
   if(!c)return 0;
-  const cuotaBase=(c.cuotasData&&c.cuotasData[c.pagadas]&&c.cuotasData[c.pagadas].cuota)||c.cuota||0;
+  const exigible=cuotasExigiblesHoy(c);
+  const cuotaBase=exigible.totalCuotas||partesPendientesCuota(c).cuota||0;
   const m=Math.max(0,Math.round(moraVal===undefined?mora(c):moraVal));
-  return Math.max(0,Math.round(cuotaBase+m-(c.abonoPendiente||0)));
+  return Math.max(0,Math.round(cuotaBase+m));
 }
 function movimientosClienteFecha(c,fecha){
   return movimientosCobroFecha(fecha).filter(m=>(m.clienteId&&m.clienteId===c.id)||(!m.clienteId&&m.cliente===c.nombre));
@@ -1857,36 +1883,30 @@ function renderRuta(){
   el.innerHTML=ord.map(c=>{
     const estado=estadoVisualRuta(c,h),yp=estado.movimientoHoy,noPagoHoy=estado.noPagoHoy;
     const m=mora(c),d=diasMora(c);
-    const mR=aproxMil(m),totalR=yp?montoCobradoClienteFecha(c,h):_aCobrarHoy(c,mR); // visual, con cuota real y abonos
     const graciaOn=graciaActiva(c,h),graciaTxt=graciaLabel(c);
     const extActiva=!!(c.moraBaseDate&&c.moraBaseDate>h);
-    const mananaKey=addDaysToKey(h,1),mManana=mora(c,mananaKey),graciaManana=graciaActiva(c,mananaKey);
     return`<div class="cobro-card ${estado.clase||(m>0?'urgente':'')}">
       <div class="cc-top">
         <div>
           <div class="cc-name">${c.nombre}</div>
           <div class="cc-det">${c.negocio||'—'}${c.zona?' · '+c.zona:''}</div>
         </div>
-        <div>
-          <div class="cc-amt-lbl">${yp?'Registrado hoy':m>0?'Cuota + mora':extActiva?'Cuota diferida':graciaOn?'Solo cuota':'A cobrar'}</div>
-          <div class="cc-amt" style="${yp?'color:var(--green)':m>0?'color:var(--red)':extActiva?'color:#6EB3FF':''}">${fmt(totalR)}</div>
+        <div style="text-align:right;font-size:11px;color:${yp?'var(--green)':m>0?'var(--red)':extActiva?'#6EB3FF':'var(--text3)'}">
+          ${yp?'✓ Gestión registrada':m>0?'⚠ Requiere revisión':extActiva?'📅 Cuota diferida':graciaOn?'🛡️ En gracia':'Pendiente de visita'}
         </div>
       </div>
       <div class="cc-meta">
         <span class="badge ${yp?'bg':m>0?'br':'bgray'}">${estado.etiqueta}</span>
         ${estado.cuotaCompleta&&!estado.completado&&estado.proximaFecha?`<span class="badge bgray">Próxima ${Math.min(c.pagadas+1,c.numCuotas)}/${c.numCuotas} · ${estado.proximaFecha}</span>`:''}
-        ${m>0&&!yp?`<span class="badge br">⚠ ${d} día${d!==1?'s':''} · ${fmt(mR)}</span>`:''}
+        ${m>0&&!yp?`<span class="badge br">⚠ ${d} día${d!==1?'s':''} en mora</span>`:''}
         ${extActiva?`<span class="badge" style="background:rgba(110,179,255,.18);color:#6EB3FF">📅 Cuota diferida hasta ${graciaTxt}</span>`:(graciaOn?`<span class="badge bgold">🛡️ Sin mora hasta ${graciaTxt}</span>`:'')}
         ${String(c.numeroCuenta||'').trim()?`<span class="badge" style="font-size:10px;background:rgba(110,179,255,.18);color:#6EB3FF">🏦 ${htmlSafe(String(c.numeroCuenta).trim())}</span>`:''}
         ${c.notas&&!(c.ciclos||[]).length?`<span class="badge bgold" style="font-size:10px">📝 ${htmlSafe(c.notas.substring(0,20))}${c.notas.length>20?'...':''}</span>`:''}
       </div>
-      ${m>0&&!yp?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        <div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuotasData[c.pagadas]?.cuota||c.cuota)}</div></div>
-        <div class="cs"><div class="csl">Mora ${d}d</div><div class="csv" style="color:var(--red)">${fmt(mR)}</div></div>
-      </div>`:extActiva?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">📅 Interés pagado. Cuota completa de <strong>${fmt(c.cuotasData[c.pagadas]?.cuota||c.cuota)}</strong> pendiente — próx. pago: <strong>${graciaTxt}</strong>.</div>`:(graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta el <strong>${graciaTxt}</strong>.</div>`:'')}
-      ${pagoAnticipadoElegible(c)?(()=>{const pa=montoPagoAnticipado(c),d=diasDesdeCreacion(c);return `<div style="background:rgba(80,227,164,.1);border:1px solid rgba(80,227,164,.35);border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:12px"><div style="font-weight:700;color:var(--green);margin-bottom:3px">⚡ Pago anticipado disponible (día ${d}/15)</div><div style="color:var(--text2)">Si el cliente paga TODO hoy: <strong style="color:var(--green)">${fmt(pa.total)}</strong> (solo 10% interés). <strong>Avisa al admin</strong> para registrarlo — no lo cobres como cuota normal.</div></div>`;})():''}
+      ${m>0&&!yp?`<div style="background:rgba(255,107,107,.10);border:1px solid rgba(255,107,107,.35);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2)"><strong style="color:var(--red)">Mora acumulada hasta hoy.</strong> Abre “Registrar pago” para ver el valor exacto y el desglose antes de cobrar.</div>`:extActiva?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">📅 Interés pagado. La cuota completa queda pendiente para ${graciaTxt}.</div>`:(graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta ${graciaTxt}.</div>`:'')}
+      ${pagoAnticipadoElegible(c)?(()=>{const d=diasDesdeCreacion(c);return `<div style="background:rgba(80,227,164,.1);border:1px solid rgba(80,227,164,.35);border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:12px"><div style="font-weight:700;color:var(--green);margin-bottom:3px">⚡ Pago anticipado disponible (día ${d}/15)</div><div style="color:var(--text2)">Antes de cobrar, avisa al administrador para que defina la liquidación.</div></div>`;})():''}
       ${c.telefono?`<div style="margin-bottom:10px"><a href="tel:${c.telefono}" style="font-size:12px;color:var(--text3);text-decoration:none">📞 ${c.telefono}</a></div>`:''}
-      ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div style="color:var(--text2)">${mManana>0?`Mañana cobrar: <strong style="color:var(--red)">${fmt(_aCobrarHoy(c,aproxMil(mManana)))}</strong> (cuota + mora)`:(graciaManana?`Mañana sigue sin mora hasta <strong style="color:#6EB3FF">${graciaTxt}</strong>`:`Mañana cobrar: <strong>${fmt(_aCobrarHoy(c,0))}</strong> (solo cuota)`)}</div></div>`:''}
+      ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);color:var(--text2);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div>Mañana vuelve a su ruta. El valor se revisa al registrar el cobro.</div></div>`:''}
       ${(()=>{
         const elegible=pagoAnticipadoElegible(c);
         if(elegible&&!yp&&!noPagoHoy){
@@ -1909,7 +1929,7 @@ function renderRuta(){
           </div>`:''}`;
       })()}
       ${yp&&(c.abonoPendiente||0)>0?`<div style="font-size:11px;color:var(--amber);text-align:center;margin-top:6px">💵 Abono parcial registrado hoy</div>`:''}
-      ${c.abonoPendiente>0&&!yp?`<div style="background:var(--amberd);border-radius:8px;padding:7px 10px;margin-top:6px;font-size:12px;color:var(--amber)">Ya abonado: <strong>${fmt(c.abonoPendiente)}</strong> — falta <strong>${fmt(Math.max(0,(c.cuotasData[c.pagadas]?.cuota||c.cuota)+mora(c)-c.abonoPendiente))}</strong></div>`:''}
+      ${c.abonoPendiente>0&&!yp?`<div style="background:var(--amberd);border-radius:8px;padding:7px 10px;margin-top:6px;font-size:12px;color:var(--amber)">Tiene un abono parcial. Abre el cobro para revisar el saldo exacto antes de recibir dinero.</div>`:''}
     </div>`;
   }).join('');
 }
@@ -1969,12 +1989,15 @@ function abrirConfirm(id){
 }
 function recalcConfirm(){
   const c=clientes.find(x=>x.id===pendingPago);if(!c)return;
-  const partes=partesPendientesCuota(c);
+  const deuda=cuotasParaRegistrar(c);
   const m=Math.max(0,Math.round(parseFloat(document.getElementById('confirm-mora')?.value)||0));
-  const total=partes.cuota+m; // monto real pendiente, incluidos ajustes/cuotas extra
+  const total=deuda.totalCuotas+m;
+  const primera=deuda.items[0]?.cuotaNo||Math.min(c.pagadas+1,c.numCuotas);
+  const ultima=deuda.items.at(-1)?.cuotaNo||primera;
+  const etiqueta=primera===ultima?`Cuota ${primera}/${c.numCuotas}`:`Cuotas ${primera}–${ultima}/${c.numCuotas}`;
   document.getElementById('confirm-amount').textContent=fmt(total);
   document.getElementById('confirm-amount').style.color=m>0?'var(--red)':'var(--green)';
-  document.getElementById('confirm-sub').textContent=m>0?`Cuota ${c.pagadas+1}/${c.numCuotas} + mora ${fmt(m)}`:`Cuota ${c.pagadas+1} de ${c.numCuotas}`;
+  document.getElementById('confirm-sub').textContent=m>0?`${etiqueta} + mora acumulada a hoy ${fmt(m)}`:etiqueta;
 }
 function addMoraRapida(n){
   const inp=document.getElementById('confirm-mora');if(!inp)return;
@@ -2058,11 +2081,7 @@ function prevExtensionCob(){
   const c=clientes.find(x=>x.id===pendingExtensionCob);if(!c)return;
   const v=parseFloat(document.getElementById('ext-cob-valor').value)||0;
   if(v<=0){document.getElementById('ext-cob-prev').innerHTML='';return;}
-  const pct=pctCliente(c);
-  const comCob=Math.round(v*pct/100);
-  let msg=`Interés: ${fmt(v)} · `;
-  msg+=`<span style="color:var(--green)">Tu comisión: ${fmt(comCob)}</span>`;
-  document.getElementById('ext-cob-prev').innerHTML=msg;
+  document.getElementById('ext-cob-prev').innerHTML=`Interés a registrar: <strong>${fmt(v)}</strong>`;
 }
 async function confirmarExtensionCobrador(){
   // FIX CRIT-4: lock real con try/finally
@@ -2249,7 +2268,7 @@ async function _confirmarAbonoCobradorImpl(){
       const waUrl=c.telefono?`https://wa.me/57${c.telefono.replace(/\D/g,'')}?text=${msg}`:'#';
       document.getElementById('wa-recibo').href=waUrl;
       document.getElementById('wa-recibo').style.display=c.telefono?'inline-flex':'none';
-      document.getElementById('success-sub').textContent=`${c.nombre} · ${fmt(v)}`;
+      document.getElementById('success-sub').textContent=`${c.nombre} · Pago registrado`;
       document.getElementById('success-overlay').classList.add('open');
       if(navigator.vibrate)navigator.vibrate([80,40,80]);
       setTimeout(()=>{
@@ -2366,9 +2385,12 @@ async function confirmarPago(){
   if(!fbOk||!db){notify('Sin conexión Firebase','err');_busyConfirm=false;return;}
   await refreshPctFresh(); // FIX F6: pct comisión actualizado antes registrar evento
   const m=Math.max(0,Math.round(parseFloat(document.getElementById('confirm-mora')?.value)||0)); // COP entero
-  const partes=partesPendientesCuota(c);
-  const total=partes.cuota+m; // monto real pendiente, incluidos ajustes/cuotas extra
-  if(partes.cuota<=0){notify('La cuota ya está cubierta por un abono previo. Avisa al admin para revisar el saldo.','err');_busyConfirm=false;return;}
+  const deuda=cuotasParaRegistrar(c);
+  const cuotas=deuda.items;
+  const total=deuda.totalCuotas+m;
+  if(!cuotas.length||deuda.totalCuotas<=0){notify('No hay una cuota pendiente para registrar. Avisa al admin para revisar el saldo.','err');_busyConfirm=false;return;}
+  const primeraCuota=cuotas[0].cuotaNo,ultimaCuota=cuotas[cuotas.length-1].cuotaNo;
+  const etiquetaCuotas=primeraCuota===ultimaCuota?`Cuota ${primeraCuota}/${c.numCuotas}`:`Cuotas ${primeraCuota}–${ultimaCuota}/${c.numCuotas}`;
   // FIX CRIT-3: SNAPSHOT antes mutar para rollback completo (igual que CRIT-2 abono)
   const snap={
     pagadas:c.pagadas,
@@ -2381,26 +2403,29 @@ async function confirmarPago(){
     graciaHasta:c.graciaHasta,
     ultimoPago:c.ultimoPago
   };
-  c.pagadas++;
+  c.pagadas+=cuotas.length;
   if(m>0){
     if(!c.historialMora)c.historialMora=[];
-    c.historialMora.push({fecha:coDateTimeISO(),tipo:'cobrada',monto:m,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`Cuota ${c.pagadas}/${c.numCuotas}`,autor:'Cobrador'});
+    c.historialMora.push({fecha:coDateTimeISO(),tipo:'cobrada',monto:m,diasVencidos:diasMora(c),moraDia:c.moraDia,nota:`${etiquetaCuotas}`,autor:'Cobrador'});
     c.moraPerdonada=(c.moraPerdonada||0)+m;c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
   }
   c.ultimoPago=coDateTimeISO();
   c.abonoPendiente=0;
   c.moraBaseDate=null;
   c.graciaHasta=null;
-  registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Cobrador',nota:`Cuota ${c.pagadas}/${c.numCuotas}`});
+  cuotas.forEach((p,i)=>registrarComisionEventoCliente(c,{interes:p.interes,mora:i===0?m:0,autor:'Cobrador',nota:`Cuota ${p.cuotaNo}/${c.numCuotas}`}));
   try{
     await updateClienteCobrador(c,{pagadas:c.pagadas,ultimoPago:c.ultimoPago,moraPerdonada:c.moraPerdonada||0,moraCobradaTotal:c.moraCobradaTotal||0,historialMora:c.historialMora||[],moraBaseDate:null,graciaHasta:null,abonoPendiente:0,comisionEventos:c.comisionEventos||[]},['historialMora','comisionEventos']);
-    // BUGFIX: registrar en caja para que admin vea el cobro en "cobrado hoy" y métricas de caja
-    const cuotaNo=c.pagadas;
-    await registrarCajaCobrador('recuperacion_capital', partes.capital, `Capital ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:cap`, {clienteId:c.id, cliente:c.nombre,...meta});
-    await registrarCajaCobrador('interes_cobrado', partes.interes, `Interés ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:int`, {clienteId:c.id, cliente:c.nombre,...meta});
-    if(partes.ajuste>0)await registrarCajaCobrador('cuota_extra_cobrada', partes.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
-    if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · cuota ${cuotaNo}`, `pago_cob:${c.id}:c${cicloDe(c)}:${cuotaNo}:mora`, {clienteId:c.id, cliente:c.nombre,...meta});
-    await logActividadCobrador({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',...meta,nota:m>0?`mora ${fmt(m)}`:''});
+    // Una fila por cuota: Caja, comisión y recibos conservan el mismo rastro que si se
+    // registraran una por una. Así el cobro acumulado no mezcla capital ni intereses.
+    for(const p of cuotas){
+      const n=p.cuotaNo;
+      await registrarCajaCobrador('recuperacion_capital', p.capital, `Capital ${c.nombre} · cuota ${n}`, `pago_cob:${c.id}:c${cicloDe(c)}:${n}:cap`, {clienteId:c.id, cliente:c.nombre,...meta});
+      await registrarCajaCobrador('interes_cobrado', p.interes, `Interés ${c.nombre} · cuota ${n}`, `pago_cob:${c.id}:c${cicloDe(c)}:${n}:int`, {clienteId:c.id, cliente:c.nombre,...meta});
+      if(p.ajuste>0)await registrarCajaCobrador('cuota_extra_cobrada', p.ajuste, `Cuota extra/ajuste ${c.nombre} · cuota ${n}`, `pago_cob:${c.id}:c${cicloDe(c)}:${n}:ajuste`, {clienteId:c.id, cliente:c.nombre,...meta});
+    }
+    if(m>0)await registrarCajaCobrador('mora_cobrada', m, `Mora ${c.nombre} · ${etiquetaCuotas}`, `pago_cob:${c.id}:c${cicloDe(c)}:${primeraCuota}-${ultimaCuota}:mora`, {clienteId:c.id, cliente:c.nombre,...meta});
+    await logActividadCobrador({tipo:'pago',clienteId:c.id,cliente:c.nombre,monto:total,cuota:c.pagadas,total:c.numCuotas,ts:Date.now(),autor:'Cobrador',...meta,nota:m>0?`${etiquetaCuotas} + mora ${fmt(m)}`:etiquetaCuotas});
     // Guardar cobro local
     const h=hoy();
     const cobro={id:c.id,nombre:c.nombre,monto:total,cuota:c.pagadas,fecha:h,hora:coTimeLabel(),telefono:c.telefono||'',...meta};
@@ -2411,7 +2436,7 @@ async function confirmarPago(){
     const waUrl=c.telefono?`https://wa.me/57${c.telefono.replace(/\D/g,'')}?text=${msg}`:'#';
     document.getElementById('wa-recibo').href=waUrl;
     document.getElementById('wa-recibo').style.display=c.telefono?'inline-flex':'none';
-    document.getElementById('success-sub').textContent=`${c.nombre} · ${fmt(total)}`;
+    document.getElementById('success-sub').textContent=`${c.nombre} · Pago registrado`;
     const so=document.getElementById('success-overlay');
     so.classList.add('open');
     if(navigator.vibrate)navigator.vibrate([80,40,80]);
