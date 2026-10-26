@@ -541,7 +541,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <div class="card">
     <div class="ct">💵 Disponible para prestar</div>
     <div id="politica-prestamo-resumen" style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px">Calculando desde Caja…</div>
-    <button class="btn btn-primary btn-full" onclick="abrirPoliticaPrestamo()">Configurar cupo o pausa</button>
+    <button class="btn btn-primary btn-full" onclick="abrirPoliticaPrestamo()">Configurar reserva, cupo o pausa</button>
   </div>
   <div class="card">
     <div class="ct">⚙️ Parámetros por defecto</div>
@@ -658,19 +658,19 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
       <label class="fl">Cómo quieres operar</label>
       <select id="politica-prestamo-modo" onchange="actualizarFormularioPoliticaPrestamo()">
         <option value="libre">Usar todo lo libre de Caja</option>
-        <option value="cupo">Fijar un cupo máximo para prestar</option>
+        <option value="cupo">Reservar efectivo actual / controlar cupo</option>
         <option value="pausa">Pausar nuevos préstamos</option>
       </select>
     </div>
     <div class="fg" id="politica-prestamo-cupo-wrap">
-      <label class="fl">Cupo máximo disponible hoy ($)</label>
+      <label class="fl">Cupo disponible ahora ($)</label>
       <input type="number" id="politica-prestamo-cupo" min="0" step="10000" placeholder="0" oninput="previsualizarPoliticaPrestamo()">
-      <div style="font-size:11px;color:var(--text3);margin-top:5px">La diferencia queda apartada. Si prestas o registras gastos, el cupo baja solo; si entra dinero, vuelve a subir hasta este límite.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Si escribes <strong>$0</strong>, se aparta todo el efectivo libre actual. Desde ese instante, solo lo que entre por cobros se habilita para prestar; no se agrega ni se mueve dinero.</div>
     </div>
     <div class="fg" id="politica-prestamo-fecha-wrap">
       <label class="fl">Hasta cuándo <span style="color:var(--text3);font-weight:400;text-transform:none">(opcional)</span></label>
       <input type="date" id="politica-prestamo-hasta" oninput="previsualizarPoliticaPrestamo()">
-      <div style="font-size:11px;color:var(--text3);margin-top:5px">Útil para pausar hasta la próxima quincena. Al vencer, se habilita de nuevo automáticamente.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Útil para revisar al cierre de mes. Al vencer, se habilita de nuevo automáticamente todo lo libre de Caja.</div>
     </div>
     <div class="fg">
       <label class="fl">Nota <span style="color:var(--text3);font-weight:400;text-transform:none">(opcional)</span></label>
@@ -4975,15 +4975,24 @@ function cobrosSinActividad(actividadCompleta,desdeTs){
   });
   return faltan.sort((a,b)=>a.ts-b.ts);
 }
+// La pantalla de Actividad deliberadamente trae solo las últimas 400 entradas para permanecer
+// rápida. Ese recorte se hace por la clave de Firebase, no garantiza un rango cronológico
+// continuo: compararlo contra TODA la Caja produjo avisos rojos de pagos antiguos que sí tenían
+// su aviso guardado, pero que no venían en esa fotografía parcial. Esta lectura completa se usa
+// únicamente para validar o recuperar avisos; nunca modifica plata, cuotas ni comisiones.
+async function leerCobrosSinActividadCompleta(desdeTs){
+  if(!fbOk||!db)return null;
+  const datos=(await db.ref('actividad').once('value')).val();
+  return cobrosSinActividad(arrFirebase(datos),desdeTs);
+}
 async function repararActividadFaltante(opts={}){
   if(!fbOk||!db){notify('Necesitas conexión para revisar el historial completo','err');return{creados:0};}
   if(!opts.sinConfirmar)notify('Revisando cobros contra el historial completo…','ok');
-  let completa=[];
+  let faltan=[];
   try{
-    completa=arrFirebase((await db.ref('actividad').once('value')).val());
+    faltan=await leerCobrosSinActividadCompleta(Date.now()-90*DAY_MS);
   }catch(e){notify('No se pudo leer el historial de actividad: '+e.message,'err');return{creados:0};}
-  const desde=Date.now()-90*DAY_MS; // 90 días: suficiente para cualquier ciclo vivo
-  const faltan=cobrosSinActividad(completa,desde);
+  faltan=Array.isArray(faltan)?faltan:[];
   if(!faltan.length){if(!opts.sinConfirmar)notify('Todos los cobros de los últimos 90 días tienen su aviso en Actividad ✓','ok');return{creados:0};}
   const detalle=faltan.map(g=>`• ${g.cliente||g.clienteId} · cuota ${g.cuota} · ${fmt(g.monto)} · ${coDateLabel(g.ts)} ${coTimeLabel(g.ts)} (${g.autor})`).join('\n');
   if(!opts.sinConfirmar&&!confirm(`Se encontraron ${faltan.length} cobro(s) que entraron a caja pero nunca aparecieron en Actividad:\n\n${detalle}\n\n`+
@@ -5497,7 +5506,12 @@ function disponibilidadParaPrestar(m){
 function textoPoliticaPrestamo(d){
   const p=d.politica;
   if(p.modo==='pausa')return p.hasta?`Pausado hasta ${labelFromUTCDate(coUTCDateFromKey(p.hasta))}`:'Pausado hasta que lo habilites';
-  if(p.modo==='cupo')return `Caja libre ${fmt(d.cajaLibre)} · reserva ${fmt(d.reserva)}`;
+  if(p.modo==='cupo'){
+    const cierre=p.hasta?` hasta ${labelFromUTCDate(coUTCDateFromKey(p.hasta))}`:'';
+    return d.monto===0&&d.reserva>0
+      ?`Efectivo actual reservado${cierre} · se liberan solo recaudos nuevos`
+      :`Caja libre ${fmt(d.cajaLibre)} · reserva ${fmt(d.reserva)}${cierre}`;
+  }
   if(p.vencida)return 'La pausa venció: se habilitó todo lo libre de Caja';
   return `Todo lo libre de Caja: ${fmt(d.cajaLibre)}`;
 }
@@ -5550,7 +5564,7 @@ function actualizarFormularioPoliticaPrestamo(){
   const cupo=document.getElementById('politica-prestamo-cupo-wrap');
   const fecha=document.getElementById('politica-prestamo-fecha-wrap');
   if(cupo)cupo.style.display=modo==='cupo'?'block':'none';
-  if(fecha)fecha.style.display=modo==='pausa'?'block':'none';
+  if(fecha)fecha.style.display=(modo==='pausa'||modo==='cupo')?'block':'none';
   previsualizarPoliticaPrestamo();
 }
 
@@ -5567,7 +5581,10 @@ function previsualizarPoliticaPrestamo(){
   }else if(modo==='cupo'){
     const real=Math.min(cajaLibre,cupo);
     prev.className='ibox blue';
-    prev.innerHTML=`Para prestar aparecerán <strong>${fmt(real)}</strong>. Quedarán apartados <strong>${fmt(Math.max(0,cajaLibre-real))}</strong> de los ${fmt(cajaLibre)} libres en Caja.`;
+    const reserva=Math.max(0,cajaLibre-real);
+    prev.innerHTML=cupo===0
+      ?`Quedarán apartados los <strong>${fmt(reserva)}</strong> libres hoy. Desde que guardes, cada recaudo neto se irá habilitando para prestar${hasta?` hasta el ${labelFromUTCDate(coUTCDateFromKey(hasta))}`:''}.`
+      :`Para prestar aparecerán <strong>${fmt(real)}</strong>. Quedarán apartados <strong>${fmt(reserva)}</strong> de los ${fmt(cajaLibre)} libres en Caja${hasta?` hasta el ${labelFromUTCDate(coUTCDateFromKey(hasta))}`:''}.`;
   }else{
     prev.className='ibox green';
     prev.innerHTML=`Para prestar aparecerán todos los <strong>${fmt(cajaLibre)}</strong> libres de Caja.`;
@@ -5578,12 +5595,12 @@ function guardarPoliticaPrestamo(){
   const modo=document.getElementById('politica-prestamo-modo').value;
   const cajaLibre=Math.max(0,Math.round(metricasCaja().disponibleReal||0));
   const cupo=Math.max(0,Math.round(parseFloat(document.getElementById('politica-prestamo-cupo').value)||0));
-  const hasta=modo==='pausa'?(document.getElementById('politica-prestamo-hasta').value||''):'';
+  const hasta=(modo==='pausa'||modo==='cupo')?(document.getElementById('politica-prestamo-hasta').value||''):'';
   if(hasta&&hasta<hoy()){notify('La fecha de pausa debe ser hoy o posterior','err');return;}
   const politica={
     modo,
-    // Se guarda lo apartado, no el disponible. Así después de prestar $50.000 el cupo también
-    // baja $50.000, y los cobros lo liberan de nuevo sin que haya que editarlo cada vez.
+    // Se guarda lo apartado, no el disponible. Con cupo $0 se reserva todo lo que ya estaba
+    // libre y, desde ese momento, solo los recaudos netos se van habilitando para prestar.
     reserva:modo==='cupo'?Math.max(0,cajaLibre-Math.min(cajaLibre,cupo)):0,
     hasta:modo==='pausa'?hasta:'',
     nota:document.getElementById('politica-prestamo-nota').value.trim(),
@@ -5594,7 +5611,7 @@ function guardarPoliticaPrestamo(){
   if(fbOk&&db)db.ref('config/politicaPrestamo').set(_politicaPrestamo).catch(e=>notify('Error guardando la disponibilidad: '+e.message,'err'));
   const d=actualizarDisponibleParaPrestar();
   cerrar('modal-politica-prestamo');
-  notify(modo==='pausa'?'Préstamos nuevos pausados ✓':`Disponible para prestar: ${fmt(d.monto)} ✓`,'ok');
+  notify(modo==='pausa'?'Préstamos nuevos pausados ✓':cupo===0&&modo==='cupo'?'Efectivo actual reservado; se liberarán solo recaudos nuevos ✓':`Disponible para prestar: ${fmt(d.monto)} ✓`,'ok');
 }
 
 function validarDisponibleParaNuevoPrestamo(monto){
@@ -6057,9 +6074,23 @@ function programarReconciliacionAuto(){
   clearTimeout(window._reconAutoTimer);
   window._validacionInicioAdmin={estado:'validando'};
   renderSaludInicio();
-  window._reconAutoTimer=setTimeout(()=>{
+  window._reconAutoTimer=setTimeout(async()=>{
     try{
       const v=validarDatosInicioAdmin();
+      // El chequeo de avisos necesita el historial COMPLETO. La lista visible está limitada a
+      // 400 entradas y no sirve como prueba: con ella se reportaban como "perdidos" cobros que
+      // sí existían en Actividad. Solo se revisa el periodo operativo reciente (igual que el
+      // botón de recuperación); si no hay conexión, se omite sin inventar una alerta.
+      try{
+        const faltan=await leerCobrosSinActividadCompleta(Date.now()-90*DAY_MS);
+        if(Array.isArray(faltan)&&faltan.length){
+          v.ok=false;
+          v.problemas.push({sev:'alto',
+            msg:faltan.length+' cobro(s) entraron a caja sin aparecer en Actividad',
+            sub:faltan.map(g=>`${g.cliente} cuota ${g.cuota} ${fmt(g.monto)} (${coDateLabel(g.ts)})`).join(' · ')+
+                ' — el pago existe pero nunca te avisó. Recupéralos desde Actividad.'});
+        }
+      }catch(e){console.warn('No se pudo validar el historial completo de Actividad',e);}
       window._validacionInicioAdmin=v;
       renderReconciliacionResumen(v.reconciliacion);
       renderSaludInicio();
@@ -7825,15 +7856,13 @@ function saludApp(){
   }catch(e){}
   return {ok:problemas.length===0, problemas};
 }
-// Cobros sin aviso, pero SOLO dentro del tramo de actividad que está cargado en memoria.
-// Más atrás no hay con qué comparar y cualquier cobro viejo parecería sin aviso. El margen de una
-// hora evita que el movimiento más antiguo del tramo se marque solo porque su aviso quedó justo
-// por debajo del corte.
+// La fotografía visible de Actividad está limitada a 400 entradas y no representa una ventana
+// histórica confiable. Por eso esta versión síncrona no deduce pagos perdidos: la verificación
+// real se ejecuta al iniciar con leerCobrosSinActividadCompleta(), que consulta el historial
+// completo y solo los últimos 90 días. Así una alerta roja siempre corresponde a un aviso que
+// falta de verdad, nunca a una entrada que el límite de la pantalla dejó por fuera.
 function cobrosSinAvisoRecientes(){
-  if(!Array.isArray(actividad)||!actividad.length)return [];
-  const masViejo=actividad.reduce((m,a)=>Math.min(m,(a&&a.ts)||Infinity),Infinity);
-  if(!Number.isFinite(masViejo))return [];
-  return cobrosSinActividad(actividad,masViejo+3600000);
+  return [];
 }
 // Validación liviana de los DATOS REALES al abrir Admin. No ejecuta las pruebas de desarrollo
 // dentro del celular: revisa clientes, cuotas, caja, comisiones y saldo del cobrador sin mutar nada.

@@ -1662,7 +1662,7 @@ function getSeguimientoDias(){return SEGUIMIENTO_DIAS;}
 function infoSeguimiento(c,h){
   if(!c.historialNoPago||!c.historialNoPago.length)return null;
   if(c.pagadas>=c.numCuotas)return null;
-  if(sameCoDate(c.ultimoPago,h))return null;
+  if(cobroRegistradoEnFecha(c,h))return null;
   const dias=getSeguimientoDias();
   const ult=c.historialNoPago[c.historialNoPago.length-1];
   if(!ult||!ult.fecha)return null;
@@ -1735,8 +1735,46 @@ function fechaRutaCobrador(c,q,i){
 function tieneCuotaEnFecha(c,fecha){
   return !!(c.cuotasData&&c.cuotasData.some((q,i)=>q.num>c.pagadas&&fechaRutaCobrador(c,q,i)===fecha));
 }
+// La fecha de "último pago" solo cuenta la última vez que recibió dinero; no dice QUÉ cuota
+// cubrió. En un préstamo diario un cliente puede pagar hoy cuotas vencidas y seguir debiendo la
+// cuota de hoy (caso Andrés). Por eso, "Pagó hoy" exige que Caja identifique la cuota programada
+// para esta fecha. Un abono a cuotas anteriores queda visible, pero no cierra la ruta de hoy.
+function cuotasProgramadasEnFecha(c,fecha){
+  if(!c||!Array.isArray(c.cuotasData))return [];
+  return c.cuotasData.reduce((nums,q,i)=>{
+    if(fechaRutaCobrador(c,q,i)===fecha)nums.push(Number(q.num)||i+1);
+    return nums;
+  },[]);
+}
+function numeroCuotaMovimiento(m){
+  const ref=String(m&&m.refKey||'');
+  // Formatos actuales y anteriores: pago_cob:...:c5:8:cap, pago:...:c5:8:capital,
+  // abono_cob:...:c5:8:cap. El ciclo evita confundir el número de cuota con otro dato.
+  const enRef=ref.match(/:c\d+:(\d+)(?::|-|$)/i);
+  if(enRef)return Number(enRef[1])||0;
+  const texto=[m&&m.desc,m&&m.descripcion,m&&m.nota].filter(Boolean).join(' ');
+  const enTexto=texto.match(/\bcuota\s+(\d+)\b/i);
+  return enTexto?Number(enTexto[1])||0:0;
+}
+function registroLocalCubreCuotas(c,fecha,cuotas){
+  return (cobrosHoy||[]).some(x=>{
+    if(x.id!==c.id||x.fecha!==fecha)return false;
+    const n=Number(x.cuota)||0;
+    // Un registro local se crea al finalizar una operación que paga en orden todas las
+    // cuotas exigibles; por eso su cuota final debe alcanzar cada cuota programada hoy.
+    return cuotas.every(q=>n>=q);
+  });
+}
+function cobroRegistradoEnFecha(c,fecha){
+  if(!c)return false;
+  const cuotasHoy=cuotasProgramadasEnFecha(c,fecha);
+  if(!cuotasHoy.length)return false;
+  const cuotasEnCaja=new Set(movimientosClienteFecha(c,fecha).map(numeroCuotaMovimiento).filter(Boolean));
+  if(cuotasHoy.every(n=>cuotasEnCaja.has(n)))return true;
+  return registroLocalCubreCuotas(c,fecha,cuotasHoy);
+}
 function gestionadoEnFecha(c,fecha){
-  return sameCoDate(c.ultimoPago,fecha)||!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,fecha)));
+  return cobroRegistradoEnFecha(c,fecha)||!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,fecha)));
 }
 // Misma fórmula del Admin: todas las cuotas exigibles a hoy + mora acumulada.
 function _aCobrarHoy(c,moraVal){
@@ -1754,24 +1792,23 @@ function montoCobradoClienteFecha(c,fecha){
   if(desdeCaja>0)return desdeCaja;
   const local=(cobrosHoy||[]).filter(x=>x.id===c.id&&x.fecha===fecha).reduce((s,x)=>s+Math.max(0,Math.round(x.monto||0)),0);
   if(local>0)return local;
-  if(!sameCoDate(c.ultimoPago,fecha))return 0;
-  const idx=Math.max(0,(c.pagadas||0)-1);
-  const q=c.cuotasData?.[idx]||{};
-  return q.cuota||c.cuota||0;
+  return 0;
 }
 function estadoVisualRuta(c,fecha){
   const movs=movimientosClienteFecha(c,fecha);
-  const prefijoCompleto=/^(pago:|pago_mora:|abono:|pago_cob:|abono_cob:|liqant:)/;
-  const cuotaCompleta=movs.some(m=>prefijoCompleto.test(String(m.refKey||'')))||
-    (cobrosHoy||[]).some(x=>x.id===c.id&&x.fecha===fecha&&x.cuota===(c.pagadas||0));
-  const movimientoHoy=cuotaCompleta||sameCoDate(c.ultimoPago,fecha)||movs.length>0;
+  const registroLocal=(cobrosHoy||[]).some(x=>x.id===c.id&&x.fecha===fecha);
+  const cuotaCompleta=cobroRegistradoEnFecha(c,fecha);
+  // Hay dinero recibido hoy, pero ninguna de las cuotas de la fecha quedó cubierta.
+  // Se informa al cobrador sin bloquear el botón para cobrar lo que todavía falta hoy.
+  const abonoAtrasadoHoy=!cuotaCompleta&&(registroLocal||movs.length>0);
+  const movimientoHoy=cuotaCompleta;
   const completado=cuotaCompleta&&(c.pagadas||0)>=(c.numCuotas||0);
   const noPagoHoy=!movimientoHoy&&!!(c.historialNoPago&&c.historialNoPago.some(n=>sameCoDate(n.fecha,fecha)));
   const proxima=(c.cuotasData||[])[c.pagadas||0];
   return{
-    movimientoHoy,cuotaCompleta,completado,noPagoHoy,
-    clase:completado?'completado':movimientoHoy?'pagado-hoy':noPagoHoy?'urgente':'',
-    etiqueta:completado?`✓ Préstamo completado ${c.pagadas}/${c.numCuotas}`:cuotaCompleta?`✓ Pagó cuota ${c.pagadas}/${c.numCuotas}`:movimientoHoy?`💵 Abono recibido · sigue cuota ${Math.min((c.pagadas||0)+1,c.numCuotas)}/${c.numCuotas}`:`Cuota ${Math.min((c.pagadas||0)+1,c.numCuotas)}/${c.numCuotas}`,
+    movimientoHoy,cuotaCompleta,completado,noPagoHoy,abonoAtrasadoHoy,
+    clase:completado?'completado':movimientoHoy?'pagado-hoy':(noPagoHoy||abonoAtrasadoHoy)?'urgente':'',
+    etiqueta:completado?`✓ Préstamo completado ${c.pagadas}/${c.numCuotas}`:cuotaCompleta?`✓ Pagó cuota ${c.pagadas}/${c.numCuotas}`:abonoAtrasadoHoy?`💵 Abonó a deuda anterior · sigue cuota ${Math.min((c.pagadas||0)+1,c.numCuotas)}/${c.numCuotas}`:`Cuota ${Math.min((c.pagadas||0)+1,c.numCuotas)}/${c.numCuotas}`,
     proximaFecha:proxima&&proxima.fechaISO||''
   };
 }
@@ -1891,19 +1928,19 @@ function renderRuta(){
           <div class="cc-name">${c.nombre}</div>
           <div class="cc-det">${c.negocio||'—'}${c.zona?' · '+c.zona:''}</div>
         </div>
-        <div style="text-align:right;font-size:11px;color:${yp?'var(--green)':m>0?'var(--red)':extActiva?'#6EB3FF':'var(--text3)'}">
-          ${yp?'✓ Gestión registrada':m>0?'⚠ Requiere revisión':extActiva?'📅 Cuota diferida':graciaOn?'🛡️ En gracia':'Pendiente de visita'}
+        <div style="text-align:right;font-size:11px;color:${yp?'var(--green)':estado.abonoAtrasadoHoy||m>0?'var(--red)':extActiva?'#6EB3FF':'var(--text3)'}">
+          ${yp?'✓ Gestión registrada':estado.abonoAtrasadoHoy?'⚠ Cuota de hoy pendiente':m>0?'⚠ Requiere revisión':extActiva?'📅 Cuota diferida':graciaOn?'🛡️ En gracia':'Pendiente de visita'}
         </div>
       </div>
       <div class="cc-meta">
-        <span class="badge ${yp?'bg':m>0?'br':'bgray'}">${estado.etiqueta}</span>
+        <span class="badge ${yp?'bg':estado.abonoAtrasadoHoy||m>0?'br':'bgray'}">${estado.etiqueta}</span>
         ${estado.cuotaCompleta&&!estado.completado&&estado.proximaFecha?`<span class="badge bgray">Próxima ${Math.min(c.pagadas+1,c.numCuotas)}/${c.numCuotas} · ${estado.proximaFecha}</span>`:''}
         ${m>0&&!yp?`<span class="badge br">⚠ ${d} día${d!==1?'s':''} en mora</span>`:''}
         ${extActiva?`<span class="badge" style="background:rgba(110,179,255,.18);color:#6EB3FF">📅 Cuota diferida hasta ${graciaTxt}</span>`:(graciaOn?`<span class="badge bgold">🛡️ Sin mora hasta ${graciaTxt}</span>`:'')}
         ${String(c.numeroCuenta||'').trim()?`<span class="badge" style="font-size:10px;background:rgba(110,179,255,.18);color:#6EB3FF">🏦 ${htmlSafe(String(c.numeroCuenta).trim())}</span>`:''}
         ${c.notas&&!(c.ciclos||[]).length?`<span class="badge bgold" style="font-size:10px">📝 ${htmlSafe(c.notas.substring(0,20))}${c.notas.length>20?'...':''}</span>`:''}
       </div>
-      ${m>0&&!yp?`<div style="background:rgba(255,107,107,.10);border:1px solid rgba(255,107,107,.35);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2)"><strong style="color:var(--red)">Mora acumulada hasta hoy.</strong> Abre “Registrar pago” para ver el valor exacto y el desglose antes de cobrar.</div>`:extActiva?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">📅 Interés pagado. La cuota completa queda pendiente para ${graciaTxt}.</div>`:(graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta ${graciaTxt}.</div>`:'')}
+      ${estado.abonoAtrasadoHoy?`<div style="background:rgba(255,107,107,.10);border:1px solid rgba(255,107,107,.35);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2)"><strong style="color:var(--red)">Abono de hoy aplicado a deuda anterior.</strong> La cuota de hoy sigue pendiente. Abre “Registrar pago” para ver el valor exacto antes de cobrar.</div>`:m>0&&!yp?`<div style="background:rgba(255,107,107,.10);border:1px solid rgba(255,107,107,.35);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:var(--text2)"><strong style="color:var(--red)">Mora acumulada hasta hoy.</strong> Abre “Registrar pago” para ver el valor exacto y el desglose antes de cobrar.</div>`:extActiva?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">📅 Interés pagado. La cuota completa queda pendiente para ${graciaTxt}.</div>`:(graciaOn?`<div style="background:rgba(110,179,255,.1);border:1px solid rgba(110,179,255,.3);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#6EB3FF">🛡️ A este cliente no se le cobra mora hasta ${graciaTxt}.</div>`:'')}
       ${pagoAnticipadoElegible(c)?(()=>{const d=diasDesdeCreacion(c);return `<div style="background:rgba(80,227,164,.1);border:1px solid rgba(80,227,164,.35);border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:12px"><div style="font-weight:700;color:var(--green);margin-bottom:3px">⚡ Pago anticipado disponible (día ${d}/15)</div><div style="color:var(--text2)">Antes de cobrar, avisa al administrador para que defina la liquidación.</div></div>`;})():''}
       ${c.telefono?`<div style="margin-bottom:10px"><a href="tel:${c.telefono}" style="font-size:12px;color:var(--text3);text-decoration:none">📞 ${c.telefono}</a></div>`:''}
       ${noPagoHoy?`<div style="background:rgba(255,107,107,.12);border:1px solid var(--red);color:var(--text2);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px"><div style="font-weight:700;color:var(--red);margin-bottom:4px">❌ Ya visitaste — no pagó hoy</div><div>Mañana vuelve a su ruta. El valor se revisa al registrar el cobro.</div></div>`:''}
@@ -1949,10 +1986,10 @@ function renderTodos(){
   if(!lista.length){el.innerHTML='<div class="empty"><div class="empty-i">📋</div><div class="empty-t">Sin clientes</div></div>';return;}
   el.innerHTML=lista.map(c=>{
     const sd=saldo(c),pct=Math.round(c.pagadas/c.numCuotas*100),pag=c.pagadas>=c.numCuotas;
-    const yp=sameCoDate(c.ultimoPago,h),tieneH=tieneCuotaEnFecha(c,h);
+    const estado=estadoVisualRuta(c,h),yp=estado.movimientoHoy,tieneH=tieneCuotaEnFecha(c,h);
     const pendientes=solicitudesPendientesCliente(c.id).length;
     const renovPend=(window._misSolicitudes||[]).some(s=>s.estado==='pendiente'&&s.clienteId===c.id&&s.tipoSolicitud==='renovacion');
-    const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
+    const badge=pag?'<span class="badge bg">Completado</span>':yp?'<span class="badge bg">✓ Pagó hoy</span>':estado.abonoAtrasadoHoy?'<span class="badge br">💵 Abono a deuda anterior</span>':tieneH?'<span class="badge bgold">Cobrar hoy</span>':'<span class="badge bgray">Sin cobro hoy</span>';
     const badgeSoli=pendientes?`<span class="badge ba">⏳ ${pendientes} solicitud${pendientes!==1?'es':''}</span>`:'';
     return`<div class="cobro-card" style="margin-bottom:10px;cursor:pointer" onclick="abrirDetalleClienteCobrador('${c.id}')">
       <div class="cc-top" style="margin-bottom:9px">
@@ -2700,7 +2737,7 @@ function renderSolicitudes(){
 function renderDia(){
   const h=hoy();
   const rutaH=clientes.filter(c=>!c.esInterno&&(tieneCuotaEnFecha(c,h)||gestionadoEnFecha(c,h)));
-  const pagadosH=rutaH.filter(c=>sameCoDate(c.ultimoPago,h));
+  const pagadosH=rutaH.filter(c=>estadoVisualRuta(c,h).movimientoHoy);
   const gestionadosH=rutaH.filter(c=>gestionadoEnFecha(c,h)).length;
   const cajaHoy=movimientosCobroFecha(h);
   const totalH=cajaHoy.length?cajaHoy.reduce((s,m)=>s+(m.monto||0),0):pagadosH.reduce((s,c)=>s+montoCobradoClienteFecha(c,h),0);
