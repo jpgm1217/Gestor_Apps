@@ -413,7 +413,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <div class="g2">
     <div class="metric gold"><div class="ml">Capital base</div><div class="mv" id="cj-base">$0</div></div>
     <div class="metric"><div class="ml">Capital en calle</div><div class="mv" style="color:var(--amber)" id="cj-calle">$0</div></div>
-    <div class="metric green"><div class="ml">Disponible real</div><div class="mv" id="cj-disp">$0</div></div>
+    <div class="metric green"><div class="ml">Efectivo libre en Caja</div><div class="mv" id="cj-disp">$0</div></div>
     <div class="metric"><div class="ml">Interés realizado</div><div class="mv" style="color:var(--green)" id="cj-int">$0</div></div>
     <div class="metric"><div class="ml">Interés pendiente</div><div class="mv" style="color:var(--amber)" id="cj-int-pend">$0</div></div>
     <div class="metric"><div class="ml">Mora cobrada</div><div class="mv" style="color:var(--blue)" id="cj-mora-real">$0</div></div>
@@ -518,7 +518,7 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
 
 <!-- ── PANEL POOL ── -->
 <div id="panel-pool" class="panel">
-  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Historial de reinversión. El dinero disponible se calcula <strong>solo desde Caja</strong>; este panel no cambia el efectivo ni el cupo para prestar. Para registrar una entrada, gasto o retiro usa <strong>Caja</strong>.</div>
+  <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Historial de reinversión. El efectivo se calcula desde <strong>Caja</strong>; el cupo para prestar se controla aparte en <strong>Configuración</strong>. Este panel no mueve dinero.</div>
 
   <!-- Métricas -->
   <div class="g2" id="pool-metricas"></div>
@@ -4806,6 +4806,7 @@ function renderFinanzas(){
 
   // — Métricas rentabilidad (las cifras de plata salen de metricasCaja → iguales en todas las pestañas) —
   const mc=metricasCaja();
+  const disponible=disponibilidadParaPrestar(mc);
   const capitalActivo=act.reduce((s,c)=>s+saldo(c),0);
   const capitalTotal=clientes.reduce((s,c)=>s+c.capital,0);
   const interesEsperado=clientes.reduce((s,c)=>s+c.interes,0);
@@ -4821,7 +4822,7 @@ function renderFinanzas(){
 
   document.getElementById('fin-metricas').innerHTML=`
     <div class="metric gold"><div class="ml">Ganancia neta</div><div class="mv" style="color:${mc.utilidadNeta<0?'var(--red)':'var(--gold)'}">${fmt(mc.utilidadNeta)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">interés+mora − comisiones − gastos</div></div>
-    <div class="metric green"><div class="ml">Disponible p/ prestar</div><div class="mv" style="color:${mc.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(mc.disponibleReal)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">igual que Caja</div></div>
+    <div class="metric green"><div class="ml">Para prestar ahora</div><div class="mv" style="color:${disponible.monto>0?'var(--green)':(disponible.politica.modo==='cupo'?'var(--gold)':'var(--text3)')}">${fmt(disponible.monto)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">${htmlSafe(textoPoliticaPrestamo(disponible))}</div></div>
     <div class="metric"><div class="ml">Mora pendiente</div><div class="mv" style="color:${mc.moraActiva>0?'var(--red)':'var(--green)'}">${fmt(mc.moraActiva)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">${enMora.length} cliente${enMora.length!==1?'s':''}</div></div>
     <div class="metric"><div class="ml">Interés pendiente</div><div class="mv" style="color:var(--amber)">${fmt(mc.interesPendiente)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">por cobrar</div></div>
     <div class="metric"><div class="ml">Efectividad cobro</div><div class="mv" style="color:${efectividad>=70?'var(--green)':efectividad>=40?'var(--amber)':'var(--red)'}">${efectividad}%</div><div style="font-size:10px;color:var(--text3);margin-top:2px">estimado · interés cobrado vs esperado</div></div>
@@ -5207,13 +5208,14 @@ function renderInicioResumen(h,act){
   const el=document.getElementById('inicio-resumen');
   if(!el)return;
   const m=metricasCaja();
+  const disponible=disponibilidadParaPrestar(m);
   const solicitudes=solicitudesPendientesLista();
   const finalizan=clientesFinalizanEnDias(act,7);
   const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
   const faltanHoy=rutaHoy.filter(c=>!(sameCoDate(c.ultimoPago,h))&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const items=[
-    {lbl:'Disponible para prestar',val:fmt(m.disponibleReal),color:m.disponibleReal<0?'var(--red)':'var(--green)'},
+    {lbl:'Para prestar ahora',val:fmt(disponible.monto),color:disponible.monto>0?'var(--green)':(disponible.politica.modo==='cupo'?'var(--gold)':'var(--text3)')},
     {lbl:'Solicitudes pendientes',val:String(solicitudes.length),color:solicitudes.length?'var(--amber)':'var(--text)'},
     {lbl:'Comisión pendiente',val:fmt(totalComisionPendiente()),color:'var(--gold)'},
     {lbl:'Finalizan en 7 días',val:String(finalizan.length),color:finalizan.length?'var(--blue)':'var(--text)'},
@@ -5596,13 +5598,15 @@ function guardarPoliticaPrestamo(){
   const cajaLibre=Math.max(0,Math.round(metricasCaja().disponibleReal||0));
   const cupo=Math.max(0,Math.round(parseFloat(document.getElementById('politica-prestamo-cupo').value)||0));
   const hasta=(modo==='pausa'||modo==='cupo')?(document.getElementById('politica-prestamo-hasta').value||''):'';
-  if(hasta&&hasta<hoy()){notify('La fecha de pausa debe ser hoy o posterior','err');return;}
+  if(hasta&&hasta<hoy()){notify('La fecha de vigencia debe ser hoy o posterior','err');return;}
   const politica={
     modo,
     // Se guarda lo apartado, no el disponible. Con cupo $0 se reserva todo lo que ya estaba
     // libre y, desde ese momento, solo los recaudos netos se van habilitando para prestar.
     reserva:modo==='cupo'?Math.max(0,cajaLibre-Math.min(cajaLibre,cupo)):0,
-    hasta:modo==='pausa'?hasta:'',
+    // El cupo también puede tener vencimiento: al cierre elegido vuelve a habilitarse toda la
+    // Caja libre. Si se deja vacío, la reserva se mantiene y cada recaudo nuevo se libera solo.
+    hasta:(modo==='pausa'||modo==='cupo')?hasta:'',
     nota:document.getElementById('politica-prestamo-nota').value.trim(),
     actualizadoEn:Date.now()
   };
@@ -5647,7 +5651,7 @@ function metricasCaja(){
 }
 function renderCaja(){
   const m=metricasCaja();
-  actualizarDisponibleParaPrestar(m);
+  const disponible=actualizarDisponibleParaPrestar(m);
   const cjBase=document.getElementById('cj-base'); if(cjBase)cjBase.textContent=fmt(m.capitalBase);
   const cjCalle=document.getElementById('cj-calle'); if(cjCalle)cjCalle.textContent=fmt(m.principalCalle);
   const cjDisp=document.getElementById('cj-disp'); if(cjDisp){cjDisp.textContent=fmt(m.disponibleReal); cjDisp.style.color=m.disponibleReal<0?'var(--red)':'var(--green)';}
@@ -5671,9 +5675,9 @@ function renderCaja(){
         <div class="cs"><div class="csl">Cartera total pendiente</div><div class="csv" style="color:var(--amber)">${fmt(m.carteraTotal)}</div></div>
         <div class="cs"><div class="csl">Mora activa</div><div class="csv" style="color:${m.moraActiva>0?'var(--red)':'var(--text2)'}">${fmt(m.moraActiva)}</div></div>
         <div class="cs"><div class="csl">Utilidad neta</div><div class="csv" style="color:${m.utilidadNeta<0?'var(--red)':'var(--gold)'}">${fmt(m.utilidadNeta)}</div></div>
-        <div class="cs"><div class="csl">Disponible para prestar</div><div class="csv" style="color:${m.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(m.disponibleReal)}</div></div>
+        <div class="cs"><div class="csl">Efectivo libre en Caja</div><div class="csv" style="color:${m.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(m.disponibleReal)}</div></div>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:10px">Ahora Caja también descuenta las comisiones liquidadas al cobrador. Así el disponible real refleja mejor la plata realmente libre para seguir prestando.</div>`;
+      <div style="font-size:11px;color:var(--text3);margin-top:10px">Caja refleja el efectivo contable. <strong style="color:var(--gold)">Para prestar ahora: ${fmt(disponible.monto)}</strong> · ${htmlSafe(textoPoliticaPrestamo(disponible))}.</div>`;
   }
   const el=document.getElementById('cj-historial');
   if(!el)return;
@@ -5722,7 +5726,7 @@ function capitalBaseObjetivo(D,m){
 function abrirCorteCaja(){
   const m=metricasCaja();
   const ctx=document.getElementById('corte-contexto');
-  if(ctx)ctx.innerHTML=`Hoy la app ya sabe:<br>• Prestado en la calle (capital): <strong>${fmt(m.principalCalle)}</strong><br>• Capital base registrado: <strong>${fmt(m.capitalBase)}</strong><br>• Disponible que muestra ahora: <strong style="color:${m.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(m.disponibleReal)}</strong>`;
+  if(ctx)ctx.innerHTML=`Hoy la app ya sabe:<br>• Prestado en la calle (capital): <strong>${fmt(m.principalCalle)}</strong><br>• Capital base registrado: <strong>${fmt(m.capitalBase)}</strong><br>• Efectivo libre que Caja muestra: <strong style="color:${m.disponibleReal<0?'var(--red)':'var(--green)'}">${fmt(m.disponibleReal)}</strong><br><span style="color:var(--text3)">Este valor sirve para cuadrar la Caja; el cupo para nuevos préstamos se controla por separado.</span>`;
   const inp=document.getElementById('corte-efectivo');if(inp)inp.value='';
   const pv=document.getElementById('corte-prev');if(pv)pv.style.display='none';
   document.getElementById('modal-corte').classList.add('open');
@@ -8384,10 +8388,12 @@ function agregarMovimientoPool(){
 function renderPool(){
   const el=document.getElementById('pool-metricas');
   if(!el)return;
-  // Disponible = el mismo "Disponible real" de Caja (una sola fuente de verdad, evita descuadres)
-  const disp=(typeof metricasCaja==='function')?metricasCaja().disponibleReal:(pool.saldo||0);
+  // El Pool muestra efectivo contable; el cupo de préstamo se calcula aparte con la política.
+  const cajaLibre=(typeof metricasCaja==='function')?metricasCaja().disponibleReal:(pool.saldo||0);
+  const disponible=(typeof disponibilidadParaPrestar==='function')?disponibilidadParaPrestar({disponibleReal:cajaLibre}):{monto:cajaLibre};
   el.innerHTML=`
-    <div class="metric green"><div class="ml">Disponible (= Caja)</div><div class="mv" style="color:${disp<0?'var(--red)':'var(--green)'}">${fmt(disp)}</div></div>
+    <div class="metric green"><div class="ml">Efectivo en Caja</div><div class="mv" style="color:${cajaLibre<0?'var(--red)':'var(--green)'}">${fmt(cajaLibre)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">No es el cupo para prestar</div></div>
+    <div class="metric gold"><div class="ml">Para prestar ahora</div><div class="mv" style="color:${disponible.monto>0?'var(--green)':'var(--gold)'}">${fmt(disponible.monto)}</div></div>
     <div class="metric gold"><div class="ml">Total entrado</div><div class="mv">${fmt(pool.totalEntradas)}</div></div>
     <div class="metric"><div class="ml">Total prestado</div><div class="mv" style="color:var(--amber)">${fmt(pool.totalSalidas)}</div></div>
     <div class="metric"><div class="ml">Ciclos</div><div class="mv" style="color:var(--blue)">${pool.totalEntradas>0?Math.round(pool.totalSalidas/pool.totalEntradas*100):0}%</div></div>`;
