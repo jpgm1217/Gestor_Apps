@@ -36,7 +36,7 @@ body{background:var(--bg);color:var(--text);font-family:'Instrument Sans',sans-s
 .tabs{display:flex;gap:8px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;scrollbar-width:none;padding:8px 10px 0;}
 .tabs::-webkit-scrollbar{display:none;}
 .tab .ti{opacity:.9;margin-right:4px;font-size:12px;}
-.tab{flex:1;min-width:76px;padding:10px 8px;font-size:11px;font-weight:600;color:var(--text3);border:1px solid transparent;background:transparent;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-family:'Instrument Sans',sans-serif;white-space:nowrap;border-radius:12px 12px 0 0;}
+.tab{flex:1 0 auto;min-width:76px;padding:10px 8px;font-size:11px;font-weight:600;color:var(--text3);border:1px solid transparent;background:transparent;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-family:'Instrument Sans',sans-serif;white-space:nowrap;border-radius:12px 12px 0 0;}
 .tab.active{color:var(--gold);border:1px solid var(--border);border-bottom-color:var(--card);background:var(--card);box-shadow:inset 0 2px 0 0 var(--gold);}
 .scroll{flex:1;overflow-y:auto;padding:14px;scrollbar-width:thin;scrollbar-color:var(--bg4) transparent;}
 .panel{display:none;}
@@ -210,7 +210,8 @@ document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ren
   <button class="tab" onclick="goTab('caja',this)" id="tab-caja"><span class="ti" data-icon="wallet"></span>Caja</button>
   <button class="tab" onclick="goTab('finanzas',this)" id="tab-finanzas"><span class="ti" data-icon="barChart"></span>Finanzas</button>
   <button class="tab" onclick="goTab('comisiones',this)" id="tab-comisiones"><span class="ti" data-icon="handshake"></span>Comisión</button>
-  <button class="tab" onclick="goTab('pool',this)" id="tab-pool"><span class="ti" data-icon="banknote"></span>Pool</button>
+  <!-- Pool apagado (el dueño no lo usa; ver POOL_ACTIVO). -->
+  <button class="tab" onclick="goTab('pool',this)" id="tab-pool" style="display:none"><span class="ti" data-icon="banknote"></span>Pool</button>
   <button class="tab" onclick="goTab('config',this)" id="tab-config"><span class="ti" data-icon="settings"></span>Config</button>
 </div>
 
@@ -1021,15 +1022,27 @@ const TZ_CO='America/Bogota';
 const CO_OFFSET='-05:00';
 const DAY_MS=86400000;
 function pad2(n){return String(n).padStart(2,'0');}
+// RENDIMIENTO: crear un Intl.DateTimeFormat es costoso y coParts() se llama miles de veces por
+// pantalla (hoy(), mora(), sameCoDate()...). Se crea una sola vez y se reutiliza.
+const FMT_COP=new Intl.NumberFormat('es-CO'); // pesos: ver fmt()
+const CO_FMT=new Intl.DateTimeFormat('en-US',{
+  timeZone:TZ_CO,year:'numeric',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
+});
+// La salida tiene resolución de segundos, así que el mismo segundo siempre da el mismo resultado.
+// Se recuerda por segundo: las pantallas recorren Caja y clientes convirtiendo las mismas fechas
+// una y otra vez, y cada conversión era costosa (congelaba la app en el celular).
+const _coPartsCache=new Map();
 function coParts(value){
   if(value===undefined)value=Date.now();
   const d=value instanceof Date?value:new Date(value);
+  const t=d.getTime();
+  const k=Number.isFinite(t)?Math.floor(t/1000):null;
+  if(k!==null){const hit=_coPartsCache.get(k);if(hit)return hit;}
   const out={};
-  new Intl.DateTimeFormat('en-US',{
-    timeZone:TZ_CO,year:'numeric',month:'2-digit',day:'2-digit',
-    hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
-  }).formatToParts(d).forEach(p=>{if(p.type!=='literal')out[p.type]=p.value;});
+  CO_FMT.formatToParts(d).forEach(p=>{if(p.type!=='literal')out[p.type]=p.value;});
   if(out.hour==='24')out.hour='00';
+  if(k!==null){if(_coPartsCache.size>20000)_coPartsCache.clear();_coPartsCache.set(k,Object.freeze(out));}
   return out;
 }
 function coDateKey(value){const p=coParts(value);return p.year+'-'+p.month+'-'+p.day;}
@@ -1927,8 +1940,19 @@ function escuchar(){
     }
   });
 }
+// Copia local de clientes (solo se usa si Firebase no carga; en ese modo no se escribe a Firebase).
+// Va SIN fotos: con ellas pesaba ~1,7 MB, se acercaba al límite del navegador y, si se llenaba, el
+// error cortaba el guardado en Firebase que venía justo después (el pago quedaba sin guardar).
+function guardarCacheClientesLocal(){
+  try{
+    localStorage.setItem('cr_clientes_local',JSON.stringify(clientes.map(c=>{
+      if(!c||!c.fotos)return c;
+      const {fotos,...resto}=c;return resto;
+    })));
+  }catch(e){console.warn('Copia local de clientes omitida',e);}
+}
 function save(){
-  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  guardarCacheClientesLocal();
   if(fbOk&&db){
     // FIX RC1: usar .update() multi-path en vez de .set(arrayCompleto).
     // .set() reemplazaba TODO /clientes, borrando cualquier cliente creado por otro device.
@@ -1946,7 +1970,7 @@ function saveCliente(c){
   console.warn('saveCliente() reemplaza cliente completo — prefiere saveClienteFields(c,[...]) para sync incremental sin race');
   const idx=clientes.findIndex(x=>x.id===c.id);
   if(idx>=0)clientes[idx]=c; else clientes.push(c);
-  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  guardarCacheClientesLocal();
   if(fbOk&&db){
     db.ref('clientes/'+c.id).set(c).catch(e=>notify('Error sincronizando cliente: '+e.message,'err'));
   }
@@ -1958,7 +1982,7 @@ function saveClienteFields(c,fields){
   if(!c||!c.id||!Array.isArray(fields)||!fields.length)return;
   const idx=clientes.findIndex(x=>x.id===c.id);
   if(idx>=0)clientes[idx]=c; else clientes.push(c);
-  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  guardarCacheClientesLocal();
   if(fbOk&&db){
     const arrayFields=new Set(['comisionEventos','historialMora','historialNoPago','historialAjustes','cargosManuales','ciclos','historialPrestamos']);
     const arrList=fields.filter(f=>arrayFields.has(f));
@@ -2229,7 +2253,8 @@ function crearPrestamo(){
   renderCaja();
   ['n-nombre','n-cedula','n-telefono','n-negocio','n-zona','n-notas','n-gracia','n-banco','n-tipo-cuenta','n-cuenta'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   const niEl=document.getElementById('n-interno');if(niEl){niEl.checked=false;toggleInterno();}
-  renderInicio();
+  renderClientes();
+  volverAlInicio();
 }
 
 // MORA / SALDO
@@ -2248,31 +2273,44 @@ function registrarEventoMora(c, tipo, monto, nota, autor){
   });
 }
 
+// ══════════════════════════════════════════════
+// MORA — regla del dueño (04/11/2026), idéntica en Admin y Cobrador
+// ══════════════════════════════════════════════
+// Corre moraDia por cada día que el cliente tiene una cuota vencida. Cuando un pago cobra (o el
+// admin perdona) mora, la mora queda SALDADA HASTA ESE DÍA: lo que no se pagó se guarda en
+// moraArrastre (pesos fijos) y, si sigue debiendo cuotas vencidas, vuelve a correr desde el día
+// siguiente. Si paga cuotas sin pagar la mora, la acumulada se guarda y sigue sumando.
+// Antes la mora cobrada (moraPerdonada) se restaba de un conteo de días que se encogía cada vez
+// que avanzaba una cuota: el cliente quedaba varios días en $0 de mora aunque siguiera atrasado.
+// moraPerdonada se sigue sumando solo como estadística; ya no descuenta nada.
+function moraArrastre(c){return Math.max(0,Math.round(parseFloat(c&&c.moraArrastre)||0));}
 function inicioMoraKey(c, refKey){
   refKey=refKey||hoy();
   if(!c.moraDia||c.pagadas>=c.numCuotas)return null;
-  let fechaBase=c.moraBaseDate||null;
-  if(!fechaBase){
-    const v=c.cuotasData?.filter(q=>q.fechaISO<refKey&&q.num>c.pagadas)||[];
-    if(!v.length)return null;
-    fechaBase=v[0].fechaISO;
-  }
-  if(c.graciaHasta){
-    if(c.graciaHasta>fechaBase)fechaBase=c.graciaHasta;
-  }
+  // Solo hay mora diaria si hay una cuota realmente vencida. moraBaseDate (mora saldada hasta) y
+  // graciaHasta solo pueden CORRER el inicio hacia adelante, nunca crear mora sin cuota vencida.
+  const v=c.cuotasData?.filter(q=>q.fechaISO<refKey&&q.num>c.pagadas)||[];
+  if(!v.length)return null;
+  let fechaBase=v[0].fechaISO;
+  if(c.moraBaseDate&&c.moraBaseDate>fechaBase)fechaBase=c.moraBaseDate;
+  if(c.graciaHasta&&c.graciaHasta>fechaBase)fechaBase=c.graciaHasta;
   return fechaBase;
 }
 function mora(c, refKey){
-  // Mora = días × moraDia, respetando gracia y moraBaseDate (abono reciente)
   refKey=refKey||hoy();
   if(!c.moraDia||c.pagadas>=c.numCuotas)return 0;
-  if(graciaActiva(c,refKey))return 0;
+  const arrastre=moraArrastre(c);
+  if(graciaActiva(c,refKey))return arrastre;
   const fechaBase=inicioMoraKey(c,refKey);
-  if(!fechaBase)return 0;
+  if(!fechaBase)return arrastre;
   const diasVencidos=Math.floor((coUTCDateFromKey(refKey)-coUTCDateFromKey(fechaBase))/DAY_MS);
-  if(diasVencidos<=0)return 0;
-  const descuentoMora=c.moraBaseDate?0:(c.moraPerdonada||0);
-  return Math.max(0, diasVencidos*c.moraDia - descuentoMora);
+  return arrastre+Math.max(0,diasVencidos)*c.moraDia;
+}
+// Deja la mora saldada hasta fechaKey (hoy por defecto). Se llama DESPUÉS de aplicar el pago;
+// moraAntes es mora(c) calculada ANTES del pago y moraPagada lo que se cobró o perdonó de mora.
+function saldarMoraHasta(c,moraAntes,moraPagada,fechaKey){
+  c.moraArrastre=Math.max(0,Math.round(moraAntes||0)-Math.max(0,Math.round(moraPagada||0)));
+  c.moraBaseDate=fechaKey||hoy();
 }
 function diasMora(c, refKey){
   refKey=refKey||hoy();
@@ -2325,7 +2363,8 @@ function cargosPendientes(c){
   if(!Array.isArray(c.cargosManuales))return 0;
   return c.cargosManuales.filter(x=>!x.cobrado).reduce((s,x)=>s+(x.monto||0),0);
 }
-// Ruta del cobrador: el cliente permanece DIAS_RUTA_MAX días desde su cuota; superado eso, requiere decisión del admin
+// Días de atraso a partir de los cuales el admin recibe la alerta "revisar cliente". Desde el
+// 04/11/2026 el cliente NO sale de la ruta del cobrador por pasar este límite.
 const DIAS_RUTA_MAX=5;
 function diasAtrasoCuota(c){
   if(c.esInterno||c.pagadas>=c.numCuotas)return null;
@@ -2400,6 +2439,15 @@ function _copiarFallback(txt,done){
   }catch(e){notify('No se pudo copiar: '+txt,'err');}
 }
 
+// ¿Debe algo a la fecha? = su primera cuota impaga vence ese día o ya venció. Es la misma regla de
+// "Cobros de hoy" en la app del cobrador; desde el 04/11/2026 no tiene límite de días de atraso
+// (antes, a los 5 días el cliente salía de la ruta y de los totales "por cobrar hoy").
+function debeALaFecha(c,fecha){
+  if(!c||c.pagadas>=c.numCuotas)return false;
+  const q=c.cuotasData&&c.cuotasData[c.pagadas];
+  const due=q?fechaCobroProgramada(c,q,c.pagadas):null;
+  return !!due&&due<=(fecha||hoy());
+}
 // Lo que se le cobra HOY a un cliente: cuotas vencidas hasta hoy + mora acumulada.
 // NO es saldo(c) — eso incluye todo el préstamo futuro. Se mantiene idéntico a App_Cobrar.
 function _aCobrarHoy(c,moraVal){
@@ -2485,7 +2533,7 @@ function renderInicioPendientes(h, act){
   if(!el)return;
   const solicitudes=solicitudesPendientesLista();
   const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
-  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
+  const rutaHoy=clientes.filter(c=>debeALaFecha(c,h)); // cuota de hoy o vencidas, sin límite de días
   const faltanHoy=rutaHoy.filter(c=>!sameCoDate(c.ultimoPago,h)&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const finalizan=clientesFinalizanEnDias(act,7);
   const comPend=totalComisionPendiente();
@@ -2505,7 +2553,7 @@ function renderAlertas(h, act){
   // Clientes que superaron los días de ruta del cobrador → requieren decisión del admin
   const paraDecision=act.filter(requiereDecision).sort((a,b)=>(diasAtrasoCuota(b)||0)-(diasAtrasoCuota(a)||0));
   if(paraDecision.length)
-    alertas.push({tipo:'red',ico:'🧭',msg:`${paraDecision.length} cliente${paraDecision.length>1?'s':''} superaron ${DIAS_RUTA_MAX} días en ruta — requieren tu decisión`,sub:'Toca el cliente para decidir (refinanciar, perdonar mora, nuevo ciclo…): '+paraDecision.map(c=>`${c.nombre} (${diasAtrasoCuota(c)}d)`).join(', ')});
+    alertas.push({tipo:'red',ico:'🧭',msg:`${paraDecision.length} cliente${paraDecision.length>1?'s':''} con más de ${DIAS_RUTA_MAX} días de atraso`,sub:'Siguen en la ruta del cobrador. Revisa si conviene refinanciar, perdonar mora o un nuevo ciclo: '+paraDecision.map(c=>`${c.nombre} (${diasAtrasoCuota(c)}d)`).join(', ')});
 
   // Clientes con 3+ periodos sin pagar
   const moraCritica=act.filter(c=>diasMora(c)>=3);
@@ -2542,7 +2590,7 @@ function renderAlertas(h, act){
 
   // Sin cobros y ya es tarde
   const horaActual=coHour();
-  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
+  const rutaHoy=clientes.filter(c=>debeALaFecha(c,h)); // cuota de hoy o vencidas, sin límite de días
   const cobradosHoy=rutaHoy.filter(c=>sameCoDate(c.ultimoPago,h));
   // Alerta a las 9pm si el día de cobros ya cerró y quedaron pendientes
   if(rutaHoy.length>0&&cobradosHoy.length<rutaHoy.length&&horaActual>=21)
@@ -2566,10 +2614,8 @@ function renderProximos7(h){
     const dStr=addDaysToKey(h,i);
     const d=coUTCDateFromKey(dStr);
     const cobros=clientes.filter(c=>tieneCuotaEnFecha(c,dStr));
-    const total=cobros.reduce((s,c)=>{
-      const m=mora(c);
-      return s+c.cuota+(m>0?m:0);
-    },0);
+    // Días futuros: la cuota programada de ESA fecha, sin la mora de hoy (antes sumaba c.cuota + mora actual).
+    const total=cobros.reduce((s,c)=>s+(cuotaPendienteEnFecha(c,dStr)?.cuota||c.cuota||0),0);
     dias.push({fecha:dStr,dia:nombres[d.getUTCDay()],num:d.getUTCDate(),total,count:cobros.length});
   }
   const maxTotal=Math.max(...dias.map(d=>d.total),1);
@@ -2658,7 +2704,7 @@ function renderClientes(){
         <div class="cs"><div class="csl">Mora</div><div class="csv" style="color:${m>0?'var(--red)':'var(--text3)'}">${m>0?fmt(m):'$0'}</div></div>
         <div class="cs"><div class="csl">Cuotas</div><div class="csv">${c.pagadas}/${c.numCuotas}</div></div>
       </div>
-      ${m>0?`<div style="background:var(--redd);border-radius:7px;padding:6px 10px;margin-top:8px;font-size:12px;color:var(--red)">Deuda exigible hoy: ${fmt(_aCobrarHoy(c,m))}</div>`:''}
+      ${debeALaFecha(c,h)?(()=>{const n=Math.max(1,cuotasExigiblesHoy(c,h).items.length);return `<div style="background:${m>0?'var(--redd)':'var(--goldd)'};border-radius:7px;padding:6px 10px;margin-top:8px;font-size:12px;color:${m>0?'var(--red)':'var(--gold)'}">Debe a hoy: <strong>${fmt(_aCobrarHoy(c,m))}</strong> · ${n} cuota${n!==1?'s':''}${m>0?' + mora '+fmt(m):''}</div>`;})():''}
       ${c.abonoPendiente>0&&c.pagadas<c.numCuotas?`<div style="background:var(--amberd);border-radius:7px;padding:6px 10px;margin-top:6px;font-size:12px;color:var(--amber)">💵 Abono parcial: ${fmt(c.abonoPendiente)} · Falta: ${fmt(c.cuota-c.abonoPendiente)}</div>`:''}
       ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];return ult&&sameCoDate(ult.fecha,h)?`<div style="background:rgba(255,107,107,.15);border:1px solid var(--red);border-radius:7px;padding:7px 10px;margin-top:6px;font-size:12px;color:var(--red);font-weight:600">❌ No pagó hoy — cobrador ya visitó</div>`:''})()}
       <div class="prog"><div class="prog-f" style="width:${pct}%"></div></div>
@@ -2697,14 +2743,16 @@ function verCliente(id,soliId=null){
     </div>`).join('')}
   </div>`;
   const graciaOn=graciaActiva(c,h),graciaTxt=graciaLabel(c);
-  const moraHTML=m>0?`<div class="ibox red"><div style="font-weight:600;margin-bottom:9px">⚠ ${d} día${d!==1?'s':''} en mora — ${fmt(c.moraDia)}/día</div>
+  // Sin mora pero con cuotas a cobrar hoy (cuota del día, o vencidas en gracia): igual se muestra el total.
+  const exigibleSinMoraHTML=(m<=0&&exigible.items.length)?`<div class="ibox amber" style="font-size:13px;display:flex;justify-content:space-between;gap:8px"><span>Debe a hoy: ${etiquetaExigible}</span><strong>${fmt(_aCobrarHoy(c,0))}</strong></div>`:'';
+  const moraHTML=m>0?`<div class="ibox red"><div style="font-weight:600;margin-bottom:9px">⚠ ${d>0?`${d} día${d!==1?'s':''} en mora`:'Mora pendiente de pagos anteriores'} — ${fmt(c.moraDia)}/día</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:9px">
       <div class="cs"><div class="csl">Mora/día</div><div class="csv" style="color:var(--red)">${fmt(c.moraDia)}</div></div>
       <div class="cs"><div class="csl">Mora total</div><div class="csv" style="color:var(--red)">${fmt(m)}</div></div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span>Exigible hoy: ${etiquetaExigible} + mora</span><strong style="color:var(--red)">${fmt(_aCobrarHoy(c,m))}</strong></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:9px;font-size:11px;color:var(--text3)"><span>Saldo total del préstamo</span><span>${fmt(sd)}</span></div>
-    <button class="btn btn-ghost btn-sm btn-full" onclick="perdonarMora('${c.id}')">🤝 Perdonar mora</button></div>`:graciaOn?`<div class="ibox blue" style="font-size:12px">🛡️ Sin mora hasta <strong>${graciaTxt}</strong> — gabela activa</div>`:c.graciaHasta?`<div class="ibox amber" style="font-size:12px">🛡️ La gabela terminó el <strong>${graciaTxt}</strong></div>`:'<div class="ibox green" style="font-size:12px">✓ Al día — sin mora</div>';
+    <button class="btn btn-ghost btn-sm btn-full" onclick="perdonarMora('${c.id}')">🤝 Perdonar mora</button></div>`:exigibleSinMoraHTML+(graciaOn?`<div class="ibox blue" style="font-size:12px">🛡️ Sin mora hasta <strong>${graciaTxt}</strong> — gabela activa</div>`:c.graciaHasta?`<div class="ibox amber" style="font-size:12px">🛡️ La gabela terminó el <strong>${graciaTxt}</strong></div>`:exigible.items.length?'':'<div class="ibox green" style="font-size:12px">✓ Al día — sin mora</div>');
   const cuotasHTML=c.cuotasData.map((q,i)=>{
     const fechaProg=fechaCobroProgramada(c,q,i)||q.fechaISO;
     const p=i<c.pagadas,esH=fechaProg===h,v=!p&&fechaProg<h;
@@ -2731,7 +2779,7 @@ function verCliente(id,soliId=null){
     ${requestHTML}
     ${c.esInterno?`<div class="ibox amber" style="font-size:12px">🔒 <strong>Préstamo interno</strong> — no aparece al cobrador, sin comisión</div>`:''}
     ${c.refinanciado&&c.dineroExtra>0?`<div class="ibox amber" style="font-size:12px">💵 Incluye <strong>${fmt(c.dineroExtra)}</strong> de dinero adicional en última refinanciación</div>`:''}
-    ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];if(!ult||!sameCoDate(ult.fecha,h))return '';const mora_acum=mora(c);return`<div style="background:rgba(255,107,107,.12);border:1.5px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px">❌ No pagó hoy${ult.motivo&&ult.motivo!=='Sin motivo'?' — '+ult.motivo:''}</div><div style="font-size:12px;color:var(--text2)">El cobrador ya realizó la visita. Mañana debe cobrar:</div><div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="cs"><div class="csl">Cuota</div><div class="csv">${fmt(c.cuota)}</div></div><div class="cs"><div class="csl">Mora acumulada</div><div class="csv" style="color:var(--red)">${fmt(mora_acum)}</div></div><div class="cs" style="grid-column:span 2"><div class="csl">Total a cobrar mañana</div><div class="csv" style="color:var(--red);font-size:16px">${fmt(c.cuota+mora_acum)}</div></div></div></div>`;})()}
+    ${(()=>{const ult=c.historialNoPago?.slice(-1)[0];if(!ult||!sameCoDate(ult.fecha,h))return '';const mora_acum=mora(c);return`<div style="background:rgba(255,107,107,.12);border:1.5px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px">❌ No pagó hoy${ult.motivo&&ult.motivo!=='Sin motivo'?' — '+ult.motivo:''}</div><div style="font-size:12px;color:var(--text2)">El cobrador ya realizó la visita. Debe a hoy (mañana suma ${fmt(c.moraDia||0)} más de mora y la cuota que venza):</div><div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="cs"><div class="csl">${exigible.items.length>1?exigible.items.length+' cuotas vencidas':'Cuota'}</div><div class="csv">${fmt(exigible.totalCuotas||c.cuota)}</div></div><div class="cs"><div class="csl">Mora acumulada</div><div class="csv" style="color:var(--red)">${fmt(mora_acum)}</div></div><div class="cs" style="grid-column:span 2"><div class="csl">Total que debe a hoy</div><div class="csv" style="color:var(--red);font-size:16px">${fmt(_aCobrarHoy(c,mora_acum))}</div></div></div></div>`;})()}
     ${cuentaHTML(c)}
     ${c.notas?`<div class="ibox blue" style="font-size:12px">📝 ${htmlSafe(c.notas)}</div>`:''}
     ${htmlFichaCicloAdmin(c)}
@@ -3290,9 +3338,11 @@ function aplicarCuotaPagada(c,meta){
   const partes=partesPendientesCuota(c);
   const montoCuota=partes.cuota; // incluye ajustes/cuotas extra sin convertirlos en interés
   if(montoCuota<=0)return null;
-  c.pagadas++;c.moraBaseDate=null;c.graciaHasta=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
+  const moraAntes=mora(c); // "Cuota normal" no cobra mora: la acumulada queda pendiente y sigue sumando
+  c.pagadas++;c.graciaHasta=null;c.abonoPendiente=0;c.ultimoPago=coDateTimeISO();
+  saldarMoraHasta(c,moraAntes,0);
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:0,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas}`});
-  const guardado=saveClienteFields(c,['pagadas','moraBaseDate','graciaHasta','abonoPendiente','ultimoPago','comisionEventos']);
+  const guardado=saveClienteFields(c,['pagadas','moraBaseDate','moraArrastre','graciaHasta','abonoPendiente','ultimoPago','comisionEventos']);
   // Alimentar pool con cuota cobrada
   alimentarPool(montoCuota,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
@@ -3462,7 +3512,8 @@ async function revertirUltimoPago(id){
   // 4) Cliente: retroceder la cuota y recalcular el último pago real
   c.pagadas=Math.max(0,(c.pagadas||0)-1);
   c.abonoPendiente=0;
-  c.moraBaseDate=null;
+  // moraBaseDate/moraArrastre se conservan: la mora ya cobrada no se revierte (queda en caja), así
+  // que lo saldado hasta esa fecha sigue saldado. Borrarlos volvería a cobrar esos días.
   const evsRestantes=(c.comisionEventos||[]).filter(e=>e&&e.origen==='cobro'&&!e.duplicadoAnulado);
   c.ultimoPago=evsRestantes.length?coDateTimeISO(evsRestantes[evsRestantes.length-1].ts):null;
   // Se reabrió un préstamo que figuraba terminado: hay que poder volver a cobrarlo.
@@ -3614,15 +3665,19 @@ async function confirmarCobroReal(){
     const ciclo=cicloDe(c);
     const pre=quien==='Cobrador'?'pago_cob':'pago';
     const meta={metodoPago:document.getElementById('cobro-real-metodo')?.value||'efectivo',recibidoPor:quien,registradoPor:'Admin'};
+    // Mora saldada hasta la fecha REAL del pago (o hasta donde ya estaba saldada, si es posterior).
+    const moraEnFecha=mora(c,fecha);
+    const saldadaHasta=(c.moraBaseDate&&c.moraBaseDate>fecha)?c.moraBaseDate:fecha;
     c.pagadas++;
     c.ultimoPago=coDateTimeISO(ts);
-    c.abonoPendiente=0;c.moraBaseDate=null;c.graciaHasta=null;
+    c.abonoPendiente=0;c.graciaHasta=null;
+    saldarMoraHasta(c,moraEnFecha,moraVal,saldadaHasta);
     const ev=registrarComisionEventoCliente(c,{interes,mora:moraVal,autor:quien,nota:`Cuota ${cuotaNo}/${c.numCuotas}`,ts});
     if(moraVal>0){
       registrarEventoMora(c,'cobrada',moraVal,`Cuota ${cuotaNo}/${c.numCuotas} (registro con fecha real)`,quien);
       c.moraCobradaTotal=(c.moraCobradaTotal||0)+moraVal;
     }
-    await saveClienteFields(c,['pagadas','ultimoPago','abonoPendiente','moraBaseDate','graciaHasta','comisionEventos','moraCobradaTotal','historialMora']);
+    await saveClienteFields(c,['pagadas','ultimoPago','abonoPendiente','moraBaseDate','moraArrastre','graciaHasta','comisionEventos','moraCobradaTotal','historialMora']);
     // registrarCajaAuto arma el movimiento como {..., ts:Date.now(), ...extra}: el ts que va en
     // `extra` pisa el de hoy, así que el movimiento nace ya fechado en el día real del cobro.
     const creados=[];
@@ -4008,7 +4063,7 @@ async function corregirCuotaCicloCerrado(id,cuotaIdx){
   // fusión los colapsaría en uno solo, borrando el historial. Se escribe la ruta exacta del ciclo.
   const idx=clientes.findIndex(x=>x.id===c.id);
   if(idx>=0)clientes[idx]=c;
-  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  guardarCacheClientesLocal();
   if(fbOk&&db){
     await db.ref('clientes/'+c.id+'/ciclos/'+uc.idx).update({
       cuotasData:uc.ciclo.cuotasData,total:uc.ciclo.total,interes:uc.ciclo.interes,
@@ -4163,10 +4218,11 @@ async function repararCronogramaCiclo(id){
   c.fechaInicio=d.desembolso;
   c.ancla=anclaPorDefecto(c.tipo,d.desembolso);
   c.moraBaseDate=null;
+  c.moraArrastre=0; // la mora pendiente venía de fechas imposibles: no existe
   if(!c.historialAjustes)c.historialAjustes=[];
   c.historialAjustes.push({fecha:coDateTimeISO(),tipo:'recalculo_cronograma',tipoLabel:'Cronograma recalculado',monto:0,
     motivo:`Arrancaba antes del desembolso (${d.desembolso}). ${antes} → ${despues}`,autor:'Admin'});
-  await saveClienteFields(c,['cuotasData','fechaInicio','ancla','moraBaseDate','historialAjustes']);
+  await saveClienteFields(c,['cuotasData','fechaInicio','ancla','moraBaseDate','moraArrastre','historialAjustes']);
   log({tipo:'recalculo_cronograma',clienteId:c.id,cliente:c.nombre,ts:Date.now(),autor:'Admin',
        nota:`Cronograma recalculado desde el desembolso ${d.desembolso}: ${antes} → ${despues}`});
   notify(`Cronograma de ${c.nombre} recalculado ✓`,'ok');
@@ -4216,6 +4272,7 @@ function liquidarAnticipado(id){
   c.pagadas=1;
   c.abonoPendiente=0;
   c.moraBaseDate=null;
+  c.moraArrastre=0;
   c.graciaHasta=null;
   c.ultimoPago=coDateTimeISO();
   c.liquidadoAnticipado=true;
@@ -4229,7 +4286,7 @@ function liquidarAnticipado(id){
   // Pool
   alimentarPool(total,c.nombre);
   log({tipo:'liquidacion_anticipada',clienteId:c.id,cliente:c.nombre,monto:total,ts:Date.now(),autor:'Admin',...meta,nota:`${dias}d · cap ${fmt(capital)} + int 10% ${fmt(interes)} = ${fmt(total)}`});
-  saveClienteFields(c,['interes','total','cuotasDataOriginal','cuotasData','numCuotasOriginal','numCuotas','cuota','cuotaUltima','pagadas','abonoPendiente','moraBaseDate','graciaHasta','ultimoPago','liquidadoAnticipado','fechaLiquidacionAnticipada','diasLiquidacionAnticipada','moraPerdonada','historialMora','comisionEventos']);
+  saveClienteFields(c,['interes','total','cuotasDataOriginal','cuotasData','numCuotasOriginal','numCuotas','cuota','cuotaUltima','pagadas','abonoPendiente','moraBaseDate','moraArrastre','graciaHasta','ultimoPago','liquidadoAnticipado','fechaLiquidacionAnticipada','diasLiquidacionAnticipada','moraPerdonada','historialMora','comisionEventos']);
   resolverSolicitudActiva('liquidacion_anticipada',`Liquidación anticipada ${fmt(total)}`);
   notify(`${c.nombre} liquidó anticipado · ${fmt(total)} ✓`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
@@ -4242,6 +4299,7 @@ function cobrarConMora(id){
   const meta=metaPagoAdmin();
   if(c.pagadas>=c.numCuotas){notify('Préstamo ya completado','err');return;}
   let m=mora(c);
+  const moraAntes=m;
   const _mIng=prompt(`Mora a cobrar a ${c.nombre} (sugerida ${fmt(m)}; edítala si pactaste otra, ej. 6000):`,String(Math.round(m)));
   if(_mIng===null){_busyConfirm=false;return;}
   m=Math.max(0,Math.round(parseFloat(String(_mIng).replace(/[^\d.]/g,''))||0));
@@ -4255,11 +4313,12 @@ function cobrarConMora(id){
   const montoCuota=partes.cuota; // incluye ajustes/cuotas extra sin convertirlos en interés
   if(montoCuota<=0){notify('La cuota ya está cubierta por un abono previo. Revisa el saldo antes de avanzar.','err');return;}
   registrarEventoMora(c,'cobrada',m,`Cobrada junto con cuota ${c.pagadas+1}/${c.numCuotas}`,'Admin');
-  c.pagadas++;c.moraBaseDate=null;c.abonoPendiente=0;c.moraPerdonada=(c.moraPerdonada||0)+m;
+  c.pagadas++;c.abonoPendiente=0;c.moraPerdonada=(c.moraPerdonada||0)+m;
+  saldarMoraHasta(c,moraAntes,m);
   c.moraCobradaTotal=(c.moraCobradaTotal||0)+m;
   c.ultimoPago=coDateTimeISO();
   registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Cuota ${cuotaNo}/${c.numCuotas} con mora`});
-  saveClienteFields(c,['pagadas','moraBaseDate','abonoPendiente','moraPerdonada','moraCobradaTotal','ultimoPago','historialMora','comisionEventos']);
+  saveClienteFields(c,['pagadas','moraBaseDate','moraArrastre','abonoPendiente','moraPerdonada','moraCobradaTotal','ultimoPago','historialMora','comisionEventos']);
   // Alimentar pool con cuota + mora
   alimentarPool(montoCuota+m,c.nombre);
   registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `pago_mora:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
@@ -4290,7 +4349,8 @@ function perdonarMora(id){
   if(!confirm(`¿Perdonar ${fmt(m)} de mora a ${c.nombre}?`))return;
   registrarEventoMora(c,'perdonada',m,'Mora perdonada manualmente','Admin');
   c.moraPerdonada=(c.moraPerdonada||0)+m;
-  saveClienteFields(c,['moraPerdonada','historialMora']); // FIX MED-3: sync incremental anti race admin↔cobrador
+  saldarMoraHasta(c,m,m); // toda la mora a hoy queda perdonada; si sigue atrasado, corre desde mañana
+  saveClienteFields(c,['moraPerdonada','moraBaseDate','moraArrastre','historialMora']); // FIX MED-3: sync incremental anti race admin↔cobrador
   log({tipo:'mora_perdonada',cliente:c.nombre,monto:m,ts:Date.now(),autor:'Admin'});
   notify('Mora perdonada ✓','ok');cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
 }
@@ -4304,7 +4364,7 @@ function eliminar(id){
   if(fbOk&&db){
     db.ref('clientes/'+id).remove().catch(e=>notify('Cliente borrado local pero error Firebase: '+e.message,'err'));
   }
-  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  guardarCacheClientesLocal();
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();notify('Eliminado','ok');
 }
 
@@ -4327,7 +4387,7 @@ function registrarNoPago(id){
   if(fbOk&&db){
     db.ref('clientes/'+c.id+'/historialNoPago').push(entrada).catch(e=>notify('Error sync no_pago: '+e.message,'err'));
   }
-  localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+  guardarCacheClientesLocal();
   log({tipo:'no_pago',cliente:c.nombre,ts:Date.now(),autor:'Admin',nota:motivo||'Visita sin pago',mora:m});
   notify(`Visita sin pago registrada para ${c.nombre}`,'ok');
   cerrar('modal-cli');renderClientes();renderInicio();renderCaja();
@@ -4378,7 +4438,7 @@ function prevAbono(){
     msg=`<span style="color:var(--amber)">Abono parcial:</span><br><span style="font-size:11px;color:var(--text2)">`;
     if(aMora>0)msg+=`• Mora: <strong style="color:var(--red)">${fmt(aMora)}</strong>${moraRest>0?` (restan ${fmt(moraRest)} mora)`:' ✓ liquidada'}<br>`;
     if(aCuota>0)msg+=`• Cuota: <strong style="color:var(--amber)">${fmt(aCuota)}</strong> (faltan ${fmt(baseRest)} de cuota)<br>`;
-    if(moraRest>0)msg+=`<span style="color:var(--red)">⚠ Mora restante sigue corriendo desde fecha original</span>`;
+    if(moraRest>0)msg+=`<span style="color:var(--red)">⚠ La mora restante queda pendiente y sigue sumando desde mañana</span>`;
     else if(aMora>0)msg+=`<span style="color:var(--green)">✓ Mora liquidada — contador reinicia hoy</span>`;
     msg+='</span>';
   }
@@ -4412,7 +4472,8 @@ function confirmarAbono(){
     const partes=partesPendientes;
     c.pagadas++;
     c.abonoPendiente=0;
-    c.moraBaseDate=null;c.graciaHasta=null; // limpiar — la cuota quedó pagada
+    c.graciaHasta=null; // limpiar — la cuota quedó pagada
+    saldarMoraHasta(c,m,m); // pagó toda la mora: saldada hasta hoy
     c.ultimoPago=coDateTimeISO();
     registrarComisionEventoCliente(c,{interes:partes.interes,mora:m,autor:'Admin',nota:`Abono completo cuota ${cuotaNo}/${c.numCuotas}`});
     registrarCajaAuto('recuperacion_capital', partes.capital, `Recuperación capital ${c.nombre} · cuota ${cuotaNo}`, `abono:${c.id}:c${cicloDe(c)}:${cuotaNo}:capital`, {clienteId:c.id, cliente:c.nombre,...meta});
@@ -4445,11 +4506,9 @@ function confirmarAbono(){
     if(deltaPartes.interesDelta>0||abonoEnMora>0){
       registrarComisionEventoCliente(c,{interes:deltaPartes.interesDelta,mora:abonoEnMora,autor:'Admin',nota:`Abono parcial cuota ${c.pagadas+1}/${c.numCuotas}`});
     }
-    // FIX F7: solo resetear moraBaseDate si la mora QUEDÓ liquidada completa
-    // Si abono fue menor que mora, NO resetear: mora restante sigue acumulando desde fecha original
-    if(m>0&&abonoEnMora>=m){
-      c.moraBaseDate=hoy(); // mora liquidada, reinicia contador
-    }
+    // Mora saldada hasta hoy: lo que el abono no cubrió de mora queda pendiente (moraArrastre) y
+    // sigue sumando desde mañana. Antes, con un abono menor que la mora, lo abonado no se descontaba.
+    if(m>0)saldarMoraHasta(c,m,abonoEnMora);
     c.ultimoPago=coDateTimeISO();
     const faltaBase=Math.max(0,partesPendientes.cuota-abonoEnCuota);
     const moraRest=Math.max(0,m-abonoEnMora);
@@ -4458,7 +4517,7 @@ function confirmarAbono(){
     alimentarPool(monto,c.nombre); // FIX NEW-1: pool no se alimentaba en abono parcial admin
     notify(`Abono ${fmt(monto)} registrado — ${abonoEnMora>0?'mora '+fmt(abonoEnMora)+', ':''}base falta ${fmt(Math.max(0,faltaBase))}${moraRest>0?', mora restante '+fmt(moraRest):''} ✓`,'ok');
   }
-  saveClienteFields(c,['pagadas','abonoPendiente','moraBaseDate','graciaHasta','moraPerdonada','moraCobradaTotal','ultimoPago','historialMora','comisionEventos']);
+  saveClienteFields(c,['pagadas','abonoPendiente','moraBaseDate','moraArrastre','graciaHasta','moraPerdonada','moraCobradaTotal','ultimoPago','historialMora','comisionEventos']);
   resolverSolicitudActiva('abono_registrado',`Abono aplicado por admin: ${fmt(monto)}`);
   cerrar('modal-abono');renderClientes();renderInicio();renderCaja();
 }
@@ -4544,11 +4603,12 @@ function confirmarExtensionInteres(){
   }
   c.graciaHasta=fechaReal;
   c.moraBaseDate=fechaReal;
+  c.moraArrastre=0; // la extensión perdona (congela) toda la mora, también la pendiente de antes
   c.ultimoPago=coDateTimeISO();
   log({tipo:'extension_interes',clienteId:c.id,cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',...meta,nota:`Extensión cuota ${c.pagadas+1}/${c.numCuotas}. Próx: ${fechaReal}. Interés: ${fmt(interesEnEste)}${corridas.length>1?`. Cronograma corrido: ${corridas.join(', ')}`:''}`});
   alimentarPool(monto,c.nombre); // FIX NEW-2: pool no se alimentaba en extensión admin
   notify(`Extensión registrada — próxima cuota: ${fechaReal} ✓${fechaReal!==fechaExtension?` (ajustada al calendario)`:''}`,'ok');
-  saveClienteFields(c,['historialMora','moraPerdonada','comisionEventos','graciaHasta','moraBaseDate','ultimoPago','cuotasData','historialAjustes']);
+  saveClienteFields(c,['historialMora','moraPerdonada','comisionEventos','graciaHasta','moraBaseDate','moraArrastre','ultimoPago','cuotasData','historialAjustes']);
   cerrar('modal-extension');
   renderClientes();renderInicio();renderCaja();
 }
@@ -4629,7 +4689,7 @@ function confirmarRefin(){
   c.tasa=tasa;c.tipo=tipo;c.plazo=plazo;c.numCuotas=plazo;
   c.total=total;c.interes=interes;c.cuota=cuota;c.tipoLabel=tl;
   c.cuotasData=arr;c.fechaInicio=fechaInicio;c.moraDia=moraDia;c.cuotaUltima=cuotaUltima;c.diasCuota=diasCuota||DIAS[tipo]||1;
-  c.moraPerdonada=0;c.abonoParcial=0;c.abonoPendiente=0;
+  c.moraPerdonada=0;c.abonoParcial=0;c.abonoPendiente=0;c.moraArrastre=0; // la mora entra a la base refinanciada
   c.pagadas=0;c.ultimoPago=null;c.moraCobradaTotal=0;c.moraBaseDate=null;c.graciaHasta=null;
   // FIX HIGH-5: reset campos del ciclo anterior — cliente nuevo es elegible para anticipado de nuevo
   c.liquidadoAnticipado=false;
@@ -4667,9 +4727,18 @@ function renderCalendario(){
   const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   document.getElementById('cal-titulo').textContent=meses[calMes]+' '+calAno;
 
-  // Construir mapa: fechaISO -> lista de cobros
+  // Construir mapa: fechaISO -> lista de cobros.
+  // HOY: una fila por cliente con TODO lo que debe a hoy (cuotas vencidas + la de hoy + mora).
+  // Días pasados: cuotas que quedaron sin pagar, marcadas como vencidas y SIN mora.
+  // Días futuros: la cuota programada, sin mora. Antes cada cuota impaga (pasada, de hoy o futura)
+  // sumaba la mora actual completa, y hoy solo figuraba la cuota del día (Andrés: $38.000 de $218.000).
   const mapaCobros={};
+  const hoyCal=hoy();
   clientes.filter(c=>c.pagadas<c.numCuotas).forEach(c=>{
+    const ex=debeALaFecha(c,hoyCal)?cuotasExigiblesHoy(c,hoyCal):{items:[],totalCuotas:0};
+    if(ex.items.length){
+      (mapaCobros[hoyCal]=mapaCobros[hoyCal]||[]).push({nombre:c.nombre,cuota:ex.totalCuotas,id:c.id,mora:mora(c),cuotasDebe:ex.items.length,extendida:false});
+    }
     c.cuotasData.forEach((q,i)=>{
       if(q.num>c.pagadas){
         // Si la cuota actual tiene extensión (graciaHasta > fecha original), mostrarla en la nueva fecha
@@ -4677,8 +4746,9 @@ function renderCalendario(){
         if(i===c.pagadas&&c.graciaHasta&&c.graciaHasta>q.fechaISO){
           fechaCalendario=c.graciaHasta;
         }
+        if(fechaCalendario===hoyCal&&ex.items.length)return; // ya va en la fila de hoy
         if(!mapaCobros[fechaCalendario])mapaCobros[fechaCalendario]=[];
-        mapaCobros[fechaCalendario].push({nombre:c.nombre,cuota:q.cuota,id:c.id,mora:mora(c),extendida:fechaCalendario!==q.fechaISO});
+        mapaCobros[fechaCalendario].push({nombre:c.nombre,cuota:q.cuota,id:c.id,mora:0,vencida:fechaCalendario<hoyCal,extendida:fechaCalendario!==q.fechaISO});
       }
     });
   });
@@ -4749,9 +4819,9 @@ function renderDetalleDia(fecha,mapaCobros){
     </div>
     ${cobros.map(c=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="verCliente('${c.id}');goTab('clientes',document.querySelector('.tab:nth-child(2)'))">
-        <div style="font-size:13px;color:var(--text2)">${c.nombre}</div>
-        <div style="font-size:13px;font-weight:600;color:${c.mora>0?'var(--red)':'var(--text)'}">
-          ${fmt(c.cuota+(c.mora>0?c.mora:0))}${c.mora>0?' <span style="font-size:10px;color:var(--red)">(+mora)</span>':''}
+        <div style="font-size:13px;color:var(--text2)">${c.nombre}${c.cuotasDebe>1?` <span style="font-size:11px;color:var(--text3)">· ${c.cuotasDebe} cuotas</span>`:''}</div>
+        <div style="font-size:13px;font-weight:600;color:${c.mora>0||c.vencida?'var(--red)':'var(--text)'}">
+          ${fmt(c.cuota+(c.mora>0?c.mora:0))}${c.mora>0?' <span style="font-size:10px;color:var(--red)">(+mora)</span>':c.vencida?' <span style="font-size:10px;color:var(--red)">(vencida)</span>':''}
         </div>
       </div>`).join('')}
   </div>`;
@@ -4889,8 +4959,9 @@ function renderFinanzas(){
       <span>Hoy+1</span><span>+7</span><span>+15</span><span>+22</span><span>+30</span>
     </div>`;
 
-  // — Ruta por zona —
-  const rutaHoy=act.filter(c=>tieneCuotaEnFecha(c,h));
+  // — Ruta por zona — todos los que deben a hoy (cuota de hoy o vencidas) con lo que deben completo.
+  // Antes: solo quien tenía cuota EXACTAMENTE hoy, y por 1 cuota + mora.
+  const rutaHoy=act.filter(c=>debeALaFecha(c,h));
   if(!rutaHoy.length){
     document.getElementById('fin-zona').innerHTML='<div style="font-size:12px;color:var(--text3);text-align:center;padding:8px 0">Sin cobros para hoy</div>';
   } else {
@@ -4898,9 +4969,8 @@ function renderFinanzas(){
     rutaHoy.forEach(c=>{
       const z=c.zona||'Sin zona';
       if(!zonas[z])zonas[z]={clientes:[],total:0};
-      const m=mora(c);
       zonas[z].clientes.push(c);
-      zonas[z].total+=c.cuota+(m>0?m:0);
+      zonas[z].total+=_aCobrarHoy(c,mora(c));
     });
     document.getElementById('fin-zona').innerHTML=Object.entries(zonas)
       .sort((a,b)=>b[1].total-a[1].total)
@@ -4913,13 +4983,15 @@ function renderFinanzas(){
           ${data.clientes.map(c=>{
             const m=mora(c),p=sameCoDate(c.ultimoPago,h),np=sameCoDate(c.historialNoPago?.slice(-1)[0]?.fecha,h);
             const sem=semaforo(c);
+            const ex=cuotasExigiblesHoy(c,h),n=ex.items.length;
+            const etq=n>1?`cuotas ${ex.items[0].cuotaNo}–${ex.items[n-1].cuotaNo}/${c.numCuotas}`:`cuota ${c.pagadas+1}/${c.numCuotas}`;
             return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0 6px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="verCliente('${c.id}')">
               <div>
                 <div style="font-size:12px;font-weight:500">${c.nombre} ${sem.dot}</div>
-                <div style="font-size:11px;color:var(--text3)">${c.negocio||'—'} · cuota ${c.pagadas+1}/${c.numCuotas}</div>
+                <div style="font-size:11px;color:var(--text3)">${c.negocio||'—'} · ${etq}${m>0?' + mora':''}</div>
               </div>
               <div style="text-align:right">
-                <div style="font-size:12px;font-weight:700;color:${m>0?'var(--red)':'var(--text)'}">${fmt(c.cuota+(m>0?m:0))}</div>
+                <div style="font-size:12px;font-weight:700;color:${m>0?'var(--red)':'var(--text)'}">${fmt(_aCobrarHoy(c,m))}</div>
                 <div style="font-size:10px">${p?'<span style="color:var(--green)">✓ Pagó</span>':np?'<span style="color:var(--red)">❌ No pagó</span>':'<span style="color:var(--text3)">Pendiente</span>'}</div>
               </div>
             </div>`;
@@ -5138,8 +5210,10 @@ function confirmarMoraManual(){
     // Mora nueva: además súmala al total del cliente y registra el evento de historial
     registrarEventoMora(c,'cobrada',monto,'Mora cobrada (registro manual)','Admin');
     c.moraCobradaTotal=(c.moraCobradaTotal||0)+monto;
-    if(sug>0&&monto>=sug)c.moraBaseDate=hoy(); // cubrió la mora corrida → reinicia el conteo
-    campos.push('moraCobradaTotal','moraBaseDate','historialMora');
+    // Mora saldada hasta hoy; si cobró menos de la corrida, la diferencia queda pendiente.
+    // Antes, con un monto menor que la mora corrida, lo cobrado no se descontaba y se cobraba doble.
+    if(sug>0)saldarMoraHasta(c,sug,monto);
+    campos.push('moraCobradaTotal','moraBaseDate','moraArrastre','historialMora');
   }
   log({tipo:'mora_cobrada',cliente:c.nombre,monto,ts:Date.now(),autor:'Admin',nota:cuadre?'cuadre':'manual'});
   saveClienteFields(c,campos);
@@ -5184,27 +5258,21 @@ function clientesFinalizanEnDias(activos,dias){
     return ult&&ult>=h&&ult<=lim;
   });
 }
+// Todo lo que debe a hoy (cuotas vencidas + la de hoy + mora). Antes sumaba solo la cuota que
+// vencía EXACTAMENTE hoy + mora: a Andrés le mostraba $38.000 debiendo $218.000.
 function totalPendienteHoyCliente(c,fecha){
-  const f=fecha||hoy();
-  const cuotaHoy=cuotaPendienteEnFecha(c,f);
-  if(!cuotaHoy)return 0;
-  return Math.max(0,(cuotaHoy.cuota||c.cuota||0)+mora(c)-(c.abonoPendiente||0));
+  if(!debeALaFecha(c,fecha||hoy()))return 0;
+  return _aCobrarHoy(c,mora(c));
 }
-// Monto que FALTA por cobrar hoy de un cliente que está en la ruta del cobrador.
-// A diferencia de totalPendienteHoyCliente (cuota programada EXACTAMENTE hoy), esto también
-// cuenta a quien no pagó en días previos y sigue dentro de la ventana de ruta (DIAS_RUTA_MAX),
-// igual que la app del cobrador. Devuelve 0 si es interno, si ya pagó hoy o si no está en ruta.
+// Monto que FALTA por cobrar hoy de un cliente que está en la ruta del cobrador (misma regla que la
+// app del cobrador, sin límite de días de atraso). Devuelve 0 si es interno o si ya no debe nada a hoy.
+// Si hoy pagó solo una parte (p. ej. 2 de 10 cuotas vencidas), lo que sigue debiendo cuenta como
+// pendiente; lo ya pagado está en "cobrado hoy" y no se suma dos veces porque las cuotas ya avanzaron.
 function pendienteRutaHoyCliente(c,fecha){
   const f=fecha||hoy();
   if(c.esInterno||c.pagadas>=c.numCuotas)return 0;
-  if(sameCoDate(c.ultimoPago,f))return 0; // ya pagó hoy → su plata ya está sumada en 'cobrado hoy'
-  const q=c.cuotasData&&c.cuotasData[c.pagadas];
-  if(!q)return 0;
-  const due=fechaCobroProgramada(c,q,c.pagadas);
-  if(!due)return 0;
-  const d=Math.floor((coUTCDateFromKey(f)-coUTCDateFromKey(due))/DAY_MS);
-  if(d<0||d>DIAS_RUTA_MAX)return 0; // aún no vence, o ya salió de la ventana de ruta (queda a decisión del admin)
-  return _aCobrarHoy(c,mora(c)); // cuota real + mora - abono, idéntico a la ruta del cobrador
+  if(!debeALaFecha(c,f))return 0;
+  return _aCobrarHoy(c,mora(c)); // cuotas vencidas + mora - abono, idéntico a la ruta del cobrador
 }
 function renderInicioResumen(h,act){
   const el=document.getElementById('inicio-resumen');
@@ -5214,7 +5282,7 @@ function renderInicioResumen(h,act){
   const solicitudes=solicitudesPendientesLista();
   const finalizan=clientesFinalizanEnDias(act,7);
   const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
-  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
+  const rutaHoy=clientes.filter(c=>debeALaFecha(c,h)); // cuota de hoy o vencidas, sin límite de días
   const faltanHoy=rutaHoy.filter(c=>!(sameCoDate(c.ultimoPago,h))&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const items=[
     {lbl:'Para prestar ahora',val:fmt(disponible.monto),color:disponible.monto>0?'var(--green)':(disponible.politica.modo==='cupo'?'var(--gold)':'var(--text3)')},
@@ -5231,7 +5299,7 @@ function renderInicioBandeja(h,act){
   if(!el)return;
   const solicitudes=solicitudesPendientesLista();
   const noPagoHoy=clientes.filter(c=>c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
-  const rutaHoy=clientes.filter(c=>tieneCuotaEnFecha(c,h));
+  const rutaHoy=clientes.filter(c=>debeALaFecha(c,h)); // cuota de hoy o vencidas, sin límite de días
   const faltanHoy=rutaHoy.filter(c=>!(sameCoDate(c.ultimoPago,h))&&!c.historialNoPago?.some(n=>sameCoDate(n.fecha,h)));
   const finalizan=clientesFinalizanEnDias(act,7).slice(0,3);
   const items=[];
@@ -6280,7 +6348,7 @@ function restaurarBackupJSON(input){
           window._creditoCobrador=cred;
         }
       }
-      localStorage.setItem('cr_clientes_local',JSON.stringify(clientes));
+      guardarCacheClientesLocal();
       localStorage.setItem(PARAMS_KEY,JSON.stringify(b.params||{}));
       if(b.waTemplate)localStorage.setItem(WA_TEMPLATE_KEY,b.waTemplate);
       if(b.comisionPct!==undefined&&b.comisionPct!==null)localStorage.setItem(COM_KEY,String(b.comisionPct));
@@ -8359,7 +8427,9 @@ function renderSeguridad(){
 }
 
 // UTILS
-function fmt(n){return'$'+Math.round(n||0).toLocaleString('es-CO');}
+// Formateador de pesos creado una sola vez (toLocaleString arma uno nuevo en cada llamada y Caja,
+// Comisiones y Actividad lo llaman cientos de veces por pantalla). Mismo resultado exacto.
+function fmt(n){return'$'+FMT_COP.format(Math.round(n||0));}
 function comisionPago(n){return Math.ceil((n||0)/1000)*1000;} // redondeo HACIA ARRIBA al siguiente $1.000 al pagar comisión al cobrador
 function htmlSafe(v){return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function hoy_legacy_removed(){return coDateKey();} // reemplazado por hoy() del inicio
@@ -8376,8 +8446,13 @@ function notify(msg,type){
 // ══════════════════════════════════════════════
 let pool={saldo:0,totalEntradas:0,totalSalidas:0,movimientos:[]};
 
+// El dueño no usa el Pool (04/11/2026): lo que importa es "Para prestar", que sale de Caja y no
+// depende del Pool. Se apaga SIN borrar /pool en Firebase (queda como histórico). Antes cada cobro
+// del cobrador re-subía /pool completo (~30 KB) y, al abrir la app, el saldo del Pool se inflaba
+// volviendo a sumar cobros viejos. Para reactivarlo basta poner POOL_ACTIVO=true.
+const POOL_ACTIVO=false;
 function initPool(){
-  if(!fbOk||!db)return;
+  if(!POOL_ACTIVO||!fbOk||!db)return;
   db.ref('pool').on('value',snap=>{
     const d=snap.val();
     if(d){pool=d;if(!pool.movimientos)pool.movimientos=[];}
@@ -8387,7 +8462,7 @@ function initPool(){
 }
 
 function savePool(){
-  if(!fbOk||!db)return;
+  if(!POOL_ACTIVO||!fbOk||!db)return;
   pool.movimientos=pool.movimientos.slice(0,200);
   db.ref('pool').set(pool).catch(e=>notify('Pool no sincronizado: '+e.message,'err'));
 }
@@ -8452,6 +8527,7 @@ function alimentarPool(monto,clienteNombre){
 }
 // FIX NEW-4: alimenta pool con caja entries del cobrador no contadas aún (dedup refKey)
 function autoAlimentarPoolDesdeCaja(){
+  if(!POOL_ACTIVO)return;
   if(!pool||!Array.isArray(pool.movimientos))return;
   // Marcar refKeys ya procesados
   const procesados=new Set();
@@ -8731,7 +8807,7 @@ function confirmarNuevoCiclo(){
   c.total=total;c.interes=interes;c.cuota=cuota;c.cuotaUltima=cuotaUltima;
   c.tipoLabel=tl;c.cuotasData=arr;c.fechaInicio=fechaStr;c.moraDia=moraDia;
   c.pagadas=0;c.ultimoPago=null;c.moraBaseDate=null;c.abonoPendiente=0;
-  c.moraPerdonada=0;c.moraCobradaTotal=0;c.historialMora=[];
+  c.moraPerdonada=0;c.moraCobradaTotal=0;c.moraArrastre=0;c.historialMora=[];
   // FIX HIGH-5: reset campos liquidación anticipada del ciclo previo
   c.liquidadoAnticipado=false;
   delete c.fechaLiquidacionAnticipada;
@@ -8754,7 +8830,16 @@ function confirmarNuevoCiclo(){
   cerrar('modal-nuevo-ciclo');
   notify(`Ciclo ${c.ciclos.length+1} creado para ${c.nombre} ✓`,'ok');
   marcarSoliRenovacionAprobada(c.id); // FIX: resolver la solicitud de renovación (por enlace o por cliente, sin importar el camino)
-  renderInicio();renderClientes();
+  renderClientes();
+  volverAlInicio();
+}
+// Después de crear un préstamo o un ciclo se sale de la creación y se vuelve al Inicio
+// (pedido del dueño, 04/11/2026): cierra cualquier ventana abierta y sube al comienzo.
+function volverAlInicio(){
+  document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
+  const tab=document.getElementById('tab-inicio');
+  if(tab)goTab('inicio',tab);else renderInicio();
+  const sc=document.querySelector('.scroll');if(sc)sc.scrollTop=0;
 }
 
 function abrirDetalleCiclo(clienteId,cicloIdx){
